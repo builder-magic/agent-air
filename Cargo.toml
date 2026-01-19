@@ -1,0 +1,27 @@
+[package]
+name = "agent-core"
+version = "0.1.0"
+edition = "2024"
+description = "Reusable TUI components and agent infrastructure for LLM applications"
+
+[dependencies]
+# TUI dependencies
+ratatui = "0.30"
+crossterm = "0.28"
+tui-textarea = "0.7"
+pulldown-cmark = "0.13.0"
+unicode-width = "0.2"
+
+# Agent dependencies
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+dirs = "5"
+
+# Shared dependencies
+llm-controller-rs = { path = "../llm-controller-rs" }
