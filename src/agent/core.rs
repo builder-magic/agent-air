@@ -1,0 +1,713 @@
+// AgentCore - Complete working agent out of the box
+//
+// Users call `AgentCore::new(config)` then `core.run()` and get a working chat agent.
+
+use std::io;
+use std::sync::Arc;
+
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+use crate::controller::{
+    ControllerEvent, ControllerInputPayload, LLMController, LLMSessionConfig, LLMTool,
+    PermissionRegistry, ToolDefinition, ToolRegistry, UserInteractionRegistry,
+};
+
+use super::config::{load_config, AgentConfig, LLMRegistry};
+use super::logger::Logger;
+use super::messages::channels::DEFAULT_CHANNEL_SIZE;
+use super::messages::UiMessage;
+use super::router::InputRouter;
+
+use crate::tui::{App, AppConfig, SessionInfo};
+
+/// Sender for messages from TUI to controller
+pub type ToControllerTx = mpsc::Sender<ControllerInputPayload>;
+/// Receiver for messages from TUI to controller
+pub type ToControllerRx = mpsc::Receiver<ControllerInputPayload>;
+/// Sender for messages from controller to TUI
+pub type FromControllerTx = mpsc::Sender<UiMessage>;
+/// Receiver for messages from controller to TUI
+pub type FromControllerRx = mpsc::Receiver<UiMessage>;
+
+/// AgentCore - A complete, working agent infrastructure.
+///
+/// AgentCore provides all the infrastructure needed for an LLM-powered agent:
+/// - Logging with tracing
+/// - LLM configuration loading
+/// - Tokio async runtime
+/// - LLMController for session management
+/// - Communication channels
+/// - User interaction and permission registries
+///
+/// # Basic Usage
+///
+/// ```ignore
+/// struct MyConfig;
+/// impl AgentConfig for MyConfig {
+///     fn config_path(&self) -> &str { ".myagent/config.yaml" }
+///     fn default_system_prompt(&self) -> &str { "You are helpful." }
+///     fn log_prefix(&self) -> &str { "myagent" }
+///     fn name(&self) -> &str { "MyAgent" }
+/// }
+///
+/// fn main() -> io::Result<()> {
+///     let mut core = AgentCore::new(&MyConfig)?;
+///     // Access channels and controller to wire up your TUI
+///     // then run your TUI loop
+///     Ok(())
+/// }
+/// ```
+pub struct AgentCore {
+    /// Logger instance (must be kept alive)
+    #[allow(dead_code)]
+    logger: Logger,
+
+    /// Agent name for display
+    name: String,
+
+    /// Agent version for display
+    version: String,
+
+    /// Welcome ASCII art lines
+    welcome_art: Vec<String>,
+
+    /// Subtitle line indices in welcome art
+    welcome_subtitle_indices: Vec<usize>,
+
+    /// Tokio runtime for async operations
+    runtime: Runtime,
+
+    /// The LLM controller
+    controller: Arc<LLMController>,
+
+    /// LLM provider registry (loaded from config)
+    llm_registry: Option<LLMRegistry>,
+
+    /// Sender for messages from TUI to controller
+    to_controller_tx: ToControllerTx,
+
+    /// Receiver for messages from TUI to controller (consumed by InputRouter)
+    to_controller_rx: Option<ToControllerRx>,
+
+    /// Sender for messages from controller to TUI (held by event handler)
+    #[allow(dead_code)]
+    from_controller_tx: FromControllerTx,
+
+    /// Receiver for messages from controller to TUI
+    from_controller_rx: Option<FromControllerRx>,
+
+    /// Cancellation token for graceful shutdown
+    cancel_token: CancellationToken,
+
+    /// User interaction registry for AskUserQuestions tool
+    user_interaction_registry: Arc<UserInteractionRegistry>,
+
+    /// Permission registry for AskForPermissions tool
+    permission_registry: Arc<PermissionRegistry>,
+
+    /// Tool definitions to register on sessions
+    tool_definitions: Vec<ToolDefinition>,
+}
+
+impl AgentCore {
+    /// Create a new AgentCore with the given configuration.
+    ///
+    /// This initializes:
+    /// - Logging infrastructure
+    /// - LLM configuration from config file or environment
+    /// - Tokio runtime
+    /// - Communication channels
+    /// - LLMController
+    /// - User interaction and permission registries
+    pub fn new<C: AgentConfig>(config: &C) -> io::Result<Self> {
+        let logger = Logger::new(config.log_prefix())?;
+        tracing::info!("{} agent initialized", config.name());
+
+        // Load LLM configuration
+        let llm_registry = load_config(config);
+        if llm_registry.is_empty() {
+            tracing::warn!(
+                "No LLM providers configured. Set ANTHROPIC_API_KEY or create ~/{}",
+                config.config_path()
+            );
+        } else {
+            tracing::info!(
+                "Loaded {} LLM provider(s): {:?}",
+                llm_registry.providers().len(),
+                llm_registry.providers()
+            );
+        }
+
+        // Create tokio runtime for async operations
+        let runtime = Runtime::new().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to create runtime: {}", e),
+            )
+        })?;
+
+        // Create communication channels
+        let (to_controller_tx, to_controller_rx) =
+            mpsc::channel::<ControllerInputPayload>(DEFAULT_CHANNEL_SIZE);
+        let (from_controller_tx, from_controller_rx) =
+            mpsc::channel::<UiMessage>(DEFAULT_CHANNEL_SIZE);
+
+        // Create the controller with an event handler that forwards to the UI channel
+        let ui_tx = from_controller_tx.clone();
+        let event_handler = Box::new(move |event: ControllerEvent| {
+            let msg = convert_controller_event_to_ui_message(event);
+            // Try to send, but don't block if channel is full
+            let _ = ui_tx.try_send(msg);
+        });
+
+        let controller = Arc::new(LLMController::new(Some(event_handler)));
+        let cancel_token = CancellationToken::new();
+
+        // Create channel for user interaction events
+        let (interaction_event_tx, mut interaction_event_rx) =
+            mpsc::channel::<ControllerEvent>(DEFAULT_CHANNEL_SIZE);
+
+        // Create the user interaction registry
+        let user_interaction_registry =
+            Arc::new(UserInteractionRegistry::new(interaction_event_tx));
+
+        // Spawn a task to forward user interaction events to the UI channel
+        let ui_tx_for_interactions = from_controller_tx.clone();
+        runtime.spawn(async move {
+            while let Some(event) = interaction_event_rx.recv().await {
+                let msg = convert_controller_event_to_ui_message(event);
+                let _ = ui_tx_for_interactions.try_send(msg);
+            }
+        });
+
+        // Create channel for permission events
+        let (permission_event_tx, mut permission_event_rx) =
+            mpsc::channel::<ControllerEvent>(DEFAULT_CHANNEL_SIZE);
+
+        // Create the permission registry
+        let permission_registry = Arc::new(PermissionRegistry::new(permission_event_tx));
+
+        // Spawn a task to forward permission events to the UI channel
+        let ui_tx_for_permissions = from_controller_tx.clone();
+        runtime.spawn(async move {
+            while let Some(event) = permission_event_rx.recv().await {
+                let msg = convert_controller_event_to_ui_message(event);
+                let _ = ui_tx_for_permissions.try_send(msg);
+            }
+        });
+
+        Ok(Self {
+            logger,
+            name: config.name().to_string(),
+            version: "0.1.0".to_string(),
+            welcome_art: vec![
+                String::new(),
+                "    Type a message to start chatting...".to_string(),
+            ],
+            welcome_subtitle_indices: vec![1],
+            runtime,
+            controller,
+            llm_registry: Some(llm_registry),
+            to_controller_tx,
+            to_controller_rx: Some(to_controller_rx),
+            from_controller_tx,
+            from_controller_rx: Some(from_controller_rx),
+            cancel_token,
+            user_interaction_registry,
+            permission_registry,
+            tool_definitions: Vec::new(),
+        })
+    }
+
+    /// Set the agent version for display.
+    pub fn set_version(&mut self, version: impl Into<String>) {
+        self.version = version.into();
+    }
+
+    /// Set the welcome ASCII art displayed when chat is empty.
+    pub fn set_welcome_art(&mut self, art: Vec<String>, subtitle_indices: Vec<usize>) {
+        self.welcome_art = art;
+        self.welcome_subtitle_indices = subtitle_indices;
+    }
+
+    /// Register tools with the agent.
+    ///
+    /// The callback receives references to the tool registry and interaction registries,
+    /// and should return the tool definitions to register.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// core.register_tools(|registry, user_reg, perm_reg| {
+    ///     tools::register_all_tools(registry, user_reg, perm_reg)
+    /// })?;
+    /// ```
+    pub fn register_tools<F>(&mut self, f: F) -> Result<(), String>
+    where
+        F: FnOnce(
+            &Arc<ToolRegistry>,
+            &Arc<UserInteractionRegistry>,
+            &Arc<PermissionRegistry>,
+        ) -> Result<Vec<ToolDefinition>, String>,
+    {
+        let tool_defs = f(
+            self.controller.tool_registry(),
+            &self.user_interaction_registry,
+            &self.permission_registry,
+        )?;
+        self.tool_definitions = tool_defs;
+        Ok(())
+    }
+
+    /// Start the controller and input router as background tasks.
+    ///
+    /// This must be called before sending messages or creating sessions.
+    /// After calling this, the controller is running and ready to accept input.
+    pub fn start_background_tasks(&mut self) {
+        tracing::info!("{} starting background tasks", self.name);
+
+        // Start the controller event loop in a background task
+        let controller = self.controller.clone();
+        self.runtime.spawn(async move {
+            controller.start().await;
+        });
+        tracing::info!("Controller started");
+
+        // Start the input router in a background task
+        if let Some(to_controller_rx) = self.to_controller_rx.take() {
+            let router = InputRouter::new(
+                self.controller.clone(),
+                to_controller_rx,
+                self.cancel_token.clone(),
+            );
+            self.runtime.spawn(async move {
+                router.run().await;
+            });
+            tracing::info!("InputRouter started");
+        }
+    }
+
+    /// Create an initial session using the default LLM provider.
+    ///
+    /// Returns the session ID and model name, or an error message.
+    pub fn create_initial_session(&mut self) -> Result<(i64, String, i32), String> {
+        let registry = self.llm_registry.as_ref().ok_or_else(|| {
+            "No LLM registry available. Configuration may have failed to load.".to_string()
+        })?;
+
+        let config = registry
+            .get_default()
+            .ok_or_else(|| "No default LLM provider configured.".to_string())?;
+
+        let model = config.model.clone();
+        let context_limit = config.context_limit;
+        let session_config = config.clone();
+
+        let controller = self.controller.clone();
+        let tool_definitions = self.tool_definitions.clone();
+
+        let session_id = self
+            .runtime
+            .block_on(async {
+                let id = controller.create_session(session_config).await?;
+
+                // Set tools on the session after creation
+                if !tool_definitions.is_empty() {
+                    let tools: Vec<LLMTool> = tool_definitions
+                        .iter()
+                        .map(|def| LLMTool::new(&def.name, &def.description, &def.input_schema))
+                        .collect();
+
+                    if let Some(session) = controller.get_session(id).await {
+                        session.set_tools(tools).await;
+                    }
+                }
+
+                Ok::<i64, crate::client::error::LlmError>(id)
+            })
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+
+        tracing::info!(
+            session_id = session_id,
+            model = %model,
+            "Created initial session"
+        );
+
+        Ok((session_id, model, context_limit))
+    }
+
+    /// Create a session with the given configuration.
+    ///
+    /// Returns the session ID or an error.
+    pub fn create_session(&self, config: LLMSessionConfig) -> Result<i64, String> {
+        let controller = self.controller.clone();
+        let tool_definitions = self.tool_definitions.clone();
+
+        self.runtime
+            .block_on(async {
+                let id = controller.create_session(config).await?;
+
+                // Set tools on the session after creation
+                if !tool_definitions.is_empty() {
+                    let tools: Vec<LLMTool> = tool_definitions
+                        .iter()
+                        .map(|def| LLMTool::new(&def.name, &def.description, &def.input_schema))
+                        .collect();
+
+                    if let Some(session) = controller.get_session(id).await {
+                        session.set_tools(tools).await;
+                    }
+                }
+
+                Ok::<i64, crate::client::error::LlmError>(id)
+            })
+            .map_err(|e| format!("Failed to create session: {}", e))
+    }
+
+    /// Signal shutdown to all background tasks and the controller.
+    pub fn shutdown(&self) {
+        tracing::info!("{} shutting down", self.name);
+        self.cancel_token.cancel();
+
+        let controller = self.controller.clone();
+        self.runtime.block_on(async move {
+            controller.shutdown().await;
+        });
+
+        tracing::info!("{} shutdown complete", self.name);
+    }
+
+    /// Run the agent with the default TUI.
+    ///
+    /// This is the main entry point for running an agent. It:
+    /// 1. Starts background tasks (controller, input router)
+    /// 2. Creates an App with the configured settings
+    /// 3. Wires up all channels and registries
+    /// 4. Creates an initial session if LLM providers are configured
+    /// 5. Runs the TUI event loop
+    /// 6. Shuts down cleanly when the user quits
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// fn main() -> io::Result<()> {
+    ///     let mut agent = AgentCore::new(&MyConfig)?;
+    ///     agent.run()
+    /// }
+    /// ```
+    pub fn run(&mut self) -> io::Result<()> {
+        tracing::info!("{} starting", self.name);
+
+        // Start background tasks (controller, input router)
+        self.start_background_tasks();
+
+        // Create App with our configuration
+        let app_config = AppConfig {
+            agent_name: self.name.clone(),
+            version: self.version.clone(),
+            welcome_art: self.welcome_art.clone(),
+            welcome_subtitle_indices: self.welcome_subtitle_indices.clone(),
+            custom_commands: Vec::new(),
+        };
+        let mut app = App::with_config(app_config);
+
+        // Wire up channels, controller, and registries to the App
+        app.set_to_controller(self.to_controller_tx.clone());
+        if let Some(rx) = self.from_controller_rx.take() {
+            app.set_from_controller(rx);
+        }
+        app.set_controller(self.controller.clone());
+        app.set_runtime_handle(self.runtime.handle().clone());
+        app.set_user_interaction_registry(self.user_interaction_registry.clone());
+        app.set_permission_registry(self.permission_registry.clone());
+
+        // Auto-create session if we have a configured LLM provider
+        match self.create_initial_session() {
+            Ok((session_id, model, context_limit)) => {
+                let session_info = SessionInfo::new(session_id, model.clone(), context_limit);
+                app.add_session(session_info);
+                app.set_session_id(session_id);
+                app.set_model_name(&model);
+                app.set_context_limit(context_limit);
+                tracing::info!(
+                    session_id = session_id,
+                    model = %model,
+                    "Auto-created session on startup"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "No initial session created");
+            }
+        }
+
+        // Pass LLM registry to app for creating new sessions
+        if let Some(registry) = self.llm_registry.take() {
+            app.set_llm_registry(registry);
+        }
+
+        // Run the TUI (blocking)
+        let result = app.run();
+
+        // Shutdown the agent
+        self.shutdown();
+
+        tracing::info!("{} stopped", self.name);
+        result
+    }
+
+    // ---- Accessors ----
+
+    /// Returns a sender for sending messages to the controller.
+    pub fn to_controller_tx(&self) -> ToControllerTx {
+        self.to_controller_tx.clone()
+    }
+
+    /// Takes the receiver for messages from the controller (can only be called once).
+    pub fn take_from_controller_rx(&mut self) -> Option<FromControllerRx> {
+        self.from_controller_rx.take()
+    }
+
+    /// Returns a reference to the controller.
+    pub fn controller(&self) -> &Arc<LLMController> {
+        &self.controller
+    }
+
+    /// Returns a reference to the runtime.
+    pub fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+
+    /// Returns a handle to the runtime.
+    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
+
+    /// Returns a reference to the user interaction registry.
+    pub fn user_interaction_registry(&self) -> &Arc<UserInteractionRegistry> {
+        &self.user_interaction_registry
+    }
+
+    /// Returns a reference to the permission registry.
+    pub fn permission_registry(&self) -> &Arc<PermissionRegistry> {
+        &self.permission_registry
+    }
+
+    /// Returns a reference to the LLM registry.
+    pub fn llm_registry(&self) -> Option<&LLMRegistry> {
+        self.llm_registry.as_ref()
+    }
+
+    /// Takes the LLM registry (can only be called once).
+    pub fn take_llm_registry(&mut self) -> Option<LLMRegistry> {
+        self.llm_registry.take()
+    }
+
+    /// Returns the cancellation token.
+    pub fn cancel_token(&self) -> CancellationToken {
+        self.cancel_token.clone()
+    }
+
+    /// Returns the agent name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// Converts a ControllerEvent to a UiMessage for the TUI.
+///
+/// This function maps the internal controller events to UI-friendly messages
+/// that can be displayed in a terminal interface.
+pub fn convert_controller_event_to_ui_message(event: ControllerEvent) -> UiMessage {
+    match event {
+        ControllerEvent::StreamStart { session_id, .. } => {
+            // Silent - don't display stream start messages
+            UiMessage::System {
+                session_id,
+                message: String::new(),
+            }
+        }
+        ControllerEvent::TextChunk {
+            session_id,
+            text,
+            turn_id,
+        } => UiMessage::TextChunk {
+            session_id,
+            turn_id,
+            text,
+            input_tokens: 0,
+            output_tokens: 0,
+        },
+        ControllerEvent::ToolUseStart {
+            session_id,
+            tool_name,
+            turn_id,
+            ..
+        } => UiMessage::Display {
+            session_id,
+            turn_id,
+            message: format!("Executing tool: {}", tool_name),
+        },
+        ControllerEvent::ToolUse {
+            session_id,
+            tool,
+            display_name,
+            display_title,
+            turn_id,
+        } => UiMessage::ToolExecuting {
+            session_id,
+            turn_id,
+            tool_use_id: tool.id.clone(),
+            display_name: display_name.unwrap_or_else(|| tool.name.clone()),
+            display_title: display_title.unwrap_or_default(),
+        },
+        ControllerEvent::Complete {
+            session_id,
+            turn_id,
+            stop_reason,
+        } => UiMessage::Complete {
+            session_id,
+            turn_id,
+            input_tokens: 0,
+            output_tokens: 0,
+            stop_reason,
+        },
+        ControllerEvent::Error {
+            session_id,
+            error,
+            turn_id,
+        } => UiMessage::Error {
+            session_id,
+            turn_id,
+            error,
+        },
+        ControllerEvent::TokenUpdate {
+            session_id,
+            input_tokens,
+            output_tokens,
+            context_limit,
+        } => UiMessage::TokenUpdate {
+            session_id,
+            turn_id: None,
+            input_tokens,
+            output_tokens,
+            context_limit,
+        },
+        ControllerEvent::ToolResult {
+            session_id,
+            tool_use_id,
+            status,
+            error,
+            turn_id,
+            ..
+        } => UiMessage::ToolCompleted {
+            session_id,
+            turn_id,
+            tool_use_id,
+            status,
+            error,
+        },
+        ControllerEvent::CommandComplete {
+            session_id,
+            command,
+            success,
+            message,
+        } => UiMessage::CommandComplete {
+            session_id,
+            command,
+            success,
+            message,
+        },
+        ControllerEvent::UserInteractionRequired {
+            session_id,
+            tool_use_id,
+            request,
+            turn_id,
+        } => UiMessage::UserInteractionRequired {
+            session_id,
+            tool_use_id,
+            request,
+            turn_id,
+        },
+        ControllerEvent::PermissionRequired {
+            session_id,
+            tool_use_id,
+            request,
+            turn_id,
+        } => UiMessage::PermissionRequired {
+            session_id,
+            tool_use_id,
+            request,
+            turn_id,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::controller::TurnId;
+
+    struct TestConfig;
+
+    impl AgentConfig for TestConfig {
+        fn config_path(&self) -> &str {
+            ".test_agent/config.yaml"
+        }
+
+        fn default_system_prompt(&self) -> &str {
+            "You are a test agent."
+        }
+
+        fn log_prefix(&self) -> &str {
+            "test_agent"
+        }
+
+        fn name(&self) -> &str {
+            "TestAgent"
+        }
+    }
+
+    #[test]
+    fn test_convert_text_chunk_event() {
+        let event = ControllerEvent::TextChunk {
+            session_id: 1,
+            text: "Hello".to_string(),
+            turn_id: Some(TurnId::new_user_turn(1)),
+        };
+
+        let msg = convert_controller_event_to_ui_message(event);
+
+        match msg {
+            UiMessage::TextChunk {
+                session_id, text, ..
+            } => {
+                assert_eq!(session_id, 1);
+                assert_eq!(text, "Hello");
+            }
+            _ => panic!("Expected TextChunk message"),
+        }
+    }
+
+    #[test]
+    fn test_convert_error_event() {
+        let event = ControllerEvent::Error {
+            session_id: 1,
+            error: "Test error".to_string(),
+            turn_id: None,
+        };
+
+        let msg = convert_controller_event_to_ui_message(event);
+
+        match msg {
+            UiMessage::Error {
+                session_id, error, ..
+            } => {
+                assert_eq!(session_id, 1);
+                assert_eq!(error, "Test error");
+            }
+            _ => panic!("Expected Error message"),
+        }
+    }
+}

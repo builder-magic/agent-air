@@ -11,6 +11,7 @@ crossterm = "0.28"
 tui-textarea = "0.7"
 pulldown-cmark = "0.13.0"
 unicode-width = "0.2"
+throbber-widgets-tui = "0.10"
 
 # Agent dependencies
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "full"] }

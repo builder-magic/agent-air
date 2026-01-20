@@ -9,14 +9,14 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::theme::Theme;
+use super::themes::Theme;
 
 /// Indent prefix for table lines
 const TABLE_INDENT: &str = "  ";
 
 /// Trait for table rendering strategies
 pub trait TableRenderer {
-    fn render(&self, table_lines: &[String], theme: &impl Theme) -> Vec<Line<'static>>;
+    fn render(&self, table_lines: &[String], theme: &Theme) -> Vec<Line<'static>>;
 }
 
 /// Renders tables using pulldown-cmark parsing
@@ -32,7 +32,7 @@ type StyledCell = Vec<StyledSegment>;
 type StyledRow = Vec<StyledCell>;
 
 impl TableRenderer for PulldownRenderer {
-    fn render(&self, table_lines: &[String], theme: &impl Theme) -> Vec<Line<'static>> {
+    fn render(&self, table_lines: &[String], theme: &Theme) -> Vec<Line<'static>> {
         // Join lines back into markdown text
         let markdown = table_lines.join("\n");
 
@@ -262,7 +262,7 @@ pub fn is_table_separator(line: &str) -> bool {
 }
 
 /// Render a table using PulldownRenderer
-pub fn render_table(table_lines: &[String], theme: &impl Theme) -> Vec<Line<'static>> {
+pub fn render_table(table_lines: &[String], theme: &Theme) -> Vec<Line<'static>> {
     PulldownRenderer.render(table_lines, theme)
 }
 
@@ -297,7 +297,6 @@ fn render_border(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::theme::DefaultTheme;
 
     #[test]
     fn test_is_table_line() {
@@ -317,14 +316,14 @@ mod tests {
 
     #[test]
     fn test_render_table_empty() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let lines = render_table(&[], &theme);
         assert!(lines.is_empty());
     }
 
     #[test]
     fn test_render_table_basic() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let table_lines = vec![
             "| Name | Age |".to_string(),
             "|------|-----|".to_string(),
@@ -337,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_pulldown_renderer_basic() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let table_lines = vec![
             "| Name | Age |".to_string(),
             "|------|-----|".to_string(),
@@ -349,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_pulldown_renderer_multiple_rows() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let table_lines = vec![
             "| Product | Price | Stock |".to_string(),
             "|---------|-------|-------|".to_string(),
@@ -363,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_pulldown_renderer_styled_cells() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let table_lines = vec![
             "| **Name** | Age |".to_string(),
             "|----------|-----|".to_string(),

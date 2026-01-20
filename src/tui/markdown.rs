@@ -9,14 +9,14 @@ use ratatui::{
 };
 
 use super::table::{is_table_line, is_table_separator, render_table};
-use super::theme::Theme;
+use super::themes::Theme;
 
 // Prefixes for message formatting
 const ASSISTANT_PREFIX: &str = "\u{25C6} "; // diamond
 const CONTINUATION: &str = "  ";
 
 /// Parse markdown text into styled ratatui spans
-pub fn parse_to_spans(text: &str, theme: &impl Theme) -> Vec<Span<'static>> {
+pub fn parse_to_spans(text: &str, theme: &Theme) -> Vec<Span<'static>> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
 
@@ -120,7 +120,7 @@ fn build_style(modifiers: &[Modifier], colors: &[Color]) -> Style {
 /// Parse markdown and split into words with their styles
 ///
 /// Useful for word-wrapping while preserving styles
-pub fn parse_to_styled_words(text: &str, theme: &impl Theme) -> Vec<(String, Style)> {
+pub fn parse_to_styled_words(text: &str, theme: &Theme) -> Vec<(String, Style)> {
     let spans = parse_to_spans(text, theme);
     let mut words = Vec::new();
 
@@ -158,7 +158,7 @@ pub fn wrap_with_prefix(
     first_prefix_style: Style,
     cont_prefix: &str,
     max_width: usize,
-    theme: &impl Theme,
+    theme: &Theme,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let text_width = max_width.saturating_sub(first_prefix.chars().count());
@@ -234,7 +234,7 @@ pub fn detect_heading_level(text: &str) -> Option<u8> {
 }
 
 /// Get style for heading level
-pub fn heading_style(level: u8, theme: &impl Theme) -> Style {
+pub fn heading_style(level: u8, theme: &Theme) -> Style {
     match level {
         1 => theme.heading_1(),
         2 => theme.heading_2(),
@@ -331,7 +331,7 @@ pub fn split_content_segments(content: &str) -> Vec<ContentSegment> {
 }
 
 /// Render markdown content with diamond prefix and manual wrapping
-pub fn render_markdown_with_prefix(content: &str, max_width: usize, theme: &impl Theme) -> Vec<Line<'static>> {
+pub fn render_markdown_with_prefix(content: &str, max_width: usize, theme: &Theme) -> Vec<Line<'static>> {
     let segments = split_content_segments(content);
 
     let mut all_lines = Vec::new();
@@ -415,7 +415,7 @@ pub fn render_markdown_with_prefix(content: &str, max_width: usize, theme: &impl
 }
 
 /// Render a code block with indentation and special styling
-fn render_code_block(code: &str, is_first_line: bool, theme: &impl Theme) -> Vec<Line<'static>> {
+fn render_code_block(code: &str, is_first_line: bool, theme: &Theme) -> Vec<Line<'static>> {
     const CODE_INDENT: &str = "    "; // 4 spaces for code block indentation
     let code_style = theme.code_block();
     let prefix_style = theme.assistant_prefix();
@@ -452,11 +452,10 @@ fn render_code_block(code: &str, is_first_line: bool, theme: &impl Theme) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tui::theme::DefaultTheme;
 
     #[test]
     fn test_plain_text() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let spans = parse_to_spans("hello world", &theme);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].content, "hello world");
@@ -464,7 +463,7 @@ mod tests {
 
     #[test]
     fn test_bold() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let spans = parse_to_spans("**bold**", &theme);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].content, "bold");
@@ -473,7 +472,7 @@ mod tests {
 
     #[test]
     fn test_italic() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let spans = parse_to_spans("*italic*", &theme);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].content, "italic");
@@ -481,21 +480,21 @@ mod tests {
 
     #[test]
     fn test_mixed_formatting() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let spans = parse_to_spans("normal **bold** and *italic*", &theme);
         assert!(spans.len() >= 3);
     }
 
     #[test]
     fn test_inline_code() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let spans = parse_to_spans("use `code` here", &theme);
         assert!(spans.iter().any(|s| s.content == "code"));
     }
 
     #[test]
     fn test_styled_words() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let words = parse_to_styled_words("hello **bold** world", &theme);
         assert_eq!(words.len(), 3);
         assert_eq!(words[0].0, "hello");
@@ -505,7 +504,7 @@ mod tests {
 
     #[test]
     fn test_entirely_bold_line() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let input = "**The Midnight Adventure**";
         let spans = parse_to_spans(input, &theme);
 
@@ -518,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_link_parsing() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let input = "[The Rust Book](https://doc.rust-lang.org/book/)";
         let spans = parse_to_spans(input, &theme);
 
@@ -549,7 +548,7 @@ mod tests {
 
     #[test]
     fn test_render_markdown_with_indented_link() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let content = "Here is a link:\n    [The Rust Book](https://doc.rust-lang.org/book/)";
         let lines = render_markdown_with_prefix(content, 80, &theme);
 
@@ -567,7 +566,7 @@ mod tests {
 
     #[test]
     fn test_styled_words_bold() {
-        let theme = DefaultTheme;
+        let theme = Theme::default();
         let words = parse_to_styled_words("**The Midnight Adventure**", &theme);
         assert_eq!(words.len(), 3);
         // All words should have BOLD

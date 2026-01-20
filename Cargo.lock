@@ -20,6 +20,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "throbber-widgets-tui",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -2094,6 +2095,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "throbber-widgets-tui"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fb8f83731b18ea611a38a243b458adfa78239d61ca6acc545aa3b1c450ac6e7"
+dependencies = [
+ "ratatui 0.30.0",
 ]
 
 [[package]]
