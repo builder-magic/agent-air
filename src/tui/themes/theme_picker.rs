@@ -108,6 +108,126 @@ impl Default for ThemePickerState {
     }
 }
 
+// --- Widget trait implementation ---
+
+use std::any::Any;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::tui::widgets::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+
+/// Result of handling a key event in the theme picker
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThemeKeyAction {
+    /// No action taken
+    None,
+    /// Navigation (up/down) handled
+    Navigated,
+    /// Theme confirmed
+    Confirmed,
+    /// Picker was cancelled
+    Cancelled,
+}
+
+impl ThemePickerState {
+    /// Handle a key event
+    pub fn process_key(&mut self, key: KeyEvent) -> ThemeKeyAction {
+        if !self.active {
+            return ThemeKeyAction::None;
+        }
+
+        match key.code {
+            KeyCode::Up => {
+                self.select_previous();
+                ThemeKeyAction::Navigated
+            }
+            KeyCode::Down => {
+                self.select_next();
+                ThemeKeyAction::Navigated
+            }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_previous();
+                ThemeKeyAction::Navigated
+            }
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_next();
+                ThemeKeyAction::Navigated
+            }
+            KeyCode::Enter => {
+                self.confirm();
+                ThemeKeyAction::Confirmed
+            }
+            KeyCode::Esc => {
+                self.cancel();
+                ThemeKeyAction::Cancelled
+            }
+            _ => ThemeKeyAction::None,
+        }
+    }
+}
+
+impl Widget for ThemePickerState {
+    fn id(&self) -> &'static str {
+        widget_ids::THEME_PICKER
+    }
+
+    fn priority(&self) -> u8 {
+        250 // Very high priority - overlay
+    }
+
+    fn is_active(&self) -> bool {
+        self.active
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+        if !self.active {
+            return WidgetKeyResult::NotHandled;
+        }
+
+        match self.process_key(key) {
+            ThemeKeyAction::Confirmed | ThemeKeyAction::Cancelled => {
+                WidgetKeyResult::Action(WidgetAction::Close)
+            }
+            ThemeKeyAction::Navigated => WidgetKeyResult::Handled,
+            ThemeKeyAction::None => WidgetKeyResult::Handled,
+        }
+    }
+
+    fn render(&self, frame: &mut Frame, area: Rect, _theme: &Theme) {
+        render_theme_picker(self, frame, area);
+    }
+
+    fn required_height(&self, _available: u16) -> u16 {
+        0 // Overlay widget - doesn't need dedicated height
+    }
+
+    fn blocks_input(&self) -> bool {
+        self.active
+    }
+
+    fn is_overlay(&self) -> bool {
+        true
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn activate_theme(&mut self, current_theme_name: &str, current_theme: Theme) {
+        self.activate(current_theme_name, current_theme);
+    }
+
+    fn deactivate(&mut self) {
+        self.cancel();
+    }
+}
+
 /// Render the theme picker
 pub fn render_theme_picker(state: &ThemePickerState, frame: &mut Frame, area: Rect) {
     if !state.active {

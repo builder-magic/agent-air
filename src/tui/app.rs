@@ -22,7 +22,7 @@ use crossterm::{
     ExecutableCommand,
 };
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     prelude::CrosstermBackend,
     style::{Color, Style},
     text::{Line, Span},
@@ -39,17 +39,16 @@ use crate::controller::{
     ToolResultStatus, TurnId, UserInteractionRegistry,
 };
 
+use super::layout::{LayoutContext, LayoutTemplate, WidgetSizes};
 use super::themes::{render_theme_picker, ThemePickerState};
-use super::chat::{ChatView, ChatViewConfig, ToolStatus};
 use super::commands::{
     filter_commands, generate_help_message, get_default_commands, is_slash_command, parse_command,
     SlashCommand,
 };
-use super::input::TextInput;
 use super::messages::{different_random_index, random_message_index, FUNNY_MESSAGES};
 use super::widgets::{
-    PermissionKeyAction, PermissionPanel, QuestionKeyAction, QuestionPanel,
-    SessionInfo, SessionPickerState, SlashPopupState, render_session_picker, render_slash_popup,
+    widget_ids, ChatView, ChatViewConfig, TextInput, ToolStatus, SessionInfo, SessionPickerState,
+    SlashPopupState, Widget, WidgetAction, WidgetKeyResult, render_session_picker, render_slash_popup,
 };
 use super::{app_theme, current_theme_name, default_theme_name, get_theme, init_theme};
 
@@ -139,10 +138,8 @@ pub struct App {
     /// All available commands (defaults + custom)
     commands: Vec<SlashCommand>,
 
-    pub input: TextInput,
     pub mode: AppMode,
     pub should_quit: bool,
-    pub chat: ChatView,
 
     /// Sender for messages to the controller
     to_controller: Option<ToControllerTx>,
@@ -198,29 +195,20 @@ pub struct App {
     /// Set of currently executing tool IDs (for spinner display)
     executing_tools: HashSet<String>,
 
-    /// Slash command popup state
-    pub slash_popup: SlashPopupState,
+    /// Registered widgets (keyed by ID)
+    pub widgets: HashMap<&'static str, Box<dyn Widget>>,
 
-    /// Filtered slash commands for the popup
+    /// Cached sorted priority order for key event handling
+    pub widget_priority_order: Vec<&'static str>,
+
+    /// Filtered slash commands for the popup (used by SlashPopup widget)
     pub filtered_commands: Vec<&'static SlashCommand>,
-
-    /// Theme picker state
-    pub theme_picker: ThemePickerState,
-
-    /// Session picker state
-    pub session_picker: SessionPickerState,
-
-    /// Question panel state (for AskUserQuestions tool)
-    pub question_panel: QuestionPanel,
-
-    /// Permission panel state (for AskForPermissions tool)
-    pub permission_panel: PermissionPanel,
 
     /// List of all sessions created in this instance
     sessions: Vec<SessionInfo>,
 
-    /// Chat views per session (for preserving history when switching)
-    chat_views: HashMap<i64, ChatView>,
+    /// Chat views for each session (used for session switching)
+    session_chat_views: HashMap<i64, ChatView>,
 
     /// Custom throbber message (overrides FUNNY_MESSAGES when set)
     custom_throbber_message: Option<String>,
@@ -230,6 +218,9 @@ pub struct App {
 
     /// Permission registry for responding to AskForPermissions
     permission_registry: Option<Arc<PermissionRegistry>>,
+
+    /// Layout template for widget arrangement
+    layout_template: LayoutTemplate,
 }
 
 impl App {
@@ -244,13 +235,6 @@ impl App {
             init_theme(theme_name, theme);
         }
 
-        // Build chat view config from app config
-        let chat_config = ChatViewConfig {
-            agent_name: config.agent_name.clone(),
-            welcome_art: config.welcome_art.clone(),
-            welcome_subtitle_indices: config.welcome_subtitle_indices.clone(),
-        };
-
         // Combine default commands with custom commands
         let mut commands: Vec<SlashCommand> = get_default_commands().to_vec();
         commands.extend(config.custom_commands.clone());
@@ -258,10 +242,8 @@ impl App {
         Self {
             config,
             commands,
-            input: TextInput::new(),
             mode: AppMode::Normal,
             should_quit: false,
-            chat: ChatView::with_config(chat_config),
             to_controller: None,
             from_controller: None,
             controller: None,
@@ -280,17 +262,90 @@ impl App {
             last_message_change: None,
             current_turn_id: None,
             executing_tools: HashSet::new(),
-            slash_popup: SlashPopupState::new(),
+            widgets: HashMap::new(),
+            widget_priority_order: Vec::new(),
             filtered_commands: Vec::new(),
-            theme_picker: ThemePickerState::new(),
-            session_picker: SessionPickerState::new(),
-            question_panel: QuestionPanel::new(),
-            permission_panel: PermissionPanel::new(),
             sessions: Vec::new(),
-            chat_views: HashMap::new(),
+            session_chat_views: HashMap::new(),
             custom_throbber_message: None,
             user_interaction_registry: None,
             permission_registry: None,
+            layout_template: LayoutTemplate::default(),
+        }
+    }
+
+    /// Register a widget with the app
+    ///
+    /// The widget will be stored and used for key handling and rendering.
+    /// Widgets are identified by their ID and stored in a priority order.
+    pub fn register_widget<W: Widget>(&mut self, widget: W) {
+        let id = widget.id();
+        self.widgets.insert(id, Box::new(widget));
+        self.rebuild_priority_order();
+    }
+
+    /// Rebuild the priority order cache after widget registration
+    pub fn rebuild_priority_order(&mut self) {
+        let mut order: Vec<_> = self.widgets.keys().copied().collect();
+        order.sort_by(|a, b| {
+            let priority_a = self.widgets.get(a).map(|w| w.priority()).unwrap_or(0);
+            let priority_b = self.widgets.get(b).map(|w| w.priority()).unwrap_or(0);
+            priority_b.cmp(&priority_a) // Descending order (higher priority first)
+        });
+        self.widget_priority_order = order;
+    }
+
+    /// Get a widget by ID
+    pub fn widget<W: Widget + 'static>(&self, id: &str) -> Option<&W> {
+        self.widgets.get(id).and_then(|w| w.as_any().downcast_ref::<W>())
+    }
+
+    /// Get a widget by ID (mutable)
+    pub fn widget_mut<W: Widget + 'static>(&mut self, id: &str) -> Option<&mut W> {
+        self.widgets.get_mut(id).and_then(|w| w.as_any_mut().downcast_mut::<W>())
+    }
+
+    /// Check if a widget is registered
+    pub fn has_widget(&self, id: &str) -> bool {
+        self.widgets.contains_key(id)
+    }
+
+    /// Check if any registered widget blocks input
+    fn any_widget_blocks_input(&self) -> bool {
+        self.widgets.values().any(|w| w.is_active() && w.blocks_input())
+    }
+
+    /// Get a reference to the ChatView widget if registered
+    fn chat(&self) -> Option<&ChatView> {
+        self.widget::<ChatView>(widget_ids::CHAT_VIEW)
+    }
+
+    /// Get a mutable reference to the ChatView widget if registered
+    fn chat_mut(&mut self) -> Option<&mut ChatView> {
+        self.widget_mut::<ChatView>(widget_ids::CHAT_VIEW)
+    }
+
+    /// Get a reference to the TextInput widget if registered
+    fn input(&self) -> Option<&TextInput> {
+        self.widget::<TextInput>(widget_ids::TEXT_INPUT)
+    }
+
+    /// Get a mutable reference to the TextInput widget if registered
+    fn input_mut(&mut self) -> Option<&mut TextInput> {
+        self.widget_mut::<TextInput>(widget_ids::TEXT_INPUT)
+    }
+
+    /// Check if the chat is currently streaming
+    fn is_chat_streaming(&self) -> bool {
+        self.chat().map(|c| c.is_streaming()).unwrap_or(false)
+    }
+
+    /// Build a ChatViewConfig from the current app config
+    fn build_chat_config(&self) -> ChatViewConfig {
+        ChatViewConfig {
+            agent_name: self.config.agent_name.clone(),
+            welcome_art: self.config.welcome_art.clone(),
+            welcome_subtitle_indices: self.config.welcome_subtitle_indices.clone(),
         }
     }
 
@@ -354,8 +409,61 @@ impl App {
         self.context_limit = limit;
     }
 
+    /// Set the layout template
+    pub fn set_layout(&mut self, template: LayoutTemplate) {
+        self.layout_template = template;
+    }
+
+    /// Compute widget sizes for layout computation
+    fn compute_widget_sizes(&self, frame_height: u16) -> WidgetSizes {
+        let mut heights = HashMap::new();
+        let mut is_active = HashMap::new();
+
+        for (id, widget) in &self.widgets {
+            heights.insert(*id, widget.required_height(frame_height));
+            is_active.insert(*id, widget.is_active());
+        }
+
+        WidgetSizes { heights, is_active }
+    }
+
+    /// Build the layout context for rendering
+    fn build_layout_context<'a>(
+        &self,
+        frame_area: Rect,
+        show_throbber: bool,
+        prompt_len: usize,
+        indent_len: usize,
+        theme: &'a super::themes::Theme,
+    ) -> LayoutContext<'a> {
+        let frame_width = frame_area.width as usize;
+        let input_visual_lines = self
+            .input()
+            .map(|i| i.visual_line_count(frame_width, prompt_len, indent_len))
+            .unwrap_or(1);
+
+        let mut active_widgets = HashSet::new();
+        for (id, widget) in &self.widgets {
+            if widget.is_active() {
+                active_widgets.insert(*id);
+            }
+        }
+
+        LayoutContext {
+            frame_area,
+            show_throbber,
+            input_visual_lines,
+            theme,
+            active_widgets,
+        }
+    }
+
     pub fn submit_message(&mut self) {
-        let content = self.input.take();
+        // Get content from input widget (if registered)
+        let content = match self.input_mut() {
+            Some(input) => input.take(),
+            None => return, // No input widget registered
+        };
         if content.trim().is_empty() {
             return;
         }
@@ -367,14 +475,18 @@ impl App {
         }
 
         // Add user message to chat and re-enable auto-scroll (user wants to see response)
-        self.chat.enable_auto_scroll();
-        self.chat.add_user_message(content.clone());
+        if let Some(chat) = self.chat_mut() {
+            chat.enable_auto_scroll();
+            chat.add_user_message(content.clone());
+        }
 
         // Check if we have an active session
         if self.session_id == 0 {
-            self.chat.add_system_message(
-                "No active session. Use /new-session to create one.".to_string(),
-            );
+            if let Some(chat) = self.chat_mut() {
+                chat.add_system_message(
+                    "No active session. Use /new-session to create one.".to_string(),
+                );
+            }
             return;
         }
 
@@ -386,8 +498,9 @@ impl App {
 
             // Try to send (non-blocking)
             if tx.try_send(payload).is_err() {
-                self.chat
-                    .add_system_message("Failed to send message to controller".to_string());
+                if let Some(chat) = self.chat_mut() {
+                    chat.add_system_message("Failed to send message to controller".to_string());
+                }
             } else {
                 // Immediately show throbber (before streaming starts)
                 self.waiting_for_response = true;
@@ -405,7 +518,7 @@ impl App {
     pub fn interrupt_request(&mut self) {
         // Only interrupt if we're actually waiting/streaming/executing tools
         if !self.waiting_for_response
-            && !self.chat.is_streaming()
+            && !self.is_chat_streaming()
             && self.executing_tools.is_empty()
         {
             return;
@@ -421,10 +534,14 @@ impl App {
                 self.last_message_change = None;
                 self.executing_tools.clear();
                 // Keep partial streaming content visible (save it as a message)
-                self.chat.complete_streaming();
+                if let Some(chat) = self.chat_mut() {
+                    chat.complete_streaming();
+                }
                 // Clear turn ID so any stale messages from this turn are ignored
                 self.current_turn_id = None;
-                self.chat.add_system_message("Request cancelled".to_string());
+                if let Some(chat) = self.chat_mut() {
+                    chat.add_system_message("Request cancelled".to_string());
+                }
             }
         }
     }
@@ -432,8 +549,9 @@ impl App {
     /// Execute a slash command
     fn execute_command(&mut self, input: &str) {
         let Some((cmd_name, _args)) = parse_command(input) else {
-            self.chat
-                .add_system_message("Invalid command format".to_string());
+            if let Some(chat) = self.chat_mut() {
+                chat.add_system_message("Invalid command format".to_string());
+            }
             return;
         };
 
@@ -467,7 +585,9 @@ impl App {
             _ => format!("Unknown command: /{}", cmd_name),
         };
 
-        self.chat.add_system_message(result);
+        if let Some(chat) = self.chat_mut() {
+            chat.add_system_message(result);
+        }
     }
 
     fn cmd_help(&self) -> String {
@@ -475,13 +595,11 @@ impl App {
     }
 
     fn cmd_clear(&mut self) {
-        // Create new chat view with same config
-        let chat_config = ChatViewConfig {
-            agent_name: self.config.agent_name.clone(),
-            welcome_art: self.config.welcome_art.clone(),
-            welcome_subtitle_indices: self.config.welcome_subtitle_indices.clone(),
-        };
-        self.chat = ChatView::with_config(chat_config);
+        // Replace ChatView widget with new instance
+        let chat_config = self.build_chat_config();
+        let new_chat = ChatView::with_config(chat_config);
+        self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(new_chat));
+        self.rebuild_priority_order();
         self.user_turn_counter = 0;
 
         // Send Clear command to controller to clear session conversation
@@ -497,8 +615,9 @@ impl App {
     fn cmd_compact(&mut self) {
         // Check if we have an active session
         if self.session_id == 0 {
-            self.chat
-                .add_system_message("No active session to compact".to_string());
+            if let Some(chat) = self.chat_mut() {
+                chat.add_system_message("No active session to compact".to_string());
+            }
             return;
         }
 
@@ -511,8 +630,9 @@ impl App {
                 self.waiting_started = Some(Instant::now());
                 self.custom_throbber_message = Some("compacting...".to_string());
             } else {
-                self.chat
-                    .add_system_message("Failed to send compact command".to_string());
+                if let Some(chat) = self.chat_mut() {
+                    chat.add_system_message("Failed to send compact command".to_string());
+                }
             }
         }
     }
@@ -565,22 +685,19 @@ impl App {
 
         // Save current chat view before switching to new session
         if self.session_id != 0 {
-            let chat_config = ChatViewConfig {
-                agent_name: self.config.agent_name.clone(),
-                welcome_art: self.config.welcome_art.clone(),
-                welcome_subtitle_indices: self.config.welcome_subtitle_indices.clone(),
-            };
-            let old_chat = std::mem::replace(&mut self.chat, ChatView::with_config(chat_config));
-            self.chat_views.insert(self.session_id, old_chat);
-        } else {
-            // No previous session, just create new chat
-            let chat_config = ChatViewConfig {
-                agent_name: self.config.agent_name.clone(),
-                welcome_art: self.config.welcome_art.clone(),
-                welcome_subtitle_indices: self.config.welcome_subtitle_indices.clone(),
-            };
-            self.chat = ChatView::with_config(chat_config);
+            // Take current chat widget and store it
+            if let Some(old_chat_box) = self.widgets.remove(widget_ids::CHAT_VIEW) {
+                if let Ok(old_chat) = old_chat_box.into_any().downcast::<ChatView>() {
+                    self.session_chat_views.insert(self.session_id, *old_chat);
+                }
+            }
         }
+
+        // Create new chat for the new session
+        let chat_config = self.build_chat_config();
+        let new_chat = ChatView::with_config(chat_config);
+        self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(new_chat));
+        self.rebuild_priority_order();
 
         self.session_id = session_id;
         self.model_name = model.clone();
@@ -602,9 +719,11 @@ impl App {
     }
 
     fn cmd_themes(&mut self) {
-        let current_name = current_theme_name();
-        let current_theme = app_theme();
-        self.theme_picker.activate(&current_name, current_theme);
+        if let Some(widget) = self.widgets.get_mut(widget_ids::THEME_PICKER) {
+            let current_name = current_theme_name();
+            let current_theme = app_theme();
+            widget.activate_theme(&current_name, current_theme);
+        }
     }
 
     fn cmd_sessions(&mut self) {
@@ -613,8 +732,9 @@ impl App {
             session.context_used = self.context_used;
         }
 
-        self.session_picker
-            .activate(self.sessions.clone(), self.session_id);
+        if let Some(widget) = self.widgets.get_mut(widget_ids::SESSION_PICKER) {
+            widget.activate_sessions(self.sessions.clone(), self.session_id);
+        }
     }
 
     /// Switch to a different session by ID
@@ -629,14 +749,12 @@ impl App {
             session.context_used = self.context_used;
         }
 
-        // Save current chat view
-        let chat_config = ChatViewConfig {
-            agent_name: self.config.agent_name.clone(),
-            welcome_art: self.config.welcome_art.clone(),
-            welcome_subtitle_indices: self.config.welcome_subtitle_indices.clone(),
-        };
-        let old_chat = std::mem::replace(&mut self.chat, ChatView::with_config(chat_config));
-        self.chat_views.insert(self.session_id, old_chat);
+        // Save current chat view to session_chat_views
+        if let Some(old_chat_box) = self.widgets.remove(widget_ids::CHAT_VIEW) {
+            if let Ok(old_chat) = old_chat_box.into_any().downcast::<ChatView>() {
+                self.session_chat_views.insert(self.session_id, *old_chat);
+            }
+        }
 
         // Find the target session
         if let Some(session) = self.sessions.iter().find(|s| s.id == session_id) {
@@ -646,10 +764,14 @@ impl App {
             self.context_limit = session.context_limit;
             self.user_turn_counter = 0;
 
-            // Restore chat view for this session, or use new empty one
-            if let Some(chat) = self.chat_views.remove(&session_id) {
-                self.chat = chat;
-            }
+            // Restore chat view for this session, or create new one
+            let chat = if let Some(stored_chat) = self.session_chat_views.remove(&session_id) {
+                stored_chat
+            } else {
+                ChatView::with_config(self.build_chat_config())
+            };
+            self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(chat));
+            self.rebuild_priority_order();
         }
     }
 
@@ -659,14 +781,7 @@ impl App {
     }
 
     /// Submit the question panel response
-    pub fn submit_question_panel(&mut self) {
-        if !self.question_panel.is_active() {
-            return;
-        }
-
-        let response = self.question_panel.build_response();
-        let tool_use_id = self.question_panel.tool_use_id().to_string();
-
+    fn submit_question_panel_response(&mut self, tool_use_id: String, response: crate::controller::AskUserQuestionsResponse) {
         // Respond to the interaction via the registry
         if let (Some(registry), Some(handle)) =
             (&self.user_interaction_registry, &self.runtime_handle)
@@ -679,17 +794,14 @@ impl App {
             });
         }
 
-        self.question_panel.deactivate();
+        // Deactivate the widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
+            widget.deactivate();
+        }
     }
 
     /// Cancel the question panel (closes without responding, tool will get an error)
-    pub fn cancel_question_panel(&mut self) {
-        if !self.question_panel.is_active() {
-            return;
-        }
-
-        let tool_use_id = self.question_panel.tool_use_id().to_string();
-
+    fn cancel_question_panel_response(&mut self, tool_use_id: String) {
         // Cancel the pending interaction via the registry
         if let (Some(registry), Some(handle)) =
             (&self.user_interaction_registry, &self.runtime_handle)
@@ -702,17 +814,14 @@ impl App {
             });
         }
 
-        self.question_panel.deactivate();
+        // Deactivate the widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
+            widget.deactivate();
+        }
     }
 
     /// Submit the permission panel response
-    pub fn submit_permission_panel(&mut self, response: PermissionResponse) {
-        if !self.permission_panel.is_active() {
-            return;
-        }
-
-        let tool_use_id = self.permission_panel.tool_use_id().to_string();
-
+    fn submit_permission_panel_response(&mut self, tool_use_id: String, response: PermissionResponse) {
         // Respond to the permission request via the registry
         if let (Some(registry), Some(handle)) = (&self.permission_registry, &self.runtime_handle) {
             let registry = registry.clone();
@@ -723,17 +832,14 @@ impl App {
             });
         }
 
-        self.permission_panel.deactivate();
+        // Deactivate the widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
+            widget.deactivate();
+        }
     }
 
     /// Cancel the permission panel (closes without responding, denies permission)
-    pub fn cancel_permission_panel(&mut self) {
-        if !self.permission_panel.is_active() {
-            return;
-        }
-
-        let tool_use_id = self.permission_panel.tool_use_id().to_string();
-
+    fn cancel_permission_panel_response(&mut self, tool_use_id: String) {
         // Cancel the pending permission via the registry
         if let (Some(registry), Some(handle)) = (&self.permission_registry, &self.runtime_handle) {
             let registry = registry.clone();
@@ -744,7 +850,10 @@ impl App {
             });
         }
 
-        self.permission_panel.deactivate();
+        // Deactivate the widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
+            widget.deactivate();
+        }
     }
 
     /// Process any pending messages from the controller
@@ -779,10 +888,14 @@ impl App {
                 if !self.is_current_turn(&turn_id) {
                     return;
                 }
-                self.chat.append_streaming(&text);
+                if let Some(chat) = self.chat_mut() {
+                    chat.append_streaming(&text);
+                }
             }
             UiMessage::Display { message, .. } => {
-                self.chat.add_system_message(message);
+                if let Some(chat) = self.chat_mut() {
+                    chat.add_system_message(message);
+                }
             }
             UiMessage::Complete {
                 turn_id,
@@ -797,7 +910,9 @@ impl App {
                 // Check if this is a tool_use stop - if so, tools will execute
                 let is_tool_use = stop_reason.as_deref() == Some("tool_use");
 
-                self.chat.complete_streaming();
+                if let Some(chat) = self.chat_mut() {
+                    chat.complete_streaming();
+                }
 
                 // Only stop waiting if this is NOT a tool_use stop
                 if !is_tool_use {
@@ -818,15 +933,21 @@ impl App {
                 if !self.is_current_turn(&turn_id) {
                     return;
                 }
-                self.chat.complete_streaming();
+                if let Some(chat) = self.chat_mut() {
+                    chat.complete_streaming();
+                }
                 self.waiting_for_response = false;
                 self.waiting_started = None;
                 self.last_message_change = None;
                 self.current_turn_id = None;
-                self.chat.add_system_message(format!("Error: {}", error));
+                if let Some(chat) = self.chat_mut() {
+                    chat.add_system_message(format!("Error: {}", error));
+                }
             }
             UiMessage::System { message, .. } => {
-                self.chat.add_system_message(message);
+                if let Some(chat) = self.chat_mut() {
+                    chat.add_system_message(message);
+                }
             }
             UiMessage::ToolExecuting {
                 tool_use_id,
@@ -835,8 +956,9 @@ impl App {
                 ..
             } => {
                 self.executing_tools.insert(tool_use_id.clone());
-                self.chat
-                    .add_tool_message(&tool_use_id, &display_name, &display_title);
+                if let Some(chat) = self.chat_mut() {
+                    chat.add_tool_message(&tool_use_id, &display_name, &display_title);
+                }
             }
             UiMessage::ToolCompleted {
                 tool_use_id,
@@ -850,7 +972,9 @@ impl App {
                 } else {
                     ToolStatus::Failed(error.unwrap_or_default())
                 };
-                self.chat.update_tool_status(&tool_use_id, tool_status);
+                if let Some(chat) = self.chat_mut() {
+                    chat.update_tool_status(&tool_use_id, tool_status);
+                }
             }
             UiMessage::CommandComplete {
                 command,
@@ -865,7 +989,9 @@ impl App {
                 match command {
                     ControlCmd::Compact => {
                         if let Some(msg) = message {
-                            self.chat.add_system_message(msg);
+                            if let Some(chat) = self.chat_mut() {
+                                chat.add_system_message(msg);
+                            }
                         }
                     }
                     ControlCmd::Clear => {}
@@ -881,10 +1007,13 @@ impl App {
                 turn_id,
             } => {
                 if session_id == self.session_id {
-                    self.chat
-                        .update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
-                    self.question_panel
-                        .activate(tool_use_id, session_id, request, turn_id);
+                    if let Some(chat) = self.chat_mut() {
+                        chat.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
+                    }
+                    // Activate via widget registry if registered
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
+                        widget.activate_question(tool_use_id, session_id, request, turn_id);
+                    }
                 }
             }
             UiMessage::PermissionRequired {
@@ -894,10 +1023,13 @@ impl App {
                 turn_id,
             } => {
                 if session_id == self.session_id {
-                    self.chat
-                        .update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
-                    self.permission_panel
-                        .activate(tool_use_id, session_id, request, turn_id);
+                    if let Some(chat) = self.chat_mut() {
+                        chat.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
+                    }
+                    // Activate via widget registry if registered
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
+                        widget.activate_permission(tool_use_id, session_id, request, turn_id);
+                    }
                 }
             }
         }
@@ -913,11 +1045,15 @@ impl App {
     }
 
     pub fn scroll_up(&mut self) {
-        self.chat.scroll_up();
+        if let Some(chat) = self.chat_mut() {
+            chat.scroll_up();
+        }
     }
 
     pub fn scroll_down(&mut self) {
-        self.chat.scroll_down();
+        if let Some(chat) = self.chat_mut() {
+            chat.scroll_down();
+        }
     }
 
     /// Format the context display string for the status bar
@@ -971,9 +1107,12 @@ impl App {
             self.mode = AppMode::Normal;
         }
 
-        // When spinner is active, only allow Esc and Ctrl+D
-        let is_processing = self.waiting_for_response || self.chat.is_streaming();
-        if is_processing && !self.question_panel.is_active() && !self.permission_panel.is_active() {
+        // Check if any widget blocks input (modal panels)
+        let widget_blocks = self.any_widget_blocks_input();
+
+        // When spinner is active and no modal widget is blocking, only allow Esc and Ctrl+D
+        let is_processing = self.waiting_for_response || self.is_chat_streaming();
+        if is_processing && !widget_blocks {
             match key {
                 KeyCode::Esc => {
                     self.interrupt_request();
@@ -982,7 +1121,7 @@ impl App {
                 KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
                     if self.is_exit_mode_active() {
                         self.should_quit = true;
-                    } else if self.input.is_empty() {
+                    } else if self.input().map(|i| i.is_empty()).unwrap_or(true) {
                         self.mode = AppMode::Exit(Instant::now());
                     }
                     return;
@@ -991,185 +1130,271 @@ impl App {
             }
         }
 
-        // Handle session picker mode
-        if self.session_picker.active {
-            match key {
-                KeyCode::Up => self.session_picker.select_previous(),
-                KeyCode::Down => self.session_picker.select_next(),
-                KeyCode::Char('p') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.session_picker.select_previous()
-                }
-                KeyCode::Char('n') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.session_picker.select_next()
-                }
-                KeyCode::Enter => {
-                    if let Some(session_id) = self.session_picker.selected_session_id() {
-                        self.session_picker.confirm();
-                        self.switch_session(session_id);
-                    }
-                }
-                KeyCode::Esc => self.session_picker.cancel(),
-                _ => {}
-            }
-            return;
-        }
+        // Try to send key event to registered widgets (by priority order)
+        let key_event = KeyEvent::new(key, modifiers);
+        let theme = app_theme();
 
-        // Handle question panel mode
-        if self.question_panel.is_active() {
-            let key_event = KeyEvent::new(key, modifiers);
-            match self.question_panel.handle_key(key_event) {
-                QuestionKeyAction::Submitted(_, _) => self.submit_question_panel(),
-                QuestionKeyAction::Cancelled(_) => self.cancel_question_panel(),
-                QuestionKeyAction::Handled | QuestionKeyAction::NotHandled => {}
-            }
-            return;
-        }
+        // Collect widget IDs to check (we need to avoid borrow issues)
+        let widget_ids_to_check: Vec<&'static str> = self.widget_priority_order.clone();
 
-        // Handle permission panel mode
-        if self.permission_panel.is_active() {
-            let key_event = KeyEvent::new(key, modifiers);
-            match self.permission_panel.handle_key(key_event) {
-                PermissionKeyAction::Selected(_, response) => self.submit_permission_panel(response),
-                PermissionKeyAction::Cancelled(_) => self.cancel_permission_panel(),
-                PermissionKeyAction::None => {}
-            }
-            return;
-        }
-
-        // Handle theme picker mode
-        if self.theme_picker.active {
-            match key {
-                KeyCode::Up => self.theme_picker.select_previous(),
-                KeyCode::Down => self.theme_picker.select_next(),
-                KeyCode::Char('p') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.theme_picker.select_previous()
-                }
-                KeyCode::Char('n') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.theme_picker.select_next()
-                }
-                KeyCode::Enter => self.theme_picker.confirm(),
-                KeyCode::Esc => self.theme_picker.cancel(),
-                _ => {}
-            }
-            return;
-        }
-
-        // Handle slash command popup mode
-        if self.slash_popup.active {
-            match key {
-                KeyCode::Up => self.slash_popup.select_previous(),
-                KeyCode::Down => self.slash_popup.select_next(),
-                KeyCode::Enter => {
-                    let selected_idx = self.slash_popup.selected_index;
-                    if let Some(cmd) = self.filtered_commands.get(selected_idx) {
-                        let cmd_name = cmd.name;
-                        self.input.clear();
-                        for c in format!("/{}", cmd_name).chars() {
-                            self.input.insert_char(c);
+        for widget_id in widget_ids_to_check {
+            if let Some(widget) = self.widgets.get_mut(widget_id) {
+                if widget.is_active() {
+                    match widget.handle_key(key_event, &theme) {
+                        WidgetKeyResult::Handled => return,
+                        WidgetKeyResult::Action(action) => {
+                            self.process_widget_action(action);
+                            return;
                         }
-                        self.slash_popup.deactivate();
-                        self.filtered_commands.clear();
-                        self.submit_message();
+                        WidgetKeyResult::NotHandled => {
+                            // Continue to next widget or fall through to input handling
+                        }
                     }
                 }
-                KeyCode::Esc => {
-                    self.input.clear();
-                    self.slash_popup.deactivate();
-                    self.filtered_commands.clear();
-                }
-                KeyCode::Backspace => {
-                    if self.input.buffer() == "/" {
-                        self.input.clear();
-                        self.slash_popup.deactivate();
-                        self.filtered_commands.clear();
-                    } else {
-                        self.input.delete_char_before();
-                        self.filtered_commands =
-                            filter_commands(get_default_commands(), self.input.buffer());
-                        self.slash_popup
-                            .set_filtered_count(self.filtered_commands.len());
-                    }
-                }
-                KeyCode::Char(c) => {
-                    self.input.insert_char(c);
-                    self.filtered_commands =
-                        filter_commands(get_default_commands(), self.input.buffer());
-                    self.slash_popup
-                        .set_filtered_count(self.filtered_commands.len());
-                }
-                _ => self.slash_popup.deactivate(),
             }
+        }
+
+        // Handle slash popup specially (needs input buffer access)
+        if self.is_slash_popup_active() {
+            self.handle_slash_popup_key(key);
             return;
         }
+
+        // Check exit mode before getting mutable borrow
+        let is_exit_mode = self.is_exit_mode_active();
+        let is_input_empty = self.input().map(|i| i.is_empty()).unwrap_or(true);
+
+        // Normal input handling (requires TextInput widget to be registered)
+        let Some(input) = self.input_mut() else {
+            // No input widget registered - only handle Ctrl+D for exit
+            if key == KeyCode::Char('d') && modifiers.contains(KeyModifiers::CONTROL) {
+                if is_exit_mode {
+                    self.should_quit = true;
+                } else {
+                    self.mode = AppMode::Exit(Instant::now());
+                }
+            }
+            return;
+        };
 
         match key {
             // Shift+Enter sends Ctrl+J in most terminals
             KeyCode::Char('j') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.insert_char('\n');
+                input.insert_char('\n');
             }
 
             // Cursor movement - Emacs style
-            KeyCode::Char('p') if modifiers.contains(KeyModifiers::CONTROL) => self.input.move_up(),
+            KeyCode::Char('p') if modifiers.contains(KeyModifiers::CONTROL) => input.move_up(),
             KeyCode::Char('n') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.move_down()
+                input.move_down()
             }
             KeyCode::Char('b') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.move_left()
+                input.move_left()
             }
             KeyCode::Char('f') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.move_right()
+                input.move_right()
             }
             KeyCode::Char('a') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.move_to_line_start()
+                input.move_to_line_start()
             }
             KeyCode::Char('e') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.move_to_line_end()
+                input.move_to_line_end()
             }
 
             // Editing - Emacs style
             KeyCode::Char('k') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.kill_line()
+                input.kill_line()
             }
             KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.is_exit_mode_active() {
+                if is_exit_mode {
                     self.should_quit = true;
-                } else if self.input.is_empty() {
+                } else if is_input_empty {
                     self.mode = AppMode::Exit(Instant::now());
                 } else {
-                    self.input.delete_char_at();
+                    input.delete_char_at();
                 }
             }
 
             // Cursor movement - Arrow keys
-            KeyCode::Up => self.input.move_up(),
-            KeyCode::Down => self.input.move_down(),
-            KeyCode::Left => self.input.move_left(),
-            KeyCode::Right => self.input.move_right(),
-            KeyCode::Home => self.input.move_to_line_start(),
-            KeyCode::End => self.input.move_to_line_end(),
+            KeyCode::Up => input.move_up(),
+            KeyCode::Down => input.move_down(),
+            KeyCode::Left => input.move_left(),
+            KeyCode::Right => input.move_right(),
+            KeyCode::Home => input.move_to_line_start(),
+            KeyCode::End => input.move_to_line_end(),
 
             // Text input
             KeyCode::Char(c) => {
-                self.input.insert_char(c);
-                if c == '/' && self.input.buffer() == "/" {
-                    self.slash_popup.activate();
-                    self.filtered_commands = filter_commands(get_default_commands(), "/");
-                    self.slash_popup
-                        .set_filtered_count(self.filtered_commands.len());
-                }
+                input.insert_char(c);
             }
-            KeyCode::Backspace => self.input.delete_char_before(),
-            KeyCode::Delete => self.input.delete_char_at(),
-            KeyCode::Enter => self.submit_message(),
-
-            // Escape - interrupt LLM request
-            KeyCode::Esc => {
-                if self.waiting_for_response || self.chat.is_streaming() {
-                    self.interrupt_request();
-                }
+            KeyCode::Backspace => input.delete_char_before(),
+            KeyCode::Delete => input.delete_char_at(),
+            KeyCode::Enter | KeyCode::Esc => {
+                // These need to call self methods, handled after match
             }
 
             _ => {}
+        }
+
+        // Handle cases that need to call self methods (after releasing input borrow)
+        match key {
+            KeyCode::Char('/') => {
+                // Check if we just typed "/" as the first character
+                if self.input().map(|i| i.buffer() == "/").unwrap_or(false) {
+                    self.activate_slash_popup();
+                }
+            }
+            KeyCode::Enter => {
+                self.submit_message();
+            }
+            KeyCode::Esc => {
+                if self.waiting_for_response || self.is_chat_streaming() {
+                    self.interrupt_request();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Process an action returned by a widget
+    fn process_widget_action(&mut self, action: WidgetAction) {
+        match action {
+            WidgetAction::SubmitQuestion { tool_use_id, response } => {
+                self.submit_question_panel_response(tool_use_id, response);
+            }
+            WidgetAction::CancelQuestion { tool_use_id } => {
+                self.cancel_question_panel_response(tool_use_id);
+            }
+            WidgetAction::SubmitPermission { tool_use_id, response } => {
+                self.submit_permission_panel_response(tool_use_id, response);
+            }
+            WidgetAction::CancelPermission { tool_use_id } => {
+                self.cancel_permission_panel_response(tool_use_id);
+            }
+            WidgetAction::SwitchSession { session_id } => {
+                self.switch_session(session_id);
+            }
+            WidgetAction::ExecuteCommand { command } => {
+                // Handle slash popup command selection
+                if command.starts_with("__SLASH_INDEX_") {
+                    if let Ok(idx) = command.trim_start_matches("__SLASH_INDEX_").parse::<usize>() {
+                        self.execute_slash_command_at_index(idx);
+                    }
+                } else {
+                    self.execute_command(&command);
+                }
+            }
+            WidgetAction::Close => {
+                // Widget closed itself (e.g., theme picker confirm/cancel)
+            }
+        }
+    }
+
+    /// Check if the slash popup is active
+    fn is_slash_popup_active(&self) -> bool {
+        self.widgets
+            .get(widget_ids::SLASH_POPUP)
+            .map(|w| w.is_active())
+            .unwrap_or(false)
+    }
+
+    /// Activate the slash popup
+    fn activate_slash_popup(&mut self) {
+        if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+            widget.activate_slash();
+            self.filtered_commands = filter_commands(get_default_commands(), "/");
+            widget.set_slash_context(self.filtered_commands.len());
+        }
+    }
+
+    /// Handle key events for the slash popup (needs special handling for input buffer)
+    fn handle_slash_popup_key(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Up => {
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                        popup.select_previous();
+                    }
+                }
+            }
+            KeyCode::Down => {
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                        popup.select_next();
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                let selected_idx = self.widgets
+                    .get(widget_ids::SLASH_POPUP)
+                    .and_then(|w| w.as_any().downcast_ref::<SlashPopupState>())
+                    .map(|p| p.selected_index)
+                    .unwrap_or(0);
+                self.execute_slash_command_at_index(selected_idx);
+            }
+            KeyCode::Esc => {
+                if let Some(input) = self.input_mut() {
+                    input.clear();
+                }
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                    widget.deactivate();
+                }
+                self.filtered_commands.clear();
+            }
+            KeyCode::Backspace => {
+                let is_just_slash = self.input().map(|i| i.buffer() == "/").unwrap_or(false);
+                if is_just_slash {
+                    if let Some(input) = self.input_mut() {
+                        input.clear();
+                    }
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                        widget.deactivate();
+                    }
+                    self.filtered_commands.clear();
+                } else {
+                    if let Some(input) = self.input_mut() {
+                        input.delete_char_before();
+                    }
+                    let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
+                    self.filtered_commands = filter_commands(get_default_commands(), &buffer);
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                        widget.set_slash_context(self.filtered_commands.len());
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(input) = self.input_mut() {
+                    input.insert_char(c);
+                }
+                let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
+                self.filtered_commands = filter_commands(get_default_commands(), &buffer);
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                    widget.set_slash_context(self.filtered_commands.len());
+                }
+            }
+            _ => {
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                    widget.deactivate();
+                }
+            }
+        }
+    }
+
+    /// Execute slash command at the given index in filtered_commands
+    fn execute_slash_command_at_index(&mut self, idx: usize) {
+        if let Some(cmd) = self.filtered_commands.get(idx) {
+            let cmd_name = cmd.name;
+            if let Some(input) = self.input_mut() {
+                input.clear();
+                for c in format!("/{}", cmd_name).chars() {
+                    input.insert_char(c);
+                }
+            }
+            if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                widget.deactivate();
+            }
+            self.filtered_commands.clear();
+            self.submit_message();
         }
     }
 
@@ -1191,7 +1416,7 @@ impl App {
             self.process_controller_messages();
 
             let show_throbber = self.waiting_for_response
-                || self.chat.is_streaming()
+                || self.is_chat_streaming()
                 || !self.executing_tools.is_empty();
 
             // Advance animations
@@ -1199,7 +1424,9 @@ impl App {
                 self.animation_frame_counter = self.animation_frame_counter.wrapping_add(1);
                 if self.animation_frame_counter % 6 == 0 {
                     self.throbber_state.calc_next();
-                    self.chat.step_spinner();
+                    if let Some(chat) = self.chat_mut() {
+                        chat.step_spinner();
+                    }
                 }
 
                 // Rotate funny message
@@ -1269,283 +1496,224 @@ impl App {
         prompt_len: usize,
         indent_len: usize,
     ) {
-        let frame_width = frame.area().width as usize;
-        let frame_height = frame.area().height;
+        let frame_area = frame.area();
+        let frame_width = frame_area.width as usize;
+        let frame_height = frame_area.height;
+        let theme = app_theme();
 
-        let slash_popup_active = self.slash_popup.active;
-        let question_panel_active = self.question_panel.is_active();
-        let permission_panel_active = self.permission_panel.is_active();
+        // Compute layout using the layout system
+        let ctx = self.build_layout_context(frame_area, show_throbber, prompt_len, indent_len, &theme);
+        let sizes = self.compute_widget_sizes(frame_height);
+        let layout = self.layout_template.compute(&ctx, &sizes);
 
-        // Calculate input height
-        let input_height = if question_panel_active || permission_panel_active {
-            0
-        } else if show_throbber {
-            3
-        } else {
-            let visual_lines =
-                self.input
-                    .visual_line_count(frame_width, prompt_len, indent_len);
-            (visual_lines as u16) + 2
-        };
+        // Check overlay widget states (for cursor hiding)
+        let theme_picker_active = sizes.is_active(widget_ids::THEME_PICKER);
+        let session_picker_active = sizes.is_active(widget_ids::SESSION_PICKER);
+        let question_panel_active = sizes.is_active(widget_ids::QUESTION_PANEL);
+        let permission_panel_active = sizes.is_active(widget_ids::PERMISSION_PANEL);
 
-        // Calculate popup heights
-        let slash_popup_height = if slash_popup_active {
-            self.slash_popup.popup_height(frame_height)
-        } else {
-            0
-        };
+        // Render widgets in the order specified by the layout
+        for widget_id in &layout.render_order {
+            // Skip overlays (rendered last) and special widgets
+            if *widget_id == widget_ids::THEME_PICKER || *widget_id == widget_ids::SESSION_PICKER {
+                continue;
+            }
 
-        let question_panel_height = if question_panel_active {
-            self.question_panel.panel_height(frame_height)
-        } else {
-            0
-        };
-
-        let permission_panel_height = if permission_panel_active {
-            self.permission_panel.panel_height(frame_height)
-        } else {
-            0
-        };
-
-        let interactive_panel_height = if permission_panel_active {
-            permission_panel_height
-        } else if question_panel_active {
-            question_panel_height
-        } else {
-            0
-        };
-
-        let interactive_panel_active = permission_panel_active || question_panel_active;
-
-        // Build layout
-        let (chat_area, interactive_panel_area, popup_area, input_area, status_area) =
-            match (interactive_panel_active, slash_popup_active) {
-                (true, true) => {
-                    let chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Min(1),
-                            Constraint::Length(interactive_panel_height),
-                            Constraint::Length(slash_popup_height),
-                            Constraint::Length(input_height),
-                            Constraint::Length(2),
-                        ])
-                        .split(frame.area());
-                    (
-                        chunks[0],
-                        Some(chunks[1]),
-                        Some(chunks[2]),
-                        chunks[3],
-                        chunks[4],
-                    )
-                }
-                (true, false) => {
-                    let chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Min(1),
-                            Constraint::Length(interactive_panel_height),
-                            Constraint::Length(input_height),
-                            Constraint::Length(2),
-                        ])
-                        .split(frame.area());
-                    (chunks[0], Some(chunks[1]), None, chunks[2], chunks[3])
-                }
-                (false, true) => {
-                    let chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Min(1),
-                            Constraint::Length(slash_popup_height),
-                            Constraint::Length(input_height),
-                            Constraint::Length(2),
-                        ])
-                        .split(frame.area());
-                    (chunks[0], None, Some(chunks[1]), chunks[2], chunks[3])
-                }
-                (false, false) => {
-                    let chunks = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Min(1),
-                            Constraint::Length(input_height),
-                            Constraint::Length(2),
-                        ])
-                        .split(frame.area());
-                    (chunks[0], None, None, chunks[1], chunks[2])
-                }
+            // Get the area for this widget
+            let Some(area) = layout.widget_areas.get(widget_id) else {
+                continue;
             };
 
-        // Render chat
-        let pending_status: Option<&str> = if !self.executing_tools.is_empty() {
-            Some(PENDING_STATUS_TOOLS)
-        } else if self.waiting_for_response && !self.chat.is_streaming() {
-            Some(PENDING_STATUS_LLM)
-        } else {
-            None
-        };
-
-        self.chat.render(frame, chat_area, pending_status);
-
-        // Render interactive panel
-        if let Some(panel_area) = interactive_panel_area {
-            if permission_panel_active {
-                self.permission_panel
-                    .render(frame, panel_area, &app_theme());
-            } else if question_panel_active {
-                self.question_panel.render(frame, panel_area, &app_theme());
+            // Handle special widgets that need custom rendering
+            match *widget_id {
+                id if id == widget_ids::CHAT_VIEW => {
+                    let pending_status: Option<&str> = if !self.executing_tools.is_empty() {
+                        Some(PENDING_STATUS_TOOLS)
+                    } else if self.waiting_for_response && !self.is_chat_streaming() {
+                        Some(PENDING_STATUS_LLM)
+                    } else {
+                        None
+                    };
+                    if let Some(chat) = self.chat_mut() {
+                        chat.render_chat(frame, *area, pending_status);
+                    }
+                }
+                id if id == widget_ids::TEXT_INPUT => {
+                    // Input is rendered specially below (with throbber logic)
+                }
+                id if id == widget_ids::SLASH_POPUP => {
+                    if let Some(widget) = self.widgets.get(widget_ids::SLASH_POPUP) {
+                        if let Some(popup_state) = widget.as_any().downcast_ref::<SlashPopupState>() {
+                            render_slash_popup(
+                                popup_state,
+                                &self.filtered_commands,
+                                frame,
+                                *area,
+                                &theme,
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    // Generic widget rendering
+                    if let Some(widget) = self.widgets.get(widget_id) {
+                        if widget.is_active() {
+                            widget.render(frame, *area, &theme);
+                        }
+                    }
+                }
             }
         }
 
-        // Render slash command popup
-        if let Some(popup) = popup_area {
-            render_slash_popup(
-                &self.slash_popup,
-                &self.filtered_commands,
-                frame,
-                popup,
-                &app_theme(),
-            );
-        }
+        // Render input or throbber (special handling)
+        if let Some(input_area) = layout.input_area {
+            if !question_panel_active && !permission_panel_active {
+                if show_throbber {
+                    let message = self
+                        .custom_throbber_message
+                        .as_deref()
+                        .unwrap_or(FUNNY_MESSAGES[self.message_index]);
+                    let throbber = Throbber::default()
+                        .label(message)
+                        .style(theme.throbber_label)
+                        .throbber_style(theme.throbber_spinner)
+                        .throbber_set(BRAILLE_EIGHT_DOUBLE);
 
-        // Render input or throbber
-        if !question_panel_active && !permission_panel_active {
-            if show_throbber {
-                let message = self
-                    .custom_throbber_message
-                    .as_deref()
-                    .unwrap_or(FUNNY_MESSAGES[self.message_index]);
-                let throbber = Throbber::default()
-                    .label(message)
-                    .style(app_theme().throbber_label)
-                    .throbber_style(app_theme().throbber_spinner)
-                    .throbber_set(BRAILLE_EIGHT_DOUBLE);
+                    let throbber_block = Block::default()
+                        .borders(Borders::TOP | Borders::BOTTOM)
+                        .border_style(theme.input_border);
+                    let inner = throbber_block.inner(input_area);
+                    let throbber_inner = Rect::new(
+                        inner.x + 1,
+                        inner.y,
+                        inner.width.saturating_sub(1),
+                        inner.height,
+                    );
+                    frame.render_widget(throbber_block, input_area);
+                    frame.render_stateful_widget(throbber, throbber_inner, &mut self.throbber_state);
+                } else if let Some(input) = self.input() {
+                    let input_lines: Vec<String> = input
+                        .buffer()
+                        .split('\n')
+                        .enumerate()
+                        .map(|(i, line)| {
+                            if i == 0 {
+                                format!("{}{}", PROMPT, line)
+                            } else {
+                                format!("{}{}", CONTINUATION_INDENT, line)
+                            }
+                        })
+                        .collect();
+                    let input_text = if input_lines.is_empty() {
+                        PROMPT.to_string()
+                    } else {
+                        input_lines.join("\n")
+                    };
 
-                let throbber_block = Block::default()
-                    .borders(Borders::TOP | Borders::BOTTOM)
-                    .border_style(app_theme().input_border);
-                let inner = throbber_block.inner(input_area);
-                let throbber_inner = Rect::new(
-                    inner.x + 1,
-                    inner.y,
-                    inner.width.saturating_sub(1),
-                    inner.height,
-                );
-                frame.render_widget(throbber_block, input_area);
-                frame.render_stateful_widget(throbber, throbber_inner, &mut self.throbber_state);
-            } else {
-                let input_lines: Vec<String> = self
-                    .input
-                    .buffer()
-                    .split('\n')
-                    .enumerate()
-                    .map(|(i, line)| {
-                        if i == 0 {
-                            format!("{}{}", PROMPT, line)
-                        } else {
-                            format!("{}{}", CONTINUATION_INDENT, line)
-                        }
-                    })
-                    .collect();
-                let input_text = if input_lines.is_empty() {
-                    PROMPT.to_string()
-                } else {
-                    input_lines.join("\n")
-                };
+                    let input_box = Paragraph::new(input_text)
+                        .block(
+                            Block::default()
+                                .borders(Borders::TOP | Borders::BOTTOM)
+                                .border_style(theme.input_border),
+                        )
+                        .wrap(Wrap { trim: false });
+                    frame.render_widget(input_box, input_area);
 
-                let input_box = Paragraph::new(input_text)
-                    .block(
-                        Block::default()
-                            .borders(Borders::TOP | Borders::BOTTOM)
-                            .border_style(app_theme().input_border),
-                    )
-                    .wrap(Wrap { trim: false });
-                frame.render_widget(input_box, input_area);
-
-                if !self.theme_picker.active {
-                    let (cursor_rel_x, cursor_rel_y) = self
-                        .input
-                        .cursor_display_position_wrapped(frame_width, prompt_len, indent_len);
-                    let cursor_x = input_area.x + cursor_rel_x;
-                    let cursor_y = input_area.y + 1 + cursor_rel_y;
-                    frame.set_cursor_position((cursor_x, cursor_y));
+                    // Only show cursor if no overlay is active
+                    if !theme_picker_active && !session_picker_active {
+                        let (cursor_rel_x, cursor_rel_y) = input
+                            .cursor_display_position_wrapped(frame_width, prompt_len, indent_len);
+                        let cursor_x = input_area.x + cursor_rel_x;
+                        let cursor_y = input_area.y + 1 + cursor_rel_y;
+                        frame.set_cursor_position((cursor_x, cursor_y));
+                    }
                 }
             }
         }
 
         // Render status bar
-        let cwd = std::env::current_dir()
-            .map(|p| {
-                let path_str = p.display().to_string();
-                if let Some(home) = std::env::var_os("HOME") {
-                    let home_str = home.to_string_lossy();
-                    if path_str.starts_with(home_str.as_ref()) {
-                        return format!("~{}", &path_str[home_str.len()..]);
+        if let Some(status_area) = layout.status_bar_area {
+            let cwd = std::env::current_dir()
+                .map(|p| {
+                    let path_str = p.display().to_string();
+                    if let Some(home) = std::env::var_os("HOME") {
+                        let home_str = home.to_string_lossy();
+                        if path_str.starts_with(home_str.as_ref()) {
+                            return format!("~{}", &path_str[home_str.len()..]);
+                        }
                     }
-                }
-                path_str
-            })
-            .unwrap_or_else(|_| "unknown".to_string());
+                    path_str
+                })
+                .unwrap_or_else(|_| "unknown".to_string());
 
-        let help_text = if question_panel_active || permission_panel_active {
-            String::new()
-        } else if self.is_exit_mode_active() {
-            " Press Ctrl-D again to exit".to_string()
-        } else if show_throbber {
-            let elapsed = self
-                .waiting_started
-                .map(|start| start.elapsed())
-                .unwrap_or_default();
-            let elapsed_str = format_elapsed(elapsed);
-            format!(" escape to interrupt ({})", elapsed_str)
-        } else if self.session_id == 0 {
-            " No session - type /new-session to start".to_string()
-        } else if self.input.is_empty() {
-            " Ctrl-D to exit".to_string()
-        } else {
-            " Shift-Enter to add a new line".to_string()
-        };
+            let help_text = if question_panel_active || permission_panel_active {
+                String::new()
+            } else if self.is_exit_mode_active() {
+                " Press Ctrl-D again to exit".to_string()
+            } else if show_throbber {
+                let elapsed = self
+                    .waiting_started
+                    .map(|start| start.elapsed())
+                    .unwrap_or_default();
+                let elapsed_str = format_elapsed(elapsed);
+                format!(" escape to interrupt ({})", elapsed_str)
+            } else if self.session_id == 0 {
+                " No session - type /new-session to start".to_string()
+            } else if self.input().map(|i| i.is_empty()).unwrap_or(true) {
+                " Ctrl-D to exit".to_string()
+            } else {
+                " Shift-Enter to add a new line".to_string()
+            };
 
-        let context_str = self.format_context_display();
-        let context_style = self.context_style();
+            let context_str = self.format_context_display();
+            let context_style = self.context_style();
 
-        let status_width = status_area.width as usize;
-        let cwd_display = format!(" {}", cwd);
-        let cwd_len = cwd_display.chars().count();
-        let context_len = context_str.chars().count();
-        let model_len = self.model_name.chars().count() + 1;
-        let spacing = if context_len > 0 { 2 } else { 0 };
-        let total_right = context_len + spacing + model_len;
-        let line1_padding = status_width.saturating_sub(cwd_len + total_right);
+            let status_width = status_area.width as usize;
+            let cwd_display = format!(" {}", cwd);
+            let cwd_len = cwd_display.chars().count();
+            let context_len = context_str.chars().count();
+            let model_len = self.model_name.chars().count() + 1;
+            let spacing = if context_len > 0 { 2 } else { 0 };
+            let total_right = context_len + spacing + model_len;
+            let line1_padding = status_width.saturating_sub(cwd_len + total_right);
 
-        let line1 = if context_len > 0 {
-            Line::from(vec![
-                Span::styled(&cwd_display, app_theme().status_help),
-                Span::raw(" ".repeat(line1_padding)),
-                Span::styled(&context_str, context_style),
-                Span::raw("  "),
-                Span::styled(format!("{} ", self.model_name), app_theme().status_model),
-            ])
-        } else {
-            Line::from(vec![
-                Span::styled(&cwd_display, app_theme().status_help),
-                Span::raw(" ".repeat(line1_padding)),
-                Span::styled(format!("{} ", self.model_name), app_theme().status_model),
-            ])
-        };
+            let line1 = if context_len > 0 {
+                Line::from(vec![
+                    Span::styled(&cwd_display, theme.status_help),
+                    Span::raw(" ".repeat(line1_padding)),
+                    Span::styled(&context_str, context_style),
+                    Span::raw("  "),
+                    Span::styled(format!("{} ", self.model_name), theme.status_model),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(&cwd_display, theme.status_help),
+                    Span::raw(" ".repeat(line1_padding)),
+                    Span::styled(format!("{} ", self.model_name), theme.status_model),
+                ])
+            };
 
-        let line2 = Line::from(vec![Span::styled(&help_text, app_theme().status_help)]);
+            let line2 = Line::from(vec![Span::styled(&help_text, theme.status_help)]);
 
-        let status_msg = Paragraph::new(vec![line1, line2]);
-        frame.render_widget(status_msg, status_area);
-
-        // Render overlays
-        if self.theme_picker.active {
-            render_theme_picker(&self.theme_picker, frame, frame.area());
+            let status_msg = Paragraph::new(vec![line1, line2]);
+            frame.render_widget(status_msg, status_area);
         }
 
-        if self.session_picker.active {
-            render_session_picker(&self.session_picker, frame, frame.area(), &app_theme());
+        // Render overlay widgets (theme picker, session picker) - always on top
+        if theme_picker_active {
+            if let Some(widget) = self.widgets.get(widget_ids::THEME_PICKER) {
+                if let Some(picker) = widget.as_any().downcast_ref::<ThemePickerState>() {
+                    render_theme_picker(picker, frame, frame_area);
+                }
+            }
+        }
+
+        if session_picker_active {
+            if let Some(widget) = self.widgets.get(widget_ids::SESSION_PICKER) {
+                if let Some(picker) = widget.as_any().downcast_ref::<SessionPickerState>() {
+                    render_session_picker(picker, frame, frame_area, &theme);
+                }
+            }
         }
     }
 }

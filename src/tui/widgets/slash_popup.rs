@@ -108,6 +108,151 @@ impl Default for SlashPopupState {
     }
 }
 
+// --- Widget trait implementation ---
+
+use std::any::Any;
+use crossterm::event::{KeyCode, KeyEvent};
+use super::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+
+/// Result of handling a key event in the slash popup
+#[derive(Debug, Clone, PartialEq)]
+pub enum SlashKeyAction {
+    /// No action taken
+    None,
+    /// Navigation (up/down) handled
+    Navigated,
+    /// Command selected at given index
+    Selected(usize),
+    /// Popup was cancelled
+    Cancelled,
+    /// Character typed (for filtering) - not consumed, App should handle
+    CharTyped(char),
+    /// Backspace pressed - not consumed, App should handle
+    Backspace,
+}
+
+impl SlashPopupState {
+    /// Handle a key event
+    ///
+    /// Returns the action. For CharTyped and Backspace, the App needs to
+    /// update the input buffer and filtered commands.
+    pub fn process_key(&mut self, key: KeyEvent) -> SlashKeyAction {
+        if !self.active {
+            return SlashKeyAction::None;
+        }
+
+        match key.code {
+            KeyCode::Up => {
+                self.select_previous();
+                SlashKeyAction::Navigated
+            }
+            KeyCode::Down => {
+                self.select_next();
+                SlashKeyAction::Navigated
+            }
+            KeyCode::Enter => {
+                let idx = self.selected_index;
+                SlashKeyAction::Selected(idx)
+            }
+            KeyCode::Esc => {
+                self.deactivate();
+                SlashKeyAction::Cancelled
+            }
+            KeyCode::Backspace => SlashKeyAction::Backspace,
+            KeyCode::Char(c) => SlashKeyAction::CharTyped(c),
+            _ => {
+                self.deactivate();
+                SlashKeyAction::Cancelled
+            }
+        }
+    }
+}
+
+impl Widget for SlashPopupState {
+    fn id(&self) -> &'static str {
+        widget_ids::SLASH_POPUP
+    }
+
+    fn priority(&self) -> u8 {
+        150 // Medium-high priority
+    }
+
+    fn is_active(&self) -> bool {
+        self.active
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+        if !self.active {
+            return WidgetKeyResult::NotHandled;
+        }
+
+        match self.process_key(key) {
+            SlashKeyAction::Selected(idx) => {
+                // Note: App still needs to execute the command
+                // We'll return an action that tells App which index was selected
+                WidgetKeyResult::Action(WidgetAction::ExecuteCommand {
+                    command: format!("__SLASH_INDEX_{}", idx),
+                })
+            }
+            SlashKeyAction::Cancelled => WidgetKeyResult::Action(WidgetAction::Close),
+            SlashKeyAction::Navigated => WidgetKeyResult::Handled,
+            // For these, we return NotHandled so App can update input buffer
+            SlashKeyAction::CharTyped(_) | SlashKeyAction::Backspace | SlashKeyAction::None => {
+                WidgetKeyResult::NotHandled
+            }
+        }
+    }
+
+    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        // Note: This is a simplified render that doesn't have commands.
+        // App should use render_slash_popup directly with filtered commands.
+        // This default render shows an empty state.
+        if self.active {
+            render_slash_popup(self, &[] as &[SimpleCommand], frame, area, theme);
+        }
+    }
+
+    fn required_height(&self, max_height: u16) -> u16 {
+        if self.active {
+            self.popup_height(max_height)
+        } else {
+            0
+        }
+    }
+
+    fn blocks_input(&self) -> bool {
+        false // Input continues to work while popup is shown
+    }
+
+    fn is_overlay(&self) -> bool {
+        false // Renders in dedicated area
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn activate_slash(&mut self) {
+        self.activate();
+    }
+
+    fn set_slash_context(&mut self, filtered_count: usize) {
+        self.set_filtered_count(filtered_count);
+    }
+
+    fn deactivate(&mut self) {
+        SlashPopupState::deactivate(self);
+    }
+}
+
 /// Render the slash command popup
 ///
 /// # Arguments

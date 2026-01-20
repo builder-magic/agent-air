@@ -20,7 +20,8 @@ use super::messages::channels::DEFAULT_CHANNEL_SIZE;
 use super::messages::UiMessage;
 use super::router::InputRouter;
 
-use crate::tui::{App, AppConfig, SessionInfo};
+use crate::tui::{App, AppConfig, LayoutTemplate, SessionInfo};
+use crate::tui::widgets::Widget;
 
 /// Sender for messages from TUI to controller
 pub type ToControllerTx = mpsc::Sender<ControllerInputPayload>;
@@ -109,6 +110,12 @@ pub struct AgentCore {
 
     /// Tool definitions to register on sessions
     tool_definitions: Vec<ToolDefinition>,
+
+    /// Widgets to register with the App
+    widgets_to_register: Vec<Box<dyn Widget>>,
+
+    /// Layout template for the TUI
+    layout_template: Option<LayoutTemplate>,
 }
 
 impl AgentCore {
@@ -218,6 +225,8 @@ impl AgentCore {
             user_interaction_registry,
             permission_registry,
             tool_definitions: Vec::new(),
+            widgets_to_register: Vec::new(),
+            layout_template: None,
         })
     }
 
@@ -230,6 +239,28 @@ impl AgentCore {
     pub fn set_welcome_art(&mut self, art: Vec<String>, subtitle_indices: Vec<usize>) {
         self.welcome_art = art;
         self.welcome_subtitle_indices = subtitle_indices;
+    }
+
+    /// Set the layout template for the TUI.
+    ///
+    /// This allows customizing how widgets are arranged in the terminal.
+    /// If not set, the default Standard layout with panels is used.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Use standard layout (default)
+    /// agent.set_layout(LayoutTemplate::standard());
+    ///
+    /// // Add a sidebar
+    /// agent.set_layout(LayoutTemplate::with_sidebar("file_browser", 30));
+    ///
+    /// // Minimal layout (no status bar)
+    /// agent.set_layout(LayoutTemplate::minimal());
+    /// ```
+    pub fn set_layout(&mut self, template: LayoutTemplate) -> &mut Self {
+        self.layout_template = Some(template);
+        self
     }
 
     /// Register tools with the agent.
@@ -259,6 +290,24 @@ impl AgentCore {
         )?;
         self.tool_definitions = tool_defs;
         Ok(())
+    }
+
+    /// Register a widget with the agent.
+    ///
+    /// Widgets are registered before calling `run()` and will be available
+    /// in the TUI application.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut agent = AgentCore::new(&MyConfig)?;
+    /// agent.register_widget(PermissionPanel::new());
+    /// agent.register_widget(QuestionPanel::new());
+    /// agent.run()
+    /// ```
+    pub fn register_widget<W: Widget>(&mut self, widget: W) -> &mut Self {
+        self.widgets_to_register.push(Box::new(widget));
+        self
     }
 
     /// Start the controller and input router as background tasks.
@@ -413,6 +462,14 @@ impl AgentCore {
         };
         let mut app = App::with_config(app_config);
 
+        // Register widgets with the App
+        for widget in self.widgets_to_register.drain(..) {
+            // We need to re-box as the App's register_widget expects impl Widget
+            let id = widget.id();
+            app.widgets.insert(id, widget);
+        }
+        app.rebuild_priority_order();
+
         // Wire up channels, controller, and registries to the App
         app.set_to_controller(self.to_controller_tx.clone());
         if let Some(rx) = self.from_controller_rx.take() {
@@ -422,6 +479,11 @@ impl AgentCore {
         app.set_runtime_handle(self.runtime.handle().clone());
         app.set_user_interaction_registry(self.user_interaction_registry.clone());
         app.set_permission_registry(self.permission_registry.clone());
+
+        // Set layout template if specified
+        if let Some(layout) = self.layout_template.take() {
+            app.set_layout(layout);
+        }
 
         // Auto-create session if we have a configured LLM provider
         match self.create_initial_session() {

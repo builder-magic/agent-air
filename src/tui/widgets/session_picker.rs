@@ -118,6 +118,128 @@ impl Default for SessionPickerState {
     }
 }
 
+// --- Widget trait implementation ---
+
+use std::any::Any;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use super::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+
+/// Result of handling a key event in the session picker
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionKeyAction {
+    /// No action taken
+    None,
+    /// Session selected (includes session ID)
+    Selected(i64),
+    /// Picker was cancelled
+    Cancelled,
+}
+
+impl SessionPickerState {
+    /// Handle a key event
+    pub fn process_key(&mut self, key: KeyEvent) -> SessionKeyAction {
+        if !self.active {
+            return SessionKeyAction::None;
+        }
+
+        match key.code {
+            KeyCode::Up => {
+                self.select_previous();
+                SessionKeyAction::None
+            }
+            KeyCode::Down => {
+                self.select_next();
+                SessionKeyAction::None
+            }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_previous();
+                SessionKeyAction::None
+            }
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_next();
+                SessionKeyAction::None
+            }
+            KeyCode::Enter => {
+                if let Some(session_id) = self.selected_session_id() {
+                    self.confirm();
+                    SessionKeyAction::Selected(session_id)
+                } else {
+                    SessionKeyAction::None
+                }
+            }
+            KeyCode::Esc => {
+                self.cancel();
+                SessionKeyAction::Cancelled
+            }
+            _ => SessionKeyAction::None,
+        }
+    }
+}
+
+impl Widget for SessionPickerState {
+    fn id(&self) -> &'static str {
+        widget_ids::SESSION_PICKER
+    }
+
+    fn priority(&self) -> u8 {
+        250 // Very high priority - overlay
+    }
+
+    fn is_active(&self) -> bool {
+        self.active
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+        if !self.active {
+            return WidgetKeyResult::NotHandled;
+        }
+
+        match self.process_key(key) {
+            SessionKeyAction::Selected(session_id) => {
+                WidgetKeyResult::Action(WidgetAction::SwitchSession { session_id })
+            }
+            SessionKeyAction::Cancelled => WidgetKeyResult::Action(WidgetAction::Close),
+            SessionKeyAction::None => WidgetKeyResult::Handled,
+        }
+    }
+
+    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        render_session_picker(self, frame, area, theme);
+    }
+
+    fn required_height(&self, _available: u16) -> u16 {
+        0 // Overlay widget - doesn't need dedicated height
+    }
+
+    fn blocks_input(&self) -> bool {
+        self.active
+    }
+
+    fn is_overlay(&self) -> bool {
+        true
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn activate_sessions(&mut self, sessions: Vec<SessionInfo>, current_session_id: i64) {
+        self.activate(sessions, current_session_id);
+    }
+
+    fn deactivate(&mut self) {
+        self.cancel();
+    }
+}
+
 /// Render the session picker
 pub fn render_session_picker(state: &SessionPickerState, frame: &mut Frame, area: Rect, theme: &Theme) {
     if !state.active {

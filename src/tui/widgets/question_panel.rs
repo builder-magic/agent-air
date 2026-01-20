@@ -521,7 +521,7 @@ impl QuestionPanel {
     /// Handle a key event
     ///
     /// Returns the action that should be taken based on the key press.
-    pub fn handle_key(&mut self, key: KeyEvent) -> KeyAction {
+    pub fn process_key(&mut self, key: KeyEvent) -> KeyAction {
         if !self.active {
             return KeyAction::NotHandled;
         }
@@ -645,7 +645,7 @@ impl QuestionPanel {
     /// * `frame` - The Ratatui frame to render into
     /// * `area` - The area to render the panel in
     /// * `theme` - Theme implementation for styling
-    pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    pub fn render_panel(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         if !self.active {
             return;
         }
@@ -920,6 +920,90 @@ impl Default for QuestionPanel {
     }
 }
 
+// --- Widget trait implementation ---
+
+use std::any::Any;
+use super::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+
+impl Widget for QuestionPanel {
+    fn id(&self) -> &'static str {
+        widget_ids::QUESTION_PANEL
+    }
+
+    fn priority(&self) -> u8 {
+        200 // High priority - modal panel
+    }
+
+    fn is_active(&self) -> bool {
+        self.active
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+        if !self.active {
+            return WidgetKeyResult::NotHandled;
+        }
+
+        match self.process_key(key) {
+            KeyAction::Submitted(tool_use_id, response) => {
+                WidgetKeyResult::Action(WidgetAction::SubmitQuestion {
+                    tool_use_id,
+                    response,
+                })
+            }
+            KeyAction::Cancelled(tool_use_id) => {
+                WidgetKeyResult::Action(WidgetAction::CancelQuestion { tool_use_id })
+            }
+            KeyAction::Handled | KeyAction::NotHandled => WidgetKeyResult::Handled,
+        }
+    }
+
+    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        self.render_panel(frame, area, theme);
+    }
+
+    fn required_height(&self, max_height: u16) -> u16 {
+        if self.active {
+            self.panel_height(max_height)
+        } else {
+            0
+        }
+    }
+
+    fn blocks_input(&self) -> bool {
+        self.active
+    }
+
+    fn is_overlay(&self) -> bool {
+        false
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    fn activate_question(
+        &mut self,
+        tool_use_id: String,
+        session_id: i64,
+        request: AskUserQuestionsRequest,
+        turn_id: Option<TurnId>,
+    ) {
+        self.activate(tool_use_id, session_id, request, turn_id);
+    }
+
+    fn deactivate(&mut self) {
+        QuestionPanel::deactivate(self);
+    }
+}
+
 /// Truncate text to fit width
 fn truncate_text(text: &str, max_width: usize) -> String {
     if text.chars().count() <= max_width {
@@ -998,7 +1082,7 @@ mod tests {
         let request = create_test_request();
         panel.activate("tool_1".to_string(), 1, request, None);
 
-        let action = panel.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let action = panel.process_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         match action {
             KeyAction::Cancelled(tool_use_id) => {
                 assert_eq!(tool_use_id, "tool_1");
