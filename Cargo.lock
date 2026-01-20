@@ -6,15 +6,22 @@ version = 4
 name = "agent-core"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "chrono",
  "crossterm 0.28.1",
  "dirs",
- "llm-controller-rs",
+ "futures",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
  "pulldown-cmark",
  "ratatui 0.30.0",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "tracing-appender",
@@ -1053,19 +1060,6 @@ name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
-
-[[package]]
-name = "llm-controller-rs"
-version = "0.1.0"
-dependencies = [
- "futures",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "vangogh-rs",
-]
 
 [[package]]
 name = "lock_api"
@@ -2392,22 +2386,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "vangogh-rs"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "futures",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "serde_json",
- "tokio",
- "tokio-stream",
- "tracing",
-]
 
 [[package]]
 name = "version_check"

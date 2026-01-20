@@ -3,8 +3,8 @@
 // These types are used to send events from the LLM controller to the TUI
 // and from the TUI to the controller.
 
-use llm_controller_rs::types::ControlCmd;
-use llm_controller_rs::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus, TurnId};
+use crate::controller::types::ControlCmd;
+use crate::controller::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus, TurnId};
 
 /// Messages sent from the controller to the TUI for display
 #[derive(Debug, Clone)]
@@ -99,7 +99,7 @@ pub enum UiMessage {
 
 /// Channel type aliases for TUI-Controller communication
 pub mod channels {
-    use llm_controller_rs::ControllerInputPayload;
+    use crate::controller::ControllerInputPayload;
     use tokio::sync::mpsc;
 
     use super::UiMessage;

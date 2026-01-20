@@ -1,5 +1,5 @@
-use crate::error::LlmError;
-use crate::models::{Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse};
+use crate::client::error::LlmError;
+use crate::client::models::{Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse};
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -332,7 +332,7 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Tool;
+    use crate::client::models::Tool;
 
     #[test]
     fn test_build_request_body_simple() {

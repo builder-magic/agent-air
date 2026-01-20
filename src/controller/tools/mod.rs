@@ -25,7 +25,7 @@ pub use types::{
 };
 pub use permission_registry::{PendingPermissionInfo, PermissionError, PermissionGrant, PermissionRegistry};
 pub use user_interaction::{PendingQuestionInfo, UserInteractionError, UserInteractionRegistry};
-pub use vangogh_rs::models::Tool as VangoghTool;
+pub use crate::client::models::Tool as LLMTool;
 pub use web_search::{
     WebSearchTool, WEB_SEARCH_TOOL_DESCRIPTION, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_SCHEMA,
 };

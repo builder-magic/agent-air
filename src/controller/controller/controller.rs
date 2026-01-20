@@ -9,17 +9,18 @@ use tokio_util::sync::CancellationToken;
 
 use std::sync::Arc;
 
-use crate::session::{LLMSession, LLMSessionConfig, LLMSessionManager};
-use crate::tools::{
+use crate::client::error::LlmError;
+use crate::controller::session::{LLMSession, LLMSessionConfig, LLMSessionManager};
+use crate::controller::tools::{
     AskUserQuestionsResponse, PendingPermissionInfo, PendingQuestionInfo, PermissionError,
     PermissionRegistry, PermissionResponse, ToolBatchResult, ToolExecutor, ToolRegistry,
     ToolRequest, ToolResult, UserInteractionError, UserInteractionRegistry,
 };
-use crate::types::{
+use crate::controller::types::{
     ControlCmd, ControllerEvent, ControllerInputPayload, FromLLMPayload, InputType,
     LLMRequestType, LLMResponseType, ToLLMPayload, TurnId,
 };
-use crate::usage::TokenUsageTracker;
+use crate::controller::usage::TokenUsageTracker;
 
 /// Callback function type for controller events
 pub type EventFunc = Box<dyn Fn(ControllerEvent) + Send + Sync>;
@@ -627,7 +628,7 @@ impl LLMController {
 
     /// Handles a batch of tool execution results by sending them back to the session.
     async fn handle_tool_batch_result(&self, batch_result: ToolBatchResult) {
-        use crate::types::ToolResultInfo;
+        use crate::controller::types::ToolResultInfo;
 
         let session_id = batch_result.session_id;
 
@@ -737,14 +738,17 @@ impl LLMController {
     ///
     /// # Returns
     /// The session ID of the newly created session
-    pub async fn create_session(&self, config: LLMSessionConfig) -> i64 {
+    ///
+    /// # Errors
+    /// Returns an error if the session fails to initialize (e.g., TLS setup failure)
+    pub async fn create_session(&self, config: LLMSessionConfig) -> Result<i64, LlmError> {
         let session_id = self
             .session_mgr
             .create_session(config, self.from_llm_tx.clone())
-            .await;
+            .await?;
 
         tracing::info!(session_id, "Session created via controller");
-        session_id
+        Ok(session_id)
     }
 
     /// Retrieves a session by its ID.
@@ -787,17 +791,17 @@ impl LLMController {
     pub async fn get_session_token_usage(
         &self,
         session_id: i64,
-    ) -> Option<crate::usage::TokenMeter> {
+    ) -> Option<crate::controller::usage::TokenMeter> {
         self.token_usage.get_session_usage(session_id).await
     }
 
     /// Get token usage for a specific model.
-    pub async fn get_model_token_usage(&self, model: &str) -> Option<crate::usage::TokenMeter> {
+    pub async fn get_model_token_usage(&self, model: &str) -> Option<crate::controller::usage::TokenMeter> {
         self.token_usage.get_model_usage(model).await
     }
 
     /// Get total token usage across all sessions.
-    pub async fn get_total_token_usage(&self) -> crate::usage::TokenMeter {
+    pub async fn get_total_token_usage(&self) -> crate::controller::usage::TokenMeter {
         self.token_usage.get_total_usage().await
     }
 

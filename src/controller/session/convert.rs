@@ -1,34 +1,34 @@
-// Type conversion between llm-controller-rs and vangogh-rs types
+// Type conversion between controller types and LLM client types
 
-use vangogh_rs::models::{
-    Content as VangoghContent, Message as VangoghMessage, Role as VangoghRole,
-    ToolResult as VangoghToolResult, ToolUse as VangoghToolUse,
+use crate::client::models::{
+    Content as LLMContent, Message as LLMMessage, Role as LLMRole,
+    ToolResult as LLMToolResult, ToolUse as LLMToolUse,
 };
 
-use crate::types::{ContentBlock, Message, MessageRole, TextBlock, ToolResultBlock, ToolUseBlock};
+use crate::controller::types::{ContentBlock, Message, MessageRole, TextBlock, ToolResultBlock, ToolUseBlock};
 
-/// Convert our Message to vangogh-rs Message
-pub fn to_vangogh_message(msg: &Message) -> VangoghMessage {
+/// Convert our Message to LLM client Message
+pub fn to_llm_message(msg: &Message) -> LLMMessage {
     let role = match msg.role() {
-        MessageRole::User => VangoghRole::User,
-        MessageRole::Assistant => VangoghRole::Assistant,
+        MessageRole::User => LLMRole::User,
+        MessageRole::Assistant => LLMRole::Assistant,
     };
 
-    let content: Vec<VangoghContent> = msg
+    let content: Vec<LLMContent> = msg
         .content()
         .iter()
-        .filter_map(|block| to_vangogh_content(block))
+        .filter_map(|block| to_llm_content(block))
         .collect();
 
-    VangoghMessage::with_content(role, content)
+    LLMMessage::with_content(role, content)
 }
 
-/// Convert our ContentBlock to vangogh-rs Content
-pub fn to_vangogh_content(block: &ContentBlock) -> Option<VangoghContent> {
+/// Convert our ContentBlock to LLM client Content
+pub fn to_llm_content(block: &ContentBlock) -> Option<LLMContent> {
     match block {
-        ContentBlock::Text(text_block) => Some(VangoghContent::Text(text_block.text.clone())),
+        ContentBlock::Text(text_block) => Some(LLMContent::Text(text_block.text.clone())),
         ContentBlock::ToolUse(tool_use) => {
-            Some(VangoghContent::ToolUse(VangoghToolUse {
+            Some(LLMContent::ToolUse(LLMToolUse {
                 id: tool_use.id.clone(),
                 name: tool_use.name.clone(),
                 // Convert HashMap<String, Value> to JSON string
@@ -36,7 +36,7 @@ pub fn to_vangogh_content(block: &ContentBlock) -> Option<VangoghContent> {
             }))
         }
         ContentBlock::ToolResult(tool_result) => {
-            Some(VangoghContent::ToolResult(VangoghToolResult {
+            Some(LLMContent::ToolResult(LLMToolResult {
                 tool_use_id: tool_result.tool_use_id.clone(),
                 content: tool_result.content.clone(),
                 is_error: tool_result.is_error,
@@ -45,19 +45,19 @@ pub fn to_vangogh_content(block: &ContentBlock) -> Option<VangoghContent> {
     }
 }
 
-/// Convert vangogh-rs Message to our ContentBlock list
-pub fn from_vangogh_message(msg: &VangoghMessage) -> Vec<ContentBlock> {
+/// Convert LLM client Message to our ContentBlock list
+pub fn from_llm_message(msg: &LLMMessage) -> Vec<ContentBlock> {
     msg.content
         .iter()
-        .filter_map(|content| from_vangogh_content(content))
+        .filter_map(|content| from_llm_content(content))
         .collect()
 }
 
-/// Convert vangogh-rs Content to our ContentBlock
-pub fn from_vangogh_content(content: &VangoghContent) -> Option<ContentBlock> {
+/// Convert LLM client Content to our ContentBlock
+pub fn from_llm_content(content: &LLMContent) -> Option<ContentBlock> {
     match content {
-        VangoghContent::Text(text) => Some(ContentBlock::Text(TextBlock { text: text.clone() })),
-        VangoghContent::ToolUse(tool_use) => {
+        LLMContent::Text(text) => Some(ContentBlock::Text(TextBlock { text: text.clone() })),
+        LLMContent::ToolUse(tool_use) => {
             // Parse input JSON string to HashMap
             let input = serde_json::from_str(&tool_use.input).unwrap_or_default();
             Some(ContentBlock::ToolUse(ToolUseBlock {
@@ -66,33 +66,33 @@ pub fn from_vangogh_content(content: &VangoghContent) -> Option<ContentBlock> {
                 input,
             }))
         }
-        VangoghContent::ToolResult(tool_result) => Some(ContentBlock::ToolResult(ToolResultBlock {
+        LLMContent::ToolResult(tool_result) => Some(ContentBlock::ToolResult(ToolResultBlock {
             tool_use_id: tool_result.tool_use_id.clone(),
             content: tool_result.content.clone(),
             is_error: tool_result.is_error,
             compact_summary: None,
         })),
-        VangoghContent::Image(_) => None, // Skip images for now
+        LLMContent::Image(_) => None, // Skip images for now
     }
 }
 
-/// Convert a slice of our Messages to vangogh-rs Messages
-pub fn to_vangogh_messages(messages: &[Message]) -> Vec<VangoghMessage> {
-    messages.iter().map(to_vangogh_message).collect()
+/// Convert a slice of our Messages to LLM client Messages
+pub fn to_llm_messages(messages: &[Message]) -> Vec<LLMMessage> {
+    messages.iter().map(to_llm_message).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{TurnId, UserMessage};
+    use crate::controller::types::{TurnId, UserMessage};
     use std::collections::HashMap;
 
     #[test]
     fn test_text_content_conversion() {
         let block = ContentBlock::text("Hello world");
-        let vangogh = to_vangogh_content(&block).unwrap();
+        let llm_msg = to_llm_content(&block).unwrap();
 
-        if let VangoghContent::Text(text) = vangogh {
+        if let LLMContent::Text(text) = llm_msg {
             assert_eq!(text, "Hello world");
         } else {
             panic!("Expected text content");
@@ -109,9 +109,9 @@ mod tests {
             content: vec![ContentBlock::text("Hello")],
         });
 
-        let vangogh = to_vangogh_message(&msg);
-        assert_eq!(vangogh.role, VangoghRole::User);
-        assert_eq!(vangogh.content.len(), 1);
+        let llm_msg = to_llm_message(&msg);
+        assert_eq!(llm_msg.role, LLMRole::User);
+        assert_eq!(llm_msg.content.len(), 1);
     }
 
     #[test]
@@ -125,8 +125,8 @@ mod tests {
             input,
         });
 
-        let vangogh = to_vangogh_content(&block).unwrap();
-        let back = from_vangogh_content(&vangogh).unwrap();
+        let llm_msg = to_llm_content(&block).unwrap();
+        let back = from_llm_content(&llm_msg).unwrap();
 
         if let ContentBlock::ToolUse(tool) = back {
             assert_eq!(tool.id, "tool_1");
@@ -137,9 +137,9 @@ mod tests {
     }
 
     #[test]
-    fn test_from_vangogh_text() {
-        let content = VangoghContent::Text("Response text".to_string());
-        let block = from_vangogh_content(&content).unwrap();
+    fn test_from_llm_text() {
+        let content = LLMContent::Text("Response text".to_string());
+        let block = from_llm_content(&content).unwrap();
 
         if let ContentBlock::Text(text) = block {
             assert_eq!(text.text, "Response text");

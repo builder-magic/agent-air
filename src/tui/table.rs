@@ -297,7 +297,7 @@ fn render_border(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::theme::DefaultTheme;
+    use crate::tui::theme::DefaultTheme;
 
     #[test]
     fn test_is_table_line() {

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use llm_controller_rs::{CompactionConfig, LLMProvider, LLMSessionConfig, ToolCompaction};
+use crate::controller::{CompactionConfig, LLMProvider, LLMSessionConfig, ToolCompaction};
 use serde::Deserialize;
 
 /// Trait for agent-specific configuration.

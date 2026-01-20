@@ -6,9 +6,10 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::session::config::LLMSessionConfig;
-use crate::session::LLMSession;
-use crate::types::FromLLMPayload;
+use super::config::LLMSessionConfig;
+use super::LLMSession;
+use crate::client::error::LlmError;
+use crate::controller::types::FromLLMPayload;
 
 /// Manages multiple LLM sessions
 pub struct LLMSessionManager {
@@ -32,13 +33,16 @@ impl LLMSessionManager {
     ///
     /// # Returns
     /// The session ID of the newly created session
+    ///
+    /// # Errors
+    /// Returns an error if the session fails to initialize (e.g., TLS setup failure)
     pub async fn create_session(
         &self,
         config: LLMSessionConfig,
         from_llm: mpsc::Sender<FromLLMPayload>,
-    ) -> i64 {
+    ) -> Result<i64, LlmError> {
         let cancel_token = CancellationToken::new();
-        let session = Arc::new(LLMSession::new(config, from_llm, cancel_token));
+        let session = Arc::new(LLMSession::new(config, from_llm, cancel_token)?);
         let session_id = session.id();
 
         // Store the session
@@ -54,7 +58,7 @@ impl LLMSessionManager {
         });
 
         tracing::info!(session_id, "Session created and started");
-        session_id
+        Ok(session_id)
     }
 
     /// Retrieves a session by its ID.

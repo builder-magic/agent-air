@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::ask_for_permissions::{PermissionCategory, PermissionRequest, PermissionResponse};
-use crate::types::{ControllerEvent, TurnId};
+use crate::controller::types::{ControllerEvent, TurnId};
 
 /// Error types for permission operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -316,7 +316,7 @@ impl PermissionRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::ask_for_permissions::PermissionScope;
+    use crate::controller::tools::ask_for_permissions::PermissionScope;
 
     fn create_test_request() -> PermissionRequest {
         PermissionRequest {

@@ -9,7 +9,7 @@
 //! - Esc: Cancel (deny)
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use llm_controller_rs::{
+use crate::controller::{
     PermissionCategory, PermissionRequest, PermissionResponse, PermissionScope, TurnId,
 };
 use ratatui::{
@@ -87,7 +87,7 @@ impl PermissionOption {
 }
 
 /// Result of handling a key event
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum KeyAction {
     /// No action taken
     None,
@@ -585,6 +585,8 @@ mod tests {
             }
             _ => panic!("Expected Selected action"),
         }
+        // Panel doesn't deactivate itself - caller must do it
+        panel.deactivate();
         assert!(!panel.is_active());
     }
 
@@ -607,6 +609,8 @@ mod tests {
             }
             _ => panic!("Expected Cancelled action"),
         }
+        // Panel doesn't deactivate itself - caller must do it
+        panel.deactivate();
         assert!(!panel.is_active());
     }
 

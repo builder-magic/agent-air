@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::types::TurnId;
-use vangogh_rs::models::Tool as VangoghTool;
+use crate::controller::types::TurnId;
+use crate::client::models::Tool as LLMTool;
 
 /// Tool type classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,9 +263,9 @@ pub trait Executable: Send + Sync {
         }
     }
 
-    /// Convert to VangoghTool for provider APIs.
-    fn to_vangogh_tool(&self) -> VangoghTool {
-        VangoghTool::new(self.name(), self.description(), self.input_schema())
+    /// Convert to LLMTool for provider APIs.
+    fn to_llm_tool(&self) -> LLMTool {
+        LLMTool::new(self.name(), self.description(), self.input_schema())
     }
 
     /// Get display configuration for UI rendering.

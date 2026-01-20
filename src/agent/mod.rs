@@ -24,7 +24,7 @@ pub use messages::UiMessage;
 pub use router::InputRouter;
 
 // Re-export common types from llm-controller-rs that agents typically need
-pub use llm_controller_rs::{
+pub use crate::controller::{
     ControllerEvent, ControllerInputPayload, LLMController, LLMSessionConfig, PermissionRegistry,
     ToolResultStatus, TurnId, UserInteractionRegistry,
 };

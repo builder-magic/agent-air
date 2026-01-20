@@ -1,6 +1,6 @@
-use crate::error::LlmError;
-use crate::http::HttpClient;
-use crate::models::{Message, MessageOptions, StreamEvent};
+use super::error::LlmError;
+use super::http::HttpClient;
+use super::models::{Message, MessageOptions, StreamEvent};
 use futures::Stream;
 use std::future::Future;
 use std::pin::Pin;

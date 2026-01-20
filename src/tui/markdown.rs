@@ -452,7 +452,7 @@ fn render_code_block(code: &str, is_first_line: bool, theme: &impl Theme) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::theme::DefaultTheme;
+    use crate::tui::theme::DefaultTheme;
 
     #[test]
     fn test_plain_text() {

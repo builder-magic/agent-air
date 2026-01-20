@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::registry::ToolRegistry;
 use super::types::{ToolBatchResult, ToolContext, ToolRequest, ToolResult};
-use crate::types::TurnId;
+use crate::controller::types::TurnId;
 
 /// Manages tool execution with support for parallel batch execution.
 pub struct ToolExecutor {
@@ -292,7 +292,7 @@ impl ToolExecutorBatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::types::{Executable, ToolResultStatus, ToolType};
+    use crate::controller::tools::types::{Executable, ToolResultStatus, ToolType};
     use std::future::Future;
     use std::pin::Pin;
     use std::time::Duration;
@@ -330,6 +330,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     struct SlowTool;
 
     impl Executable for SlowTool {
@@ -440,7 +441,7 @@ mod tests {
         let registry = Arc::new(ToolRegistry::new());
 
         let (tool_tx, mut tool_rx) = mpsc::channel(10);
-        let (batch_tx, mut batch_rx) = mpsc::channel(10);
+        let (batch_tx, _batch_rx) = mpsc::channel(10);
 
         let executor = ToolExecutor::new(registry, tool_tx, batch_tx);
 

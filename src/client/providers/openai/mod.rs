@@ -1,9 +1,9 @@
 mod types;
 
-use crate::error::LlmError;
-use crate::http::HttpClient;
-use crate::models::{Message, MessageOptions};
-use crate::traits::LlmProvider;
+use crate::client::error::LlmError;
+use crate::client::http::HttpClient;
+use crate::client::models::{Message, MessageOptions};
+use crate::client::traits::LlmProvider;
 use std::future::Future;
 use std::pin::Pin;
 

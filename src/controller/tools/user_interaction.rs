@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use tokio::sync::{oneshot, Mutex, mpsc};
 
 use super::ask_user_questions::{AskUserQuestionsRequest, AskUserQuestionsResponse};
-use crate::types::{ControllerEvent, TurnId};
+use crate::controller::types::{ControllerEvent, TurnId};
 
 /// Error types for user interaction operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,7 +240,7 @@ impl UserInteractionRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::ask_user_questions::{Answer, Question};
+    use crate::controller::tools::ask_user_questions::{Answer, Question};
 
     fn create_test_request() -> AskUserQuestionsRequest {
         AskUserQuestionsRequest {

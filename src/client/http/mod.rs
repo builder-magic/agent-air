@@ -10,7 +10,7 @@ use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 
-use crate::error::LlmError;
+use crate::client::error::LlmError;
 
 type HttpsClient =
     Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, Full<Bytes>>;
@@ -91,16 +91,21 @@ fn rand_factor() -> f64 {
 }
 
 impl HttpClient {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, LlmError> {
         let https = HttpsConnectorBuilder::new()
             .with_native_roots()
-            .unwrap()
+            .map_err(|e| {
+                LlmError::new(
+                    "TLS_INIT_FAILED",
+                    format!("failed to load native TLS roots: {}", e),
+                )
+            })?
             .https_or_http()
             .enable_http1()
             .build();
 
         let client = Client::builder(TokioExecutor::new()).build(https);
-        Self { client }
+        Ok(Self { client })
     }
 
     pub async fn get(&self, uri: &str) -> Result<String, LlmError> {

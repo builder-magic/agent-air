@@ -1,11 +1,11 @@
 use tokio_util::sync::CancellationToken;
 
-use vangogh_rs::models::{Message as VangoghMessage, MessageOptions, StreamEvent};
-use vangogh_rs::providers::anthropic::AnthropicProvider;
-use vangogh_rs::providers::openai::OpenAIProvider;
-use vangogh_rs::VanGogh;
+use crate::client::models::{Message as LLMMessage, MessageOptions, StreamEvent};
+use crate::client::providers::anthropic::AnthropicProvider;
+use crate::client::providers::openai::OpenAIProvider;
+use crate::client::LLMClient;
 
-use crate::session::LLMProvider;
+use crate::controller::session::LLMProvider;
 
 use super::types::{
     RequestOptions, StatelessConfig, StatelessError, StatelessResult, StreamCallback,
@@ -15,7 +15,7 @@ use super::types::{
 /// Stateless executor for single LLM requests without session state.
 /// Safe for concurrent use - multiple tasks can call execute simultaneously.
 pub struct StatelessExecutor {
-    client: VanGogh,
+    client: LLMClient,
     config: StatelessConfig,
 }
 
@@ -28,11 +28,17 @@ impl StatelessExecutor {
             LLMProvider::Anthropic => {
                 let provider =
                     AnthropicProvider::new(config.api_key.clone(), config.model.clone());
-                VanGogh::new(Box::new(provider))
+                LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
+                    op: "init_client".to_string(),
+                    message: format!("failed to initialize LLM client: {}", e),
+                })?
             }
             LLMProvider::OpenAI => {
                 let provider = OpenAIProvider::new(config.api_key.clone(), config.model.clone());
-                VanGogh::new(Box::new(provider))
+                LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
+                    op: "init_client".to_string(),
+                    message: format!("failed to initialize LLM client: {}", e),
+                })?
             }
         };
 
@@ -60,11 +66,11 @@ impl StatelessExecutor {
             .or(self.config.system_prompt.as_ref());
 
         if let Some(prompt) = system_prompt {
-            messages.push(VangoghMessage::system(prompt));
+            messages.push(LLMMessage::system(prompt));
         }
 
         // Add user message
-        messages.push(VangoghMessage::user(input));
+        messages.push(LLMMessage::user(input));
 
         // Send request
         let response = self
@@ -114,11 +120,11 @@ impl StatelessExecutor {
             .or(self.config.system_prompt.as_ref());
 
         if let Some(prompt) = system_prompt {
-            messages.push(VangoghMessage::system(prompt));
+            messages.push(LLMMessage::system(prompt));
         }
 
         // Add user message
-        messages.push(VangoghMessage::user(input));
+        messages.push(LLMMessage::user(input));
 
         // Create streaming request
         let mut stream = self
@@ -211,9 +217,9 @@ impl StatelessExecutor {
         }
     }
 
-    /// Extracts text from a VanGogh message response.
-    fn extract_text(&self, message: &VangoghMessage) -> String {
-        use vangogh_rs::models::Content;
+    /// Extracts text from a LLMClient message response.
+    fn extract_text(&self, message: &LLMMessage) -> String {
+        use crate::client::models::Content;
 
         let mut text = String::new();
         for block in &message.content {

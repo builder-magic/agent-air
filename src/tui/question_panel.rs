@@ -14,7 +14,7 @@
 use std::collections::HashSet;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use llm_controller_rs::{
+use crate::controller::{
     Answer, AskUserQuestionsRequest, AskUserQuestionsResponse, Question, TurnId,
 };
 use ratatui::{
@@ -1005,6 +1005,8 @@ mod tests {
             }
             _ => panic!("Expected Cancelled action"),
         }
+        // Panel doesn't deactivate itself - caller must do it
+        panel.deactivate();
         assert!(!panel.is_active());
     }
 

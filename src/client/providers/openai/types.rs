@@ -1,5 +1,5 @@
-use crate::error::LlmError;
-use crate::models::{Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse};
+use crate::client::error::LlmError;
+use crate::client::models::{Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse};
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
 
@@ -343,7 +343,7 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Tool;
+    use crate::client::models::Tool;
 
     #[test]
     fn test_build_request_body_simple() {

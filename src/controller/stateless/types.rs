@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::session::LLMProvider;
+use crate::controller::session::LLMProvider;
 
 /// Default maximum tokens for responses when not specified.
 pub const DEFAULT_MAX_TOKENS: u32 = 4096;

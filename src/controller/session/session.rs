@@ -7,14 +7,15 @@ use std::time::Instant;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use vangogh_rs::models::Tool as VangoghTool;
-use vangogh_rs::providers::anthropic::AnthropicProvider;
-use vangogh_rs::providers::openai::OpenAIProvider;
-use vangogh_rs::VanGogh;
+use crate::client::error::LlmError;
+use crate::client::models::Tool as LLMTool;
+use crate::client::providers::anthropic::AnthropicProvider;
+use crate::client::providers::openai::OpenAIProvider;
+use crate::client::LLMClient;
 
-use crate::session::compactor::{AsyncCompactor, Compactor, LLMCompactor, ThresholdCompactor};
-use crate::session::config::{CompactorType, LLMProvider, LLMSessionConfig};
-use crate::types::{
+use super::compactor::{AsyncCompactor, Compactor, LLMCompactor, ThresholdCompactor};
+use super::config::{CompactorType, LLMProvider, LLMSessionConfig};
+use crate::controller::types::{
     AssistantMessage, ContentBlock, FromLLMPayload, Message, ToLLMPayload, TurnId, UserMessage,
 };
 
@@ -88,7 +89,7 @@ pub struct LLMSession {
     id: AtomicI64,
 
     // LLM client
-    client: VanGogh,
+    client: LLMClient,
 
     // Channels for communication
     to_llm_tx: mpsc::Sender<ToLLMPayload>,
@@ -124,7 +125,7 @@ pub struct LLMSession {
     request_count: AtomicI64,
 
     // Tool definitions for LLM API calls
-    tool_definitions: RwLock<Vec<VangoghTool>>,
+    tool_definitions: RwLock<Vec<LLMTool>>,
 
     // Compaction support
     compactor: Option<Box<dyn Compactor>>,
@@ -140,31 +141,34 @@ impl LLMSession {
     /// * `config` - Session configuration
     /// * `from_llm` - Sender for outgoing responses
     /// * `cancel_token` - Token for session cancellation
+    ///
+    /// # Errors
+    /// Returns an error if the LLM client fails to initialize (e.g., TLS setup failure)
     pub fn new(
         config: LLMSessionConfig,
         from_llm: mpsc::Sender<FromLLMPayload>,
         cancel_token: CancellationToken,
-    ) -> Self {
+    ) -> Result<Self, LlmError> {
         let session_id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
         let (to_llm_tx, to_llm_rx) = mpsc::channel(32);
         let max_tokens = config.max_tokens.unwrap_or(4096) as i64;
         let system_prompt = config.system_prompt.clone();
 
-        // Create the VanGogh client based on the provider
+        // Create the LLMClient client based on the provider
         let client = match config.provider {
             LLMProvider::Anthropic => {
                 let provider = AnthropicProvider::new(
                     config.api_key.clone(),
                     config.model.clone(),
                 );
-                VanGogh::new(Box::new(provider))
+                LLMClient::new(Box::new(provider))?
             }
             LLMProvider::OpenAI => {
                 let provider = OpenAIProvider::new(
                     config.api_key.clone(),
                     config.model.clone(),
                 );
-                VanGogh::new(Box::new(provider))
+                LLMClient::new(Box::new(provider))?
             }
         };
 
@@ -191,21 +195,21 @@ impl LLMSession {
                     }
                 }
                 CompactorType::LLM(c) => {
-                    // Create a separate VanGogh client for LLM compaction
+                    // Create a separate LLMClient client for LLM compaction
                     let llm_client = match config.provider {
                         LLMProvider::Anthropic => {
                             let provider = AnthropicProvider::new(
                                 config.api_key.clone(),
                                 config.model.clone(),
                             );
-                            VanGogh::new(Box::new(provider))
+                            LLMClient::new(Box::new(provider))?
                         }
                         LLMProvider::OpenAI => {
                             let provider = OpenAIProvider::new(
                                 config.api_key.clone(),
                                 config.model.clone(),
                             );
-                            VanGogh::new(Box::new(provider))
+                            LLMClient::new(Box::new(provider))?
                         }
                     };
 
@@ -228,7 +232,7 @@ impl LLMSession {
 
         let context_limit = config.context_limit;
 
-        Self {
+        Ok(Self {
             id: AtomicI64::new(session_id),
             client,
             to_llm_tx,
@@ -251,7 +255,7 @@ impl LLMSession {
             llm_compactor,
             context_limit: AtomicI32::new(context_limit),
             compact_summaries: RwLock::new(HashMap::new()),
-        }
+        })
     }
 
     /// Returns the session ID
@@ -309,7 +313,7 @@ impl LLMSession {
 
     /// Sets the tool definitions for this session.
     /// Tools will be included in all subsequent LLM API calls.
-    pub async fn set_tools(&self, tools: Vec<VangoghTool>) {
+    pub async fn set_tools(&self, tools: Vec<LLMTool>) {
         let mut guard = self.tool_definitions.write().await;
         *guard = tools;
     }
@@ -321,7 +325,7 @@ impl LLMSession {
     }
 
     /// Returns a copy of the current tool definitions.
-    pub async fn tools(&self) -> Vec<VangoghTool> {
+    pub async fn tools(&self) -> Vec<LLMTool> {
         self.tool_definitions.read().await.clone()
     }
 
@@ -714,9 +718,9 @@ impl LLMSession {
 
     /// Handles a non-streaming request.
     async fn handle_non_streaming_request(&self, request: ToLLMPayload) {
-        use crate::session::convert::{from_vangogh_message, to_vangogh_messages};
-        use crate::types::{LLMRequestType, LLMResponseType};
-        use vangogh_rs::models::{Message as VangoghMessage, MessageOptions};
+        use super::convert::{from_llm_message, to_llm_messages};
+        use crate::controller::types::{LLMRequestType, LLMResponseType};
+        use crate::client::models::{Message as LLMMessage, MessageOptions};
 
         // Create a cancellation token for this request
         let request_token = CancellationToken::new();
@@ -739,23 +743,23 @@ impl LLMSession {
         tracing::debug!(session_id, turn_id = %effective_turn_id, "Handling request");
 
         // Build the conversation messages
-        let mut vangogh_messages: Vec<VangoghMessage> = Vec::new();
+        let mut llm_messages: Vec<LLMMessage> = Vec::new();
 
         // Add system prompt if set
         if let Some(prompt) = self.system_prompt.read().await.as_ref() {
-            vangogh_messages.push(VangoghMessage::system(prompt.clone()));
+            llm_messages.push(LLMMessage::system(prompt.clone()));
         }
 
         // Add conversation history
         let conversation = self.conversation.read().await;
-        vangogh_messages.extend(to_vangogh_messages(&conversation));
+        llm_messages.extend(to_llm_messages(&conversation));
         drop(conversation);
 
         // Add the new message based on request type
         match request.request_type {
             LLMRequestType::UserMessage => {
                 if !request.content.is_empty() {
-                    vangogh_messages.push(VangoghMessage::user(&request.content));
+                    llm_messages.push(LLMMessage::user(&request.content));
 
                     // Add user message to conversation history
                     let user_msg = Message::User(UserMessage {
@@ -775,9 +779,9 @@ impl LLMSession {
                 // Store compact summaries for later compaction
                 self.store_compact_summaries(&request.compact_summaries).await;
 
-                // Add tool result messages using vangogh's proper format
+                // Add tool result messages using LLM client's proper format
                 for tool_result in &request.tool_results {
-                    vangogh_messages.push(VangoghMessage::tool_result(
+                    llm_messages.push(LLMMessage::tool_result(
                         &tool_result.tool_use_id,
                         &tool_result.content,
                         tool_result.is_error,
@@ -798,7 +802,7 @@ impl LLMSession {
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as i64,
-                        content: vec![ContentBlock::ToolResult(crate::types::ToolResultBlock {
+                        content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
                             tool_use_id: tool_result.tool_use_id.clone(),
                             content: tool_result.content.clone(),
                             is_error: tool_result.is_error,
@@ -825,12 +829,12 @@ impl LLMSession {
         };
 
         // Call the LLM
-        let result = self.client.send_message(&vangogh_messages, &options).await;
+        let result = self.client.send_message(&llm_messages, &options).await;
 
         match result {
             Ok(response) => {
                 // Convert response to our types
-                let content_blocks = from_vangogh_message(&response);
+                let content_blocks = from_llm_message(&response);
 
                 // Extract text for the text chunk response
                 let text: String = content_blocks
@@ -863,7 +867,7 @@ impl LLMSession {
                         let payload = FromLLMPayload {
                             session_id,
                             response_type: LLMResponseType::ToolUse,
-                            tool_use: Some(crate::types::ToolUseInfo {
+                            tool_use: Some(crate::controller::types::ToolUseInfo {
                                 id: tool_use.id.clone(),
                                 name: tool_use.name.clone(),
                                 input: serde_json::to_value(&tool_use.input).unwrap_or_default(),
@@ -941,11 +945,11 @@ impl LLMSession {
 
     /// Handles a streaming request.
     async fn handle_streaming_request(&self, request: ToLLMPayload) {
-        use crate::session::convert::to_vangogh_messages;
-        use crate::types::{LLMRequestType, LLMResponseType};
+        use super::convert::to_llm_messages;
+        use crate::controller::types::{LLMRequestType, LLMResponseType};
         use futures::StreamExt;
-        use vangogh_rs::models::{
-            ContentBlockType, Message as VangoghMessage, MessageOptions, StreamEvent,
+        use crate::client::models::{
+            ContentBlockType, Message as LLMMessage, MessageOptions, StreamEvent,
         };
 
         // Create a cancellation token for this request
@@ -969,23 +973,23 @@ impl LLMSession {
         tracing::debug!(session_id, turn_id = %effective_turn_id, "Handling streaming request");
 
         // Build the conversation messages
-        let mut vangogh_messages: Vec<VangoghMessage> = Vec::new();
+        let mut llm_messages: Vec<LLMMessage> = Vec::new();
 
         // Add system prompt if set
         if let Some(prompt) = self.system_prompt.read().await.as_ref() {
-            vangogh_messages.push(VangoghMessage::system(prompt.clone()));
+            llm_messages.push(LLMMessage::system(prompt.clone()));
         }
 
         // Add conversation history
         let conversation = self.conversation.read().await;
-        vangogh_messages.extend(to_vangogh_messages(&conversation));
+        llm_messages.extend(to_llm_messages(&conversation));
         drop(conversation);
 
         // Add the new message based on request type
         match request.request_type {
             LLMRequestType::UserMessage => {
                 if !request.content.is_empty() {
-                    vangogh_messages.push(VangoghMessage::user(&request.content));
+                    llm_messages.push(LLMMessage::user(&request.content));
 
                     // Add user message to conversation history
                     let user_msg = Message::User(UserMessage {
@@ -1015,9 +1019,9 @@ impl LLMSession {
                         "STREAMING ToolResult: conversation state before adding results"
                     );
                 }
-                // Add tool result messages using vangogh's proper format
+                // Add tool result messages using LLM client's proper format
                 for tool_result in &request.tool_results {
-                    vangogh_messages.push(VangoghMessage::tool_result(
+                    llm_messages.push(LLMMessage::tool_result(
                         &tool_result.tool_use_id,
                         &tool_result.content,
                         tool_result.is_error,
@@ -1038,7 +1042,7 @@ impl LLMSession {
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as i64,
-                        content: vec![ContentBlock::ToolResult(crate::types::ToolResultBlock {
+                        content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
                             tool_use_id: tool_result.tool_use_id.clone(),
                             content: tool_result.content.clone(),
                             is_error: tool_result.is_error,
@@ -1067,7 +1071,7 @@ impl LLMSession {
         // Call the streaming LLM API
         let stream_result = self
             .client
-            .send_message_stream(&vangogh_messages, &options)
+            .send_message_stream(&llm_messages, &options)
             .await;
 
         match stream_result {
@@ -1079,7 +1083,7 @@ impl LLMSession {
                 // Accumulate response text for conversation history
                 let mut response_text = String::new();
                 // Accumulate completed tool uses for conversation history
-                let mut completed_tool_uses: Vec<crate::types::ToolUseBlock> = Vec::new();
+                let mut completed_tool_uses: Vec<crate::controller::types::ToolUseBlock> = Vec::new();
 
                 // Process stream events
                 loop {
@@ -1165,7 +1169,7 @@ impl LLMSession {
                                                     tool_name = %name,
                                                     "Saving tool use to completed_tool_uses"
                                                 );
-                                                completed_tool_uses.push(crate::types::ToolUseBlock {
+                                                completed_tool_uses.push(crate::controller::types::ToolUseBlock {
                                                     id: id.clone(),
                                                     name: name.clone(),
                                                     input: input
@@ -1270,9 +1274,9 @@ impl LLMSession {
                                             // If there are tool uses, emit them as a batch for execution
                                             // This ensures all tools are executed together and results sent back in one message
                                             if !completed_tool_uses.is_empty() {
-                                                let tool_uses: Vec<crate::types::ToolUseInfo> = completed_tool_uses
+                                                let tool_uses: Vec<crate::controller::types::ToolUseInfo> = completed_tool_uses
                                                     .iter()
-                                                    .map(|tu| crate::types::ToolUseInfo {
+                                                    .map(|tu| crate::controller::types::ToolUseInfo {
                                                         id: tu.id.clone(),
                                                         name: tu.name.clone(),
                                                         input: serde_json::Value::Object(

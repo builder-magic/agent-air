@@ -1,7 +1,7 @@
 // Server-Sent Events (SSE) parser for Anthropic streaming responses
 
-use crate::error::LlmError;
-use crate::models::{ContentBlockType, StreamEvent, Usage};
+use crate::client::error::LlmError;
+use crate::client::models::{ContentBlockType, StreamEvent, Usage};
 
 /// Parsed SSE event with event type and data
 #[derive(Debug)]

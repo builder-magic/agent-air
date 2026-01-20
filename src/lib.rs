@@ -19,6 +19,19 @@
 //! - Logging infrastructure
 //! - Configuration management
 //! - Base agent trait for building custom agents
+//!
+//! ## LLM Client (`client` module)
+//! - Provider-agnostic LLM client interface
+//! - Anthropic and OpenAI provider implementations
+//! - HTTP client utilities
+//!
+//! ## LLM Controller (`controller` module)
+//! - Controller logic for managing LLM interactions
+//! - Session management and compaction
+//! - Tool execution framework
+//! - Permission and user interaction registries
 
 pub mod agent;
+pub mod client;
+pub mod controller;
 pub mod tui;

@@ -3,10 +3,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use vangogh_rs::models::{Message as VangoghMessage, MessageOptions};
-use vangogh_rs::VanGogh;
+use crate::client::models::{Message as LLMMessage, MessageOptions};
+use crate::client::LLMClient;
 
-use crate::types::{ContentBlock, Message, TextBlock, TurnId, UserMessage};
+use crate::controller::types::{ContentBlock, Message, TextBlock, TurnId, UserMessage};
 
 /// Defines how tool results are handled during compaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -392,8 +392,8 @@ impl Default for LLMCompactorConfig {
 /// LLM-based compactor that summarizes older conversation using an LLM.
 /// It replaces older messages with a single summary message while preserving recent turns.
 pub struct LLMCompactor {
-    /// VanGogh client for making summarization LLM calls.
-    client: VanGogh,
+    /// LLMClient client for making summarization LLM calls.
+    client: LLMClient,
 
     /// Configuration for compaction behavior.
     config: LLMCompactorConfig,
@@ -403,12 +403,12 @@ impl LLMCompactor {
     /// Creates a new LLM compactor.
     ///
     /// # Arguments
-    /// * `client` - VanGogh client for making LLM calls
+    /// * `client` - LLMClient client for making LLM calls
     /// * `config` - Configuration for compaction behavior
     ///
     /// # Returns
     /// Error if configuration is invalid.
-    pub fn new(client: VanGogh, config: LLMCompactorConfig) -> Result<Self, String> {
+    pub fn new(client: LLMClient, config: LLMCompactorConfig) -> Result<Self, String> {
         config.validate()?;
 
         tracing::info!(
@@ -609,8 +609,8 @@ impl AsyncCompactor for LLMCompactor {
 
             // Create messages for summarization
             let llm_messages = vec![
-                VangoghMessage::system(self.config.system_prompt()),
-                VangoghMessage::user(formatted_conversation),
+                LLMMessage::system(self.config.system_prompt()),
+                LLMMessage::user(formatted_conversation),
             ];
 
             // Make LLM call with timeout
@@ -637,7 +637,7 @@ impl AsyncCompactor for LLMCompactor {
                 .content
                 .iter()
                 .filter_map(|c| {
-                    if let vangogh_rs::models::Content::Text(t) = c {
+                    if let crate::client::models::Content::Text(t) = c {
                         Some(t.as_str())
                     } else {
                         None
@@ -685,7 +685,7 @@ fn truncate_content(content: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{UserMessage, AssistantMessage};
+    use crate::controller::types::{UserMessage, AssistantMessage};
 
     fn make_user_message(turn_id: TurnId) -> Message {
         Message::User(UserMessage {
@@ -693,7 +693,7 @@ mod tests {
             session_id: "test_session".to_string(),
             turn_id,
             created_at: 0,
-            content: vec![ContentBlock::Text(crate::types::TextBlock {
+            content: vec![ContentBlock::Text(crate::controller::types::TextBlock {
                 text: "test".to_string(),
             })],
         })
@@ -715,7 +715,7 @@ mod tests {
             cache_write_tokens: 0,
             finish_reason: None,
             error: None,
-            content: vec![ContentBlock::Text(crate::types::TextBlock {
+            content: vec![ContentBlock::Text(crate::controller::types::TextBlock {
                 text: "test".to_string(),
             })],
         })
@@ -727,7 +727,7 @@ mod tests {
             session_id: "test_session".to_string(),
             turn_id,
             created_at: 0,
-            content: vec![ContentBlock::ToolResult(crate::types::ToolResultBlock {
+            content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
                 tool_use_id: tool_use_id.to_string(),
                 content: content.to_string(),
                 is_error: false,

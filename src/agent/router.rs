@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use llm_controller_rs::LLMController;
+use crate::controller::LLMController;
 use tokio_util::sync::CancellationToken;
 
 use super::messages::channels::ToControllerRx;

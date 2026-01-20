@@ -85,7 +85,7 @@ impl Default for ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::types::{ToolContext, ToolType};
+    use crate::controller::tools::types::{ToolContext, ToolType};
     use std::pin::Pin;
     use std::future::Future;
 

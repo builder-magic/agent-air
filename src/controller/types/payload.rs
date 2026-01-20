@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::{ControlCmd, InputType, LLMRequestType, LLMResponseType, TurnId};
-use crate::tools::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus};
+use crate::controller::tools::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus};
 
 /// Payload for requests sent to the LLM
 #[derive(Debug, Clone)]
