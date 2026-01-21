@@ -190,8 +190,8 @@ impl Default for SlashPopupState {
 // --- Widget trait implementation ---
 
 use std::any::Any;
-use crossterm::event::{KeyCode, KeyEvent};
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
 
 /// Result of handling a key event in the slash popup
 #[derive(Debug, Clone, PartialEq)]
@@ -229,6 +229,14 @@ impl SlashPopupState {
                 self.select_next();
                 SlashKeyAction::Navigated
             }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_previous();
+                SlashKeyAction::Navigated
+            }
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_next();
+                SlashKeyAction::Navigated
+            }
             KeyCode::Enter => {
                 let idx = self.selected_index;
                 SlashKeyAction::Selected(idx)
@@ -260,24 +268,39 @@ impl Widget for SlashPopupState {
         self.active
     }
 
-    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+    fn handle_key(&mut self, key: KeyEvent, ctx: &WidgetKeyContext) -> WidgetKeyResult {
         if !self.active {
             return WidgetKeyResult::NotHandled;
         }
 
-        match self.process_key(key) {
-            SlashKeyAction::Selected(idx) => {
-                // Note: App still needs to execute the command
-                // We'll return an action that tells App which index was selected
-                WidgetKeyResult::Action(WidgetAction::ExecuteCommand {
-                    command: format!("__SLASH_INDEX_{}", idx),
-                })
-            }
-            SlashKeyAction::Cancelled => WidgetKeyResult::Action(WidgetAction::Close),
-            SlashKeyAction::Navigated => WidgetKeyResult::Handled,
-            // For these, we return NotHandled so App can update input buffer
-            SlashKeyAction::CharTyped(_) | SlashKeyAction::Backspace | SlashKeyAction::None => {
-                WidgetKeyResult::NotHandled
+        // Use NavigationHelper for key bindings
+        if ctx.nav.is_move_up(&key) {
+            self.select_previous();
+            return WidgetKeyResult::Handled;
+        }
+        if ctx.nav.is_move_down(&key) {
+            self.select_next();
+            return WidgetKeyResult::Handled;
+        }
+        if ctx.nav.is_select(&key) {
+            let idx = self.selected_index;
+            return WidgetKeyResult::Action(WidgetAction::ExecuteCommand {
+                command: format!("__SLASH_INDEX_{}", idx),
+            });
+        }
+        if ctx.nav.is_cancel(&key) {
+            self.deactivate();
+            return WidgetKeyResult::Action(WidgetAction::Close);
+        }
+
+        // Handle special keys not covered by nav helper
+        match key.code {
+            KeyCode::Backspace => WidgetKeyResult::NotHandled,
+            KeyCode::Char(_) => WidgetKeyResult::NotHandled,
+            _ => {
+                // Unknown key - cancel the popup
+                self.deactivate();
+                WidgetKeyResult::Action(WidgetAction::Close)
             }
         }
     }
@@ -300,7 +323,7 @@ impl Widget for SlashPopupState {
     }
 
     fn blocks_input(&self) -> bool {
-        false // Input continues to work while popup is shown
+        self.active // Block input when popup is active so keys reach the widget
     }
 
     fn is_overlay(&self) -> bool {

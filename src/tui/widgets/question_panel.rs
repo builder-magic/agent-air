@@ -1035,7 +1035,7 @@ impl Default for QuestionPanel {
 // --- Widget trait implementation ---
 
 use std::any::Any;
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
 
 impl Widget for QuestionPanel {
     fn id(&self) -> &'static str {
@@ -1050,11 +1050,42 @@ impl Widget for QuestionPanel {
         self.active
     }
 
-    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+    fn handle_key(&mut self, key: KeyEvent, ctx: &WidgetKeyContext) -> WidgetKeyResult {
         if !self.active {
             return WidgetKeyResult::NotHandled;
         }
 
+        let is_text_mode = self.is_text_focused();
+
+        // Use NavigationHelper for navigation keys (when not in text mode)
+        if !is_text_mode {
+            if ctx.nav.is_move_up(&key) {
+                self.focus_prev();
+                return WidgetKeyResult::Handled;
+            }
+            if ctx.nav.is_move_down(&key) {
+                self.focus_next();
+                return WidgetKeyResult::Handled;
+            }
+        }
+
+        // Ctrl+P/N always work for navigation (even in text mode)
+        if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.focus_prev();
+            return WidgetKeyResult::Handled;
+        }
+        if key.code == KeyCode::Char('n') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.focus_next();
+            return WidgetKeyResult::Handled;
+        }
+
+        // Cancel using nav helper
+        if ctx.nav.is_cancel(&key) {
+            let tool_use_id = self.tool_use_id.clone();
+            return WidgetKeyResult::Action(WidgetAction::CancelQuestion { tool_use_id });
+        }
+
+        // Handle other keys via process_key for backward compatibility
         match self.process_key(key) {
             KeyAction::Submitted(tool_use_id, response) => {
                 WidgetKeyResult::Action(WidgetAction::SubmitQuestion {

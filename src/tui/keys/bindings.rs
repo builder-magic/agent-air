@@ -55,6 +55,12 @@ pub struct KeyBindings {
     pub enter_exit_mode: Vec<KeyCombo>,
     /// Timeout in seconds for exit confirmation mode.
     pub exit_timeout_secs: u64,
+
+    // Widget navigation
+    /// Select/confirm in widgets (Enter, Space).
+    pub select: Vec<KeyCombo>,
+    /// Cancel/close in widgets (Esc).
+    pub cancel: Vec<KeyCombo>,
 }
 
 impl Default for KeyBindings {
@@ -95,6 +101,9 @@ impl KeyBindings {
             force_quit: vec![KeyCombo::ctrl('q')],
             enter_exit_mode: vec![],
             exit_timeout_secs: DEFAULT_EXIT_TIMEOUT_SECS,
+
+            select: vec![KeyCombo::key(KeyCode::Enter), KeyCombo::key(KeyCode::Char(' '))],
+            cancel: vec![KeyCombo::key(KeyCode::Esc)],
         }
     }
 
@@ -126,6 +135,9 @@ impl KeyBindings {
             force_quit: vec![KeyCombo::ctrl('q')],
             enter_exit_mode: vec![KeyCombo::ctrl('d')],
             exit_timeout_secs: DEFAULT_EXIT_TIMEOUT_SECS,
+
+            select: vec![KeyCombo::key(KeyCode::Enter), KeyCombo::key(KeyCode::Char(' '))],
+            cancel: vec![KeyCombo::key(KeyCode::Esc)],
         }
     }
 
@@ -155,6 +167,9 @@ impl KeyBindings {
             force_quit: vec![KeyCombo::ctrl('q')],   // Ctrl+Q always works
             enter_exit_mode: vec![],
             exit_timeout_secs: DEFAULT_EXIT_TIMEOUT_SECS,
+
+            select: vec![KeyCombo::key(KeyCode::Enter), KeyCombo::key(KeyCode::Char(' '))],
+            cancel: vec![KeyCombo::key(KeyCode::Esc)],
         }
     }
 
@@ -263,6 +278,18 @@ impl KeyBindings {
         self
     }
 
+    /// Set the select key bindings (for widget selection).
+    pub fn with_select(mut self, combos: Vec<KeyCombo>) -> Self {
+        self.select = combos;
+        self
+    }
+
+    /// Set the cancel key bindings (for widget cancellation).
+    pub fn with_cancel(mut self, combos: Vec<KeyCombo>) -> Self {
+        self.cancel = combos;
+        self
+    }
+
     // -------------------------------------------------------------------------
     // Builder pattern methods: without_* for disabling
     // -------------------------------------------------------------------------
@@ -358,6 +385,18 @@ impl KeyBindings {
     /// Add a key combo to the force quit bindings.
     pub fn add_force_quit(mut self, combo: KeyCombo) -> Self {
         self.force_quit.push(combo);
+        self
+    }
+
+    /// Add a key combo to the select bindings.
+    pub fn add_select(mut self, combo: KeyCombo) -> Self {
+        self.select.push(combo);
+        self
+    }
+
+    /// Add a key combo to the cancel bindings.
+    pub fn add_cancel(mut self, combo: KeyCombo) -> Self {
+        self.cancel.push(combo);
         self
     }
 }

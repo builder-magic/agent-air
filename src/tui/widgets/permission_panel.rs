@@ -585,7 +585,7 @@ impl Default for PermissionPanel {
 // --- Widget trait implementation ---
 
 use std::any::Any;
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
 
 impl Widget for PermissionPanel {
     fn id(&self) -> &'static str {
@@ -600,22 +600,49 @@ impl Widget for PermissionPanel {
         self.active
     }
 
-    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+    fn handle_key(&mut self, key: KeyEvent, ctx: &WidgetKeyContext) -> WidgetKeyResult {
         if !self.active {
             return WidgetKeyResult::NotHandled;
         }
 
-        match self.process_key(key) {
-            KeyAction::Selected(tool_use_id, response) => {
-                WidgetKeyResult::Action(WidgetAction::SubmitPermission {
-                    tool_use_id,
-                    response,
-                })
+        // Use NavigationHelper for navigation keys
+        if ctx.nav.is_move_up(&key) {
+            self.select_prev();
+            return WidgetKeyResult::Handled;
+        }
+        if ctx.nav.is_move_down(&key) {
+            self.select_next();
+            return WidgetKeyResult::Handled;
+        }
+
+        // Selection using nav helper
+        if ctx.nav.is_select(&key) {
+            let option = self.selected_option();
+            let response = option.to_response();
+            let tool_use_id = self.tool_use_id.clone();
+            return WidgetKeyResult::Action(WidgetAction::SubmitPermission {
+                tool_use_id,
+                response,
+            });
+        }
+
+        // Cancel using nav helper
+        if ctx.nav.is_cancel(&key) {
+            let tool_use_id = self.tool_use_id.clone();
+            return WidgetKeyResult::Action(WidgetAction::CancelPermission { tool_use_id });
+        }
+
+        // j/k vim-style navigation (kept for consistency)
+        match key.code {
+            KeyCode::Char('k') => {
+                self.select_prev();
+                WidgetKeyResult::Handled
             }
-            KeyAction::Cancelled(tool_use_id) => {
-                WidgetKeyResult::Action(WidgetAction::CancelPermission { tool_use_id })
+            KeyCode::Char('j') => {
+                self.select_next();
+                WidgetKeyResult::Handled
             }
-            KeyAction::None => WidgetKeyResult::Handled,
+            _ => WidgetKeyResult::Handled,
         }
     }
 

@@ -112,7 +112,7 @@ impl Default for ThemePickerState {
 
 use std::any::Any;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::tui::widgets::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+use crate::tui::widgets::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
 
 /// Result of handling a key event in the theme picker
 #[derive(Debug, Clone, PartialEq)]
@@ -177,18 +177,30 @@ impl Widget for ThemePickerState {
         self.active
     }
 
-    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+    fn handle_key(&mut self, key: KeyEvent, ctx: &WidgetKeyContext) -> WidgetKeyResult {
         if !self.active {
             return WidgetKeyResult::NotHandled;
         }
 
-        match self.process_key(key) {
-            ThemeKeyAction::Confirmed | ThemeKeyAction::Cancelled => {
-                WidgetKeyResult::Action(WidgetAction::Close)
-            }
-            ThemeKeyAction::Navigated => WidgetKeyResult::Handled,
-            ThemeKeyAction::None => WidgetKeyResult::Handled,
+        // Use NavigationHelper for key bindings
+        if ctx.nav.is_move_up(&key) {
+            self.select_previous();
+            return WidgetKeyResult::Handled;
         }
+        if ctx.nav.is_move_down(&key) {
+            self.select_next();
+            return WidgetKeyResult::Handled;
+        }
+        if ctx.nav.is_select(&key) {
+            self.confirm();
+            return WidgetKeyResult::Action(WidgetAction::Close);
+        }
+        if ctx.nav.is_cancel(&key) {
+            self.cancel();
+            return WidgetKeyResult::Action(WidgetAction::Close);
+        }
+
+        WidgetKeyResult::Handled
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, _theme: &Theme) {

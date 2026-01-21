@@ -228,7 +228,7 @@ impl Default for SessionPickerState {
 
 use std::any::Any;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyResult};
+use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
 
 /// Result of handling a key event in the session picker
 #[derive(Debug, Clone, PartialEq)]
@@ -295,18 +295,34 @@ impl Widget for SessionPickerState {
         self.active
     }
 
-    fn handle_key(&mut self, key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+    fn handle_key(&mut self, key: KeyEvent, ctx: &WidgetKeyContext) -> WidgetKeyResult {
         if !self.active {
             return WidgetKeyResult::NotHandled;
         }
 
-        match self.process_key(key) {
-            SessionKeyAction::Selected(session_id) => {
-                WidgetKeyResult::Action(WidgetAction::SwitchSession { session_id })
-            }
-            SessionKeyAction::Cancelled => WidgetKeyResult::Action(WidgetAction::Close),
-            SessionKeyAction::None => WidgetKeyResult::Handled,
+        // Use NavigationHelper for key bindings
+        if ctx.nav.is_move_up(&key) {
+            self.select_previous();
+            return WidgetKeyResult::Handled;
         }
+        if ctx.nav.is_move_down(&key) {
+            self.select_next();
+            return WidgetKeyResult::Handled;
+        }
+        if ctx.nav.is_select(&key) {
+            if let Some(session_id) = self.selected_session_id() {
+                self.confirm();
+                return WidgetKeyResult::Action(WidgetAction::SwitchSession { session_id });
+            }
+            return WidgetKeyResult::Handled;
+        }
+        if ctx.nav.is_cancel(&key) {
+            self.cancel();
+            return WidgetKeyResult::Action(WidgetAction::Close);
+        }
+
+        // Other keys are ignored
+        WidgetKeyResult::Handled
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {

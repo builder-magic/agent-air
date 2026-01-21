@@ -22,7 +22,7 @@ use super::messages::UiMessage;
 use super::router::InputRouter;
 
 use crate::tui::{App, AppConfig, DefaultKeyHandler, ExitHandler, KeyBindings, KeyHandler, LayoutTemplate, SessionInfo};
-use crate::tui::widgets::Widget;
+use crate::tui::widgets::{Widget, ConversationView, ConversationViewFactory};
 
 /// Sender for messages from TUI to controller
 pub type ToControllerTx = mpsc::Sender<ControllerInputPayload>;
@@ -72,11 +72,8 @@ pub struct AgentCore {
     /// Agent version for display
     version: String,
 
-    /// Welcome ASCII art lines
-    welcome_art: Vec<String>,
-
-    /// Subtitle line indices in welcome art
-    welcome_subtitle_indices: Vec<usize>,
+    /// Factory for creating conversation views
+    conversation_factory: Option<ConversationViewFactory>,
 
     /// Tokio runtime for async operations
     runtime: Runtime,
@@ -222,11 +219,7 @@ impl AgentCore {
             logger,
             name: config.name().to_string(),
             version: "0.1.0".to_string(),
-            welcome_art: vec![
-                String::new(),
-                "    Type a message to start chatting...".to_string(),
-            ],
-            welcome_subtitle_indices: vec![1],
+            conversation_factory: None,
             runtime,
             controller,
             llm_registry: Some(llm_registry),
@@ -250,10 +243,27 @@ impl AgentCore {
         self.version = version.into();
     }
 
-    /// Set the welcome ASCII art displayed when chat is empty.
-    pub fn set_welcome_art(&mut self, art: Vec<String>, subtitle_indices: Vec<usize>) {
-        self.welcome_art = art;
-        self.welcome_subtitle_indices = subtitle_indices;
+    /// Set the conversation view factory.
+    ///
+    /// The factory is called to create conversation views when sessions
+    /// are created or cleared. This allows customizing the chat view
+    /// with custom welcome screens, title renderers, etc.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// agent.set_conversation_factory(|| {
+    ///     Box::new(ChatView::new()
+    ///         .with_title("My Agent")
+    ///         .with_initial_content(welcome_renderer))
+    /// });
+    /// ```
+    pub fn set_conversation_factory<F>(&mut self, factory: F) -> &mut Self
+    where
+        F: Fn() -> Box<dyn ConversationView> + Send + Sync + 'static,
+    {
+        self.conversation_factory = Some(Box::new(factory));
+        self
     }
 
     /// Set the layout template for the TUI.
@@ -537,12 +547,15 @@ impl AgentCore {
         let app_config = AppConfig {
             agent_name: self.name.clone(),
             version: self.version.clone(),
-            welcome_art: self.welcome_art.clone(),
-            welcome_subtitle_indices: self.welcome_subtitle_indices.clone(),
             custom_commands: Vec::new(),
             ..Default::default()
         };
         let mut app = App::with_config(app_config);
+
+        // Set conversation factory if provided
+        if let Some(factory) = self.conversation_factory.take() {
+            app.set_conversation_factory(move || factory());
+        }
 
         // Register widgets with the App
         for widget in self.widgets_to_register.drain(..) {

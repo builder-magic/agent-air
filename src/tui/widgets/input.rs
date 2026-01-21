@@ -333,7 +333,7 @@ use std::any::Any;
 use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, Frame};
 use crate::tui::themes::Theme;
-use super::{widget_ids, Widget, WidgetKeyResult};
+use super::{widget_ids, Widget, WidgetKeyContext, WidgetKeyResult};
 
 impl Widget for TextInput {
     fn id(&self) -> &'static str {
@@ -348,7 +348,7 @@ impl Widget for TextInput {
         true // Always active (unless blocked by modal)
     }
 
-    fn handle_key(&mut self, _key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+    fn handle_key(&mut self, _key: KeyEvent, _ctx: &WidgetKeyContext) -> WidgetKeyResult {
         // TextInput doesn't handle keys via Widget trait
         // Key handling is done by App directly
         WidgetKeyResult::NotHandled

@@ -22,10 +22,12 @@ use ratatui::{layout::Rect, Frame};
 use std::any::Any;
 
 use crate::controller::{AskUserQuestionsResponse, PermissionResponse};
+use crate::tui::keys::NavigationHelper;
 use crate::tui::themes::Theme;
 
 pub mod chat;
 pub mod chat_helpers;
+pub mod conversation;
 pub mod input;
 pub mod permission_panel;
 pub mod question_panel;
@@ -33,7 +35,8 @@ pub mod session_picker;
 pub mod slash_popup;
 
 pub use chat::{ChatView, ChatViewConfig, MessageRole, ToolMessageData, ToolStatus};
-pub use chat_helpers::{centered_text, title_bar, welcome_art, welcome_art_styled, RenderFn};
+pub use chat_helpers::RenderFn;
+pub use conversation::{ConversationView, ConversationViewFactory};
 pub use input::TextInput;
 pub use permission_panel::{
     KeyAction as PermissionKeyAction, PermissionOption, PermissionPanel, PermissionPanelConfig,
@@ -60,6 +63,17 @@ pub mod widget_ids {
     pub const SESSION_PICKER: &str = "session_picker";
     pub const SLASH_POPUP: &str = "slash_popup";
     pub const THEME_PICKER: &str = "theme_picker";
+}
+
+/// Context provided to widgets when handling key events.
+///
+/// This contains references to the theme and a navigation helper that allows
+/// widgets to respect configured key bindings instead of hardcoding key codes.
+pub struct WidgetKeyContext<'a> {
+    /// Theme for styling.
+    pub theme: &'a Theme,
+    /// Navigation helper for checking key bindings.
+    pub nav: NavigationHelper<'a>,
 }
 
 /// Result of a widget handling a key event
@@ -117,8 +131,11 @@ pub trait Widget: Send + 'static {
     /// Whether the widget is currently active/visible
     fn is_active(&self) -> bool;
 
-    /// Handle key event, return result indicating what action to take
-    fn handle_key(&mut self, key: KeyEvent, theme: &Theme) -> WidgetKeyResult;
+    /// Handle key event, return result indicating what action to take.
+    ///
+    /// The `ctx` parameter provides access to the theme and a navigation helper
+    /// that respects configured key bindings.
+    fn handle_key(&mut self, key: KeyEvent, ctx: &WidgetKeyContext) -> WidgetKeyResult;
 
     /// Render the widget
     fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);

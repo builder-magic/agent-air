@@ -303,6 +303,12 @@ impl Message {
 // Re-export RenderFn from chat_helpers for backwards compatibility
 pub use super::chat_helpers::RenderFn;
 
+use crate::tui::themes::Theme;
+
+/// Function type for rendering custom title bars
+/// Returns (left_title, right_title) as ratatui Lines
+pub type TitleRenderFn = Box<dyn Fn(&str, &Theme) -> (Line<'static>, Line<'static>) + Send + Sync>;
+
 pub struct ChatView {
     messages: Vec<Message>,
     scroll_offset: u16,
@@ -318,8 +324,10 @@ pub struct ChatView {
     spinner_index: usize,
     /// Title displayed in the title bar
     title: String,
-    /// Optional custom empty state renderer (shown when no messages)
-    render_empty_state: Option<RenderFn>,
+    /// Optional custom initial content renderer (shown when no messages)
+    render_initial_content: Option<RenderFn>,
+    /// Optional custom title renderer
+    render_title: Option<TitleRenderFn>,
     /// Configuration for display customization
     config: ChatViewConfig,
 }
@@ -342,7 +350,8 @@ impl ChatView {
             tool_index: HashMap::new(),
             spinner_index: 0,
             title,
-            render_empty_state: None,
+            render_initial_content: None,
+            render_title: None,
             config,
         }
     }
@@ -367,15 +376,24 @@ impl ChatView {
         self
     }
 
-    /// Set custom empty state renderer (shown when no messages)
+    /// Set custom initial content renderer (shown when no messages)
     ///
-    /// Use helper functions from `chat_helpers` for common patterns:
-    /// - `welcome_art()` - ASCII art welcome screen
-    /// - `centered_text()` - Simple centered message
+    /// Provide a closure for full ratatui control over what to display
+    /// when the chat has no messages yet.
+    pub fn with_initial_content(mut self, render: RenderFn) -> Self {
+        self.render_initial_content = Some(render);
+        self
+    }
+
+    /// Set custom title bar renderer
     ///
-    /// Or provide a custom closure for full ratatui control.
-    pub fn with_empty_state(mut self, render: RenderFn) -> Self {
-        self.render_empty_state = Some(render);
+    /// The function receives the current title and theme, and returns
+    /// (left_title, right_title) as ratatui Lines.
+    pub fn with_title_renderer<F>(mut self, render: F) -> Self
+    where
+        F: Fn(&str, &Theme) -> (Line<'static>, Line<'static>) + Send + Sync + 'static,
+    {
+        self.render_title = Some(Box::new(render));
         self
     }
 
@@ -530,65 +548,37 @@ impl ChatView {
     }
 
     pub fn render_chat(&mut self, frame: &mut Frame, area: Rect, pending_status: Option<&str>) {
-        // Green checkmark style for agent status
-        let check_style = Style::default().fg(Color::Green);
+        let theme = app_theme();
 
-        // Helper to create title lines (called multiple times if needed)
-        let create_titles = || {
-            let left = Line::from(vec![
-                Span::styled("\u{2500} ", app_theme().title_separator),
-                Span::styled("\u{25CF} ", app_theme().title_indicator_connected),
-                Span::styled(self.title.clone(), app_theme().title_text),
-            ]);
-
-            let right = Line::from(vec![
-                Span::styled("[\u{2713}]", check_style),
-                Span::styled(" Manager Agent (1) ", app_theme().title_text),
-                Span::styled("[\u{2713}]", check_style),
-                Span::styled(" Coding Agents (4) ", app_theme().title_text),
-                Span::styled("[\u{2713}]", check_style),
-                Span::styled(" Code Reviewers (2) ", app_theme().title_text),
-                Span::styled("\u{2500}", app_theme().title_separator),
-            ]);
-
-            (left, right)
+        // Create block - with custom title if renderer provided, plain border otherwise
+        let content_block = if let Some(ref render_fn) = self.render_title {
+            let (left_title, right_title) = render_fn(&self.title, &theme);
+            Block::default()
+                .title(left_title)
+                .title_alignment(Alignment::Left)
+                .title(right_title.alignment(Alignment::Right))
+                .borders(Borders::TOP)
+                .border_style(theme.border)
+                .padding(Padding::new(1, 0, 1, 0))
+        } else {
+            Block::default()
+                .borders(Borders::TOP)
+                .border_style(theme.border)
+                .padding(Padding::new(1, 0, 1, 0))
         };
 
-        // Check if we're in empty state with a custom renderer
-        let is_empty_state = self.messages.is_empty() && self.streaming_buffer.is_none() && pending_status.is_none();
+        // Check if we're in initial state (no messages yet)
+        let is_initial_state = self.messages.is_empty() && self.streaming_buffer.is_none() && pending_status.is_none();
 
-        // If we have a custom empty state renderer, use it and return early
-        if is_empty_state {
-            if let Some(ref render_fn) = self.render_empty_state {
-                let (left_title, right_title) = create_titles();
-
-                let empty_block = Block::default()
-                    .title(left_title)
-                    .title_alignment(Alignment::Left)
-                    .title(right_title.alignment(Alignment::Right))
-                    .borders(Borders::TOP)
-                    .border_style(app_theme().border)
-                    .padding(Padding::new(1, 0, 1, 0));
-
-                let inner = empty_block.inner(area);
-                frame.render_widget(empty_block, area);
-
-                // Call the custom renderer
-                render_fn(frame, inner, &app_theme());
+        // If we have custom initial content renderer, use it and return early
+        if is_initial_state {
+            if let Some(ref render_fn) = self.render_initial_content {
+                let inner = content_block.inner(area);
+                frame.render_widget(content_block, area);
+                render_fn(frame, inner, &theme);
                 return;
             }
         }
-
-        // Normal rendering path
-        let (left_title, right_title) = create_titles();
-
-        let content_block = Block::default()
-            .title(left_title)
-            .title_alignment(Alignment::Left)
-            .title(right_title.alignment(Alignment::Right))
-            .borders(Borders::TOP)
-            .border_style(app_theme().border)
-            .padding(Padding::new(1, 0, 1, 0)); // left=1, top=1
 
         // Calculate available width for manual wrapping
         let available_width = area.width.saturating_sub(2) as usize; // -2 for left padding + margin
@@ -596,8 +586,8 @@ impl ChatView {
         // Build message lines using cached rendering
         let mut message_lines: Vec<Line> = Vec::new();
 
-        // Show default empty state if no custom renderer
-        if is_empty_state {
+        // Show default initial message if no custom renderer
+        if is_initial_state {
             message_lines.push(Line::from(""));
             message_lines.push(Line::from(Span::styled(
                 self.config.empty_message.clone(),
@@ -613,19 +603,19 @@ impl ChatView {
 
         // Add streaming buffer if present
         if let Some(ref buffer) = self.streaming_buffer {
-            let rendered = render_markdown_with_prefix(buffer, available_width, &app_theme());
+            let rendered = render_markdown_with_prefix(buffer, available_width, &theme);
             message_lines.extend(rendered);
             // Add cursor on last line
             if let Some(last) = message_lines.last_mut() {
                 last.spans
-                    .push(Span::styled("\u{2588}", app_theme().cursor));
+                    .push(Span::styled("\u{2588}", theme.cursor));
             }
         } else if let Some(status) = pending_status {
             // Show pending status with spinner when not streaming
             let spinner_char = self.config.spinner_chars.get(self.spinner_index).copied().unwrap_or(' ');
             message_lines.push(Line::from(vec![
-                Span::styled(format!("{} ", spinner_char), app_theme().throbber_spinner),
-                Span::styled(status, app_theme().throbber_label),
+                Span::styled(format!("{} ", spinner_char), theme.throbber_spinner),
+                Span::styled(status, theme.throbber_label),
             ]));
         }
 
@@ -654,7 +644,7 @@ impl ChatView {
 
         let messages_widget = Paragraph::new(message_lines)
             .block(content_block)
-            .style(app_theme().background.patch(app_theme().text))
+            .style(theme.background.patch(theme.text))
             .scroll((scroll_offset, 0));
         frame.render_widget(messages_widget, area);
     }
@@ -702,12 +692,154 @@ impl Default for ChatView {
     }
 }
 
+// --- ConversationView trait implementation ---
+
+use super::ConversationView;
+
+/// State snapshot for ChatView (used for session save/restore)
+#[derive(Clone)]
+struct ChatViewState {
+    messages: Vec<MessageSnapshot>,
+    scroll_offset: u16,
+    streaming_buffer: Option<String>,
+    last_max_scroll: u16,
+    auto_scroll_enabled: bool,
+    tool_index: HashMap<String, usize>,
+    spinner_index: usize,
+}
+
+/// Snapshot of a single message (Clone-friendly version)
+#[derive(Clone)]
+struct MessageSnapshot {
+    role: MessageRole,
+    content: String,
+    timestamp: DateTime<Local>,
+    tool_data: Option<ToolMessageData>,
+}
+
+impl From<&Message> for MessageSnapshot {
+    fn from(msg: &Message) -> Self {
+        Self {
+            role: msg.role,
+            content: msg.content.clone(),
+            timestamp: msg.timestamp,
+            tool_data: msg.tool_data.clone(),
+        }
+    }
+}
+
+impl From<MessageSnapshot> for Message {
+    fn from(snapshot: MessageSnapshot) -> Self {
+        Self {
+            role: snapshot.role,
+            content: snapshot.content,
+            timestamp: snapshot.timestamp,
+            cached_lines: None,
+            cached_width: 0,
+            tool_data: snapshot.tool_data,
+        }
+    }
+}
+
+impl ConversationView for ChatView {
+    fn add_user_message(&mut self, content: String) {
+        ChatView::add_user_message(self, content);
+    }
+
+    fn add_assistant_message(&mut self, content: String) {
+        ChatView::add_assistant_message(self, content);
+    }
+
+    fn add_system_message(&mut self, content: String) {
+        ChatView::add_system_message(self, content);
+    }
+
+    fn append_streaming(&mut self, text: &str) {
+        ChatView::append_streaming(self, text);
+    }
+
+    fn complete_streaming(&mut self) {
+        ChatView::complete_streaming(self);
+    }
+
+    fn discard_streaming(&mut self) {
+        ChatView::discard_streaming(self);
+    }
+
+    fn is_streaming(&self) -> bool {
+        ChatView::is_streaming(self)
+    }
+
+    fn add_tool_message(&mut self, tool_use_id: &str, display_name: &str, display_title: &str) {
+        ChatView::add_tool_message(self, tool_use_id, display_name, display_title);
+    }
+
+    fn update_tool_status(&mut self, tool_use_id: &str, status: ToolStatus) {
+        ChatView::update_tool_status(self, tool_use_id, status);
+    }
+
+    fn scroll_up(&mut self) {
+        ChatView::scroll_up(self);
+    }
+
+    fn scroll_down(&mut self) {
+        ChatView::scroll_down(self);
+    }
+
+    fn enable_auto_scroll(&mut self) {
+        ChatView::enable_auto_scroll(self);
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, _theme: &Theme, pending_status: Option<&str>) {
+        self.render_chat(frame, area, pending_status);
+    }
+
+    fn step_spinner(&mut self) {
+        ChatView::step_spinner(self);
+    }
+
+    fn save_state(&self) -> Box<dyn Any + Send> {
+        let state = ChatViewState {
+            messages: self.messages.iter().map(MessageSnapshot::from).collect(),
+            scroll_offset: self.scroll_offset,
+            streaming_buffer: self.streaming_buffer.clone(),
+            last_max_scroll: self.last_max_scroll,
+            auto_scroll_enabled: self.auto_scroll_enabled,
+            tool_index: self.tool_index.clone(),
+            spinner_index: self.spinner_index,
+        };
+        Box::new(state)
+    }
+
+    fn restore_state(&mut self, state: Box<dyn Any + Send>) {
+        if let Ok(chat_state) = state.downcast::<ChatViewState>() {
+            self.messages = chat_state.messages.into_iter().map(Message::from).collect();
+            self.scroll_offset = chat_state.scroll_offset;
+            self.streaming_buffer = chat_state.streaming_buffer;
+            self.last_max_scroll = chat_state.last_max_scroll;
+            self.auto_scroll_enabled = chat_state.auto_scroll_enabled;
+            self.tool_index = chat_state.tool_index;
+            self.spinner_index = chat_state.spinner_index;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.messages.clear();
+        self.streaming_buffer = None;
+        self.tool_index.clear();
+        self.scroll_offset = 0;
+        self.last_max_scroll = 0;
+        self.auto_scroll_enabled = true;
+        self.spinner_index = 0;
+        // Preserve: title, render_title, render_initial_content, config
+    }
+}
+
 // --- Widget trait implementation ---
 
 use std::any::Any;
 use crossterm::event::KeyEvent;
-use crate::tui::themes::Theme;
-use super::{widget_ids, Widget, WidgetKeyResult};
+use super::{widget_ids, Widget, WidgetKeyContext, WidgetKeyResult};
 
 impl Widget for ChatView {
     fn id(&self) -> &'static str {
@@ -722,7 +854,7 @@ impl Widget for ChatView {
         true // Always active
     }
 
-    fn handle_key(&mut self, _key: KeyEvent, _theme: &Theme) -> WidgetKeyResult {
+    fn handle_key(&mut self, _key: KeyEvent, _ctx: &WidgetKeyContext) -> WidgetKeyResult {
         // ChatView doesn't handle keys directly via Widget trait
         // Scrolling is handled by App
         WidgetKeyResult::NotHandled

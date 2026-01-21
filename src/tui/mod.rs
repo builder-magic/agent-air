@@ -35,8 +35,8 @@ pub use commands::{
 pub use widgets::{
     // Core widgets
     ChatView, MessageRole, TextInput, ToolMessageData, ToolStatus, RenderFn,
-    // Chat helpers for customization
-    centered_text, title_bar, welcome_art, welcome_art_styled,
+    // ConversationView trait and factory
+    ConversationView, ConversationViewFactory,
     // Registerable widgets
     AnswerState, EnterAction, FocusItem, PermissionKeyAction, PermissionOption, PermissionPanel,
     QuestionKeyAction, QuestionPanel, SessionInfo, SessionPickerState, SimpleCommand,

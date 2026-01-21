@@ -45,11 +45,11 @@ use super::commands::{
     filter_commands, generate_help_message, get_default_commands, is_slash_command, parse_command,
     SlashCommand,
 };
-use super::keys::{AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, KeyBindings, KeyContext, KeyHandler};
+use super::keys::{AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, KeyBindings, KeyContext, KeyHandler, NavigationHelper};
 use super::widgets::{
     widget_ids, ChatView, TextInput, ToolStatus, SessionInfo, SessionPickerState,
-    SlashPopupState, Widget, WidgetAction, WidgetKeyResult, render_session_picker, render_slash_popup,
-    PermissionPanel, QuestionPanel, welcome_art_styled,
+    SlashPopupState, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, render_session_picker, render_slash_popup,
+    PermissionPanel, QuestionPanel, ConversationView, ConversationViewFactory,
 };
 use super::{app_theme, current_theme_name, default_theme_name, get_theme, init_theme};
 
@@ -71,10 +71,6 @@ pub struct AppConfig {
     pub agent_name: String,
     /// Agent version
     pub version: String,
-    /// Welcome ASCII art (displayed when chat is empty)
-    pub welcome_art: Vec<String>,
-    /// Indices of subtitle lines in welcome_art (for different styling)
-    pub welcome_subtitle_indices: Vec<usize>,
     /// Custom slash commands (in addition to defaults)
     pub custom_commands: Vec<SlashCommand>,
     /// Static message shown while processing (default: "Processing request...")
@@ -89,8 +85,6 @@ impl std::fmt::Debug for AppConfig {
         f.debug_struct("AppConfig")
             .field("agent_name", &self.agent_name)
             .field("version", &self.version)
-            .field("welcome_art", &self.welcome_art)
-            .field("welcome_subtitle_indices", &self.welcome_subtitle_indices)
             .field("custom_commands", &self.custom_commands)
             .field("processing_message", &self.processing_message)
             .field("processing_message_fn", &self.processing_message_fn.as_ref().map(|_| "<fn>"))
@@ -103,11 +97,6 @@ impl Default for AppConfig {
         Self {
             agent_name: "Agent".to_string(),
             version: "0.1.0".to_string(),
-            welcome_art: vec![
-                String::new(),
-                "    Type a message to start chatting...".to_string(),
-            ],
-            welcome_subtitle_indices: vec![1],
             custom_commands: Vec::new(),
             processing_message: "Processing request...".to_string(),
             processing_message_fn: None, // Simple by default
@@ -220,8 +209,14 @@ pub struct App {
     /// List of all sessions created in this instance
     sessions: Vec<SessionInfo>,
 
-    /// Chat views for each session (used for session switching)
-    session_chat_views: HashMap<i64, ChatView>,
+    /// Session state storage for conversation views (used for session switching)
+    session_states: HashMap<i64, Box<dyn std::any::Any + Send>>,
+
+    /// The conversation view (decoupled from ChatView)
+    conversation_view: Box<dyn ConversationView>,
+
+    /// Factory for creating new conversation views
+    conversation_factory: ConversationViewFactory,
 
     /// Custom throbber message (overrides processing_message when set)
     custom_throbber_message: Option<String>,
@@ -258,6 +253,11 @@ impl App {
         let mut commands: Vec<SlashCommand> = get_default_commands().to_vec();
         commands.extend(config.custom_commands.clone());
 
+        // Create a default conversation factory (creates basic ChatView)
+        let default_factory: ConversationViewFactory = Box::new(|| {
+            Box::new(ChatView::new())
+        });
+
         Self {
             config,
             commands,
@@ -282,7 +282,9 @@ impl App {
             widget_priority_order: Vec::new(),
             filtered_commands: Vec::new(),
             sessions: Vec::new(),
-            session_chat_views: HashMap::new(),
+            session_states: HashMap::new(),
+            conversation_view: (default_factory)(),
+            conversation_factory: default_factory,
             custom_throbber_message: None,
             user_interaction_registry: None,
             permission_registry: None,
@@ -333,14 +335,28 @@ impl App {
         self.widgets.values().any(|w| w.is_active() && w.blocks_input())
     }
 
-    /// Get a reference to the ChatView widget if registered
-    fn chat(&self) -> Option<&ChatView> {
-        self.widget::<ChatView>(widget_ids::CHAT_VIEW)
-    }
-
-    /// Get a mutable reference to the ChatView widget if registered
-    fn chat_mut(&mut self) -> Option<&mut ChatView> {
-        self.widget_mut::<ChatView>(widget_ids::CHAT_VIEW)
+    /// Set the conversation view factory
+    ///
+    /// The factory is called to create new conversation views when:
+    /// - Creating a new session
+    /// - Clearing the current conversation (/clear command)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// app.set_conversation_factory(|| {
+    ///     Box::new(ChatView::new()
+    ///         .with_title("My Agent")
+    ///         .with_initial_content(welcome_renderer))
+    /// });
+    /// ```
+    pub fn set_conversation_factory<F>(&mut self, factory: F)
+    where
+        F: Fn() -> Box<dyn ConversationView> + Send + Sync + 'static,
+    {
+        self.conversation_factory = Box::new(factory);
+        // Replace current conversation view with one from the new factory
+        self.conversation_view = (self.conversation_factory)();
     }
 
     /// Get a reference to the TextInput widget if registered
@@ -353,20 +369,9 @@ impl App {
         self.widget_mut::<TextInput>(widget_ids::TEXT_INPUT)
     }
 
-    /// Check if the chat is currently streaming
+    /// Check if the conversation view is currently streaming
     fn is_chat_streaming(&self) -> bool {
-        self.chat().map(|c| c.is_streaming()).unwrap_or(false)
-    }
-
-    /// Create a ChatView with the app's configuration
-    fn create_chat_view(&self) -> ChatView {
-        // Convert welcome_art strings to string slices for the helper
-        let welcome_lines: Vec<&str> = self.config.welcome_art.iter().map(|s| s.as_str()).collect();
-        let empty_state = welcome_art_styled(&welcome_lines, &self.config.welcome_subtitle_indices);
-
-        ChatView::new()
-            .with_title(&self.config.agent_name)
-            .with_empty_state(empty_state)
+        self.conversation_view.is_streaming()
     }
 
     /// Get the agent name
@@ -531,18 +536,14 @@ impl App {
         }
 
         // Add user message to chat and re-enable auto-scroll (user wants to see response)
-        if let Some(chat) = self.chat_mut() {
-            chat.enable_auto_scroll();
-            chat.add_user_message(content.clone());
-        }
+        self.conversation_view.enable_auto_scroll();
+        self.conversation_view.add_user_message(content.clone());
 
         // Check if we have an active session
         if self.session_id == 0 {
-            if let Some(chat) = self.chat_mut() {
-                chat.add_system_message(
-                    "No active session. Use /new-session to create one.".to_string(),
-                );
-            }
+            self.conversation_view.add_system_message(
+                "No active session. Use /new-session to create one.".to_string(),
+            );
             return;
         }
 
@@ -554,9 +555,7 @@ impl App {
 
             // Try to send (non-blocking)
             if tx.try_send(payload).is_err() {
-                if let Some(chat) = self.chat_mut() {
-                    chat.add_system_message("Failed to send message to controller".to_string());
-                }
+                self.conversation_view.add_system_message("Failed to send message to controller".to_string());
             } else {
                 // Immediately show throbber (before streaming starts)
                 self.waiting_for_response = true;
@@ -586,14 +585,10 @@ impl App {
                 self.waiting_started = None;
                 self.executing_tools.clear();
                 // Keep partial streaming content visible (save it as a message)
-                if let Some(chat) = self.chat_mut() {
-                    chat.complete_streaming();
-                }
+                self.conversation_view.complete_streaming();
                 // Clear turn ID so any stale messages from this turn are ignored
                 self.current_turn_id = None;
-                if let Some(chat) = self.chat_mut() {
-                    chat.add_system_message("Request cancelled".to_string());
-                }
+                self.conversation_view.add_system_message("Request cancelled".to_string());
             }
         }
     }
@@ -601,9 +596,7 @@ impl App {
     /// Execute a slash command
     fn execute_command(&mut self, input: &str) {
         let Some((cmd_name, _args)) = parse_command(input) else {
-            if let Some(chat) = self.chat_mut() {
-                chat.add_system_message("Invalid command format".to_string());
-            }
+            self.conversation_view.add_system_message("Invalid command format".to_string());
             return;
         };
 
@@ -637,9 +630,7 @@ impl App {
             _ => format!("Unknown command: /{}", cmd_name),
         };
 
-        if let Some(chat) = self.chat_mut() {
-            chat.add_system_message(result);
-        }
+        self.conversation_view.add_system_message(result);
     }
 
     fn cmd_help(&self) -> String {
@@ -647,10 +638,8 @@ impl App {
     }
 
     fn cmd_clear(&mut self) {
-        // Replace ChatView widget with new instance
-        let new_chat = self.create_chat_view();
-        self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(new_chat));
-        self.rebuild_priority_order();
+        // Create a fresh conversation view using the factory
+        self.conversation_view = (self.conversation_factory)();
         self.user_turn_counter = 0;
 
         // Send Clear command to controller to clear session conversation
@@ -668,9 +657,7 @@ impl App {
     fn cmd_compact(&mut self) {
         // Check if we have an active session
         if self.session_id == 0 {
-            if let Some(chat) = self.chat_mut() {
-                chat.add_system_message("No active session to compact".to_string());
-            }
+            self.conversation_view.add_system_message("No active session to compact".to_string());
             return;
         }
 
@@ -683,9 +670,7 @@ impl App {
                 self.waiting_started = Some(Instant::now());
                 self.custom_throbber_message = Some("compacting...".to_string());
             } else {
-                if let Some(chat) = self.chat_mut() {
-                    chat.add_system_message("Failed to send compact command".to_string());
-                }
+                self.conversation_view.add_system_message("Failed to send compact command".to_string());
             }
         }
     }
@@ -736,20 +721,14 @@ impl App {
         let session_info = SessionInfo::new(session_id, model.clone(), context_limit);
         self.sessions.push(session_info);
 
-        // Save current chat view before switching to new session
+        // Save current conversation state before switching to new session
         if self.session_id != 0 {
-            // Take current chat widget and store it
-            if let Some(old_chat_box) = self.widgets.remove(widget_ids::CHAT_VIEW) {
-                if let Ok(old_chat) = old_chat_box.into_any().downcast::<ChatView>() {
-                    self.session_chat_views.insert(self.session_id, *old_chat);
-                }
-            }
+            let state = self.conversation_view.save_state();
+            self.session_states.insert(self.session_id, state);
         }
 
-        // Create new chat for the new session
-        let new_chat = self.create_chat_view();
-        self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(new_chat));
-        self.rebuild_priority_order();
+        // Create new conversation view for the new session
+        self.conversation_view = (self.conversation_factory)();
 
         self.session_id = session_id;
         self.model_name = model.clone();
@@ -805,12 +784,9 @@ impl App {
             session.context_used = self.context_used;
         }
 
-        // Save current chat view to session_chat_views
-        if let Some(old_chat_box) = self.widgets.remove(widget_ids::CHAT_VIEW) {
-            if let Ok(old_chat) = old_chat_box.into_any().downcast::<ChatView>() {
-                self.session_chat_views.insert(self.session_id, *old_chat);
-            }
-        }
+        // Save current conversation state
+        let state = self.conversation_view.save_state();
+        self.session_states.insert(self.session_id, state);
 
         // Find the target session
         if let Some(session) = self.sessions.iter().find(|s| s.id == session_id) {
@@ -820,14 +796,12 @@ impl App {
             self.context_limit = session.context_limit;
             self.user_turn_counter = 0;
 
-            // Restore chat view for this session, or create new one
-            let chat = if let Some(stored_chat) = self.session_chat_views.remove(&session_id) {
-                stored_chat
+            // Restore conversation state for this session, or create new one
+            if let Some(stored_state) = self.session_states.remove(&session_id) {
+                self.conversation_view.restore_state(stored_state);
             } else {
-                self.create_chat_view()
-            };
-            self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(chat));
-            self.rebuild_priority_order();
+                self.conversation_view = (self.conversation_factory)();
+            }
         }
     }
 
@@ -952,14 +926,10 @@ impl App {
                 if !self.is_current_turn(&turn_id) {
                     return;
                 }
-                if let Some(chat) = self.chat_mut() {
-                    chat.append_streaming(&text);
-                }
+                self.conversation_view.append_streaming(&text);
             }
             UiMessage::Display { message, .. } => {
-                if let Some(chat) = self.chat_mut() {
-                    chat.add_system_message(message);
-                }
+                self.conversation_view.add_system_message(message);
             }
             UiMessage::Complete {
                 turn_id,
@@ -974,9 +944,7 @@ impl App {
                 // Check if this is a tool_use stop - if so, tools will execute
                 let is_tool_use = stop_reason.as_deref() == Some("tool_use");
 
-                if let Some(chat) = self.chat_mut() {
-                    chat.complete_streaming();
-                }
+                self.conversation_view.complete_streaming();
 
                 // Only stop waiting if this is NOT a tool_use stop
                 if !is_tool_use {
@@ -996,20 +964,14 @@ impl App {
                 if !self.is_current_turn(&turn_id) {
                     return;
                 }
-                if let Some(chat) = self.chat_mut() {
-                    chat.complete_streaming();
-                }
+                self.conversation_view.complete_streaming();
                 self.waiting_for_response = false;
                 self.waiting_started = None;
                 self.current_turn_id = None;
-                if let Some(chat) = self.chat_mut() {
-                    chat.add_system_message(format!("Error: {}", error));
-                }
+                self.conversation_view.add_system_message(format!("Error: {}", error));
             }
             UiMessage::System { message, .. } => {
-                if let Some(chat) = self.chat_mut() {
-                    chat.add_system_message(message);
-                }
+                self.conversation_view.add_system_message(message);
             }
             UiMessage::ToolExecuting {
                 tool_use_id,
@@ -1018,9 +980,7 @@ impl App {
                 ..
             } => {
                 self.executing_tools.insert(tool_use_id.clone());
-                if let Some(chat) = self.chat_mut() {
-                    chat.add_tool_message(&tool_use_id, &display_name, &display_title);
-                }
+                self.conversation_view.add_tool_message(&tool_use_id, &display_name, &display_title);
             }
             UiMessage::ToolCompleted {
                 tool_use_id,
@@ -1034,9 +994,7 @@ impl App {
                 } else {
                     ToolStatus::Failed(error.unwrap_or_default())
                 };
-                if let Some(chat) = self.chat_mut() {
-                    chat.update_tool_status(&tool_use_id, tool_status);
-                }
+                self.conversation_view.update_tool_status(&tool_use_id, tool_status);
             }
             UiMessage::CommandComplete {
                 command,
@@ -1051,9 +1009,7 @@ impl App {
                 match command {
                     ControlCmd::Compact => {
                         if let Some(msg) = message {
-                            if let Some(chat) = self.chat_mut() {
-                                chat.add_system_message(msg);
-                            }
+                            self.conversation_view.add_system_message(msg);
                         }
                     }
                     ControlCmd::Clear => {}
@@ -1069,9 +1025,7 @@ impl App {
                 turn_id,
             } => {
                 if session_id == self.session_id {
-                    if let Some(chat) = self.chat_mut() {
-                        chat.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
-                    }
+                    self.conversation_view.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
                     // Activate via widget registry if registered
                     if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
                         if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
@@ -1087,9 +1041,7 @@ impl App {
                 turn_id,
             } => {
                 if session_id == self.session_id {
-                    if let Some(chat) = self.chat_mut() {
-                        chat.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
-                    }
+                    self.conversation_view.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
                     // Activate via widget registry if registered
                     if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
                         if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
@@ -1111,15 +1063,11 @@ impl App {
     }
 
     pub fn scroll_up(&mut self) {
-        if let Some(chat) = self.chat_mut() {
-            chat.scroll_up();
-        }
+        self.conversation_view.scroll_up();
     }
 
     pub fn scroll_down(&mut self) {
-        if let Some(chat) = self.chat_mut() {
-            chat.scroll_down();
-        }
+        self.conversation_view.scroll_down();
     }
 
     /// Format the context display string for the status bar
@@ -1185,6 +1133,8 @@ impl App {
 
         // Try to send key event to registered widgets (by priority order)
         let theme = app_theme();
+        let nav = NavigationHelper::new(self.key_handler.bindings());
+        let widget_ctx = WidgetKeyContext { theme: &theme, nav };
 
         // Collect widget IDs to check (we need to avoid borrow issues)
         let widget_ids_to_check: Vec<&'static str> = self.widget_priority_order.clone();
@@ -1192,7 +1142,7 @@ impl App {
         for widget_id in widget_ids_to_check {
             if let Some(widget) = self.widgets.get_mut(widget_id) {
                 if widget.is_active() {
-                    match widget.handle_key(key_event, &theme) {
+                    match widget.handle_key(key_event, &widget_ctx) {
                         WidgetKeyResult::Handled => return,
                         WidgetKeyResult::Action(action) => {
                             self.process_widget_action(action);
@@ -1480,9 +1430,7 @@ impl App {
                 self.animation_frame_counter = self.animation_frame_counter.wrapping_add(1);
                 if self.animation_frame_counter % 6 == 0 {
                     self.throbber_state.calc_next();
-                    if let Some(chat) = self.chat_mut() {
-                        chat.step_spinner();
-                    }
+                    self.conversation_view.step_spinner();
                 }
             }
 
@@ -1573,6 +1521,7 @@ impl App {
             // Handle special widgets that need custom rendering
             match *widget_id {
                 id if id == widget_ids::CHAT_VIEW => {
+                    // Conversation view is rendered via the trait, not as a widget
                     let pending_status: Option<&str> = if !self.executing_tools.is_empty() {
                         Some(PENDING_STATUS_TOOLS)
                     } else if self.waiting_for_response && !self.is_chat_streaming() {
@@ -1580,9 +1529,7 @@ impl App {
                     } else {
                         None
                     };
-                    if let Some(chat) = self.chat_mut() {
-                        chat.render_chat(frame, *area, pending_status);
-                    }
+                    self.conversation_view.render(frame, *area, &theme, pending_status);
                 }
                 id if id == widget_ids::TEXT_INPUT => {
                     // Input is rendered specially below (with throbber logic)

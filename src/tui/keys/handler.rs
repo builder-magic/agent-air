@@ -42,6 +42,12 @@ pub trait KeyHandler: Send + 'static {
     fn status_hint(&self) -> Option<String> {
         None
     }
+
+    /// Get a reference to the key bindings.
+    ///
+    /// This is used by widgets to check navigation keys against configured bindings.
+    /// The default implementation returns `bare_minimum` bindings.
+    fn bindings(&self) -> &KeyBindings;
 }
 
 /// Default key handler with configurable bindings.
@@ -79,6 +85,11 @@ impl DefaultKeyHandler {
             exit_state: ExitState::default(),
             custom_bindings: Vec::new(),
         }
+    }
+
+    /// Get a reference to the key bindings.
+    pub fn bindings(&self) -> &KeyBindings {
+        &self.bindings
     }
 
     /// Add a custom key binding that triggers a custom action.
@@ -267,6 +278,10 @@ impl KeyHandler for DefaultKeyHandler {
             None
         }
     }
+
+    fn bindings(&self) -> &KeyBindings {
+        &self.bindings
+    }
 }
 
 /// A composable key handler wrapper with pre-processing hooks.
@@ -369,6 +384,10 @@ impl<H: KeyHandler> KeyHandler for ComposedKeyHandler<H> {
 
     fn status_hint(&self) -> Option<String> {
         self.inner.status_hint()
+    }
+
+    fn bindings(&self) -> &KeyBindings {
+        self.inner.bindings()
     }
 }
 

@@ -46,10 +46,12 @@
 mod bindings;
 mod exit;
 mod handler;
+mod nav;
 mod types;
 
 // Re-export all public types
 pub use bindings::KeyBindings;
 pub use exit::{ExitHandler, ExitState};
 pub use handler::{ComposedKeyHandler, DefaultKeyHandler, KeyHandler};
+pub use nav::NavigationHelper;
 pub use types::{AppKeyAction, AppKeyResult, KeyCombo, KeyContext};
