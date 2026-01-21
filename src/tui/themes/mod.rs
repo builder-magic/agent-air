@@ -6,8 +6,10 @@
 //! Components:
 //! - Theme system with runtime switching
 //! - Theme picker widget
-//! - 45+ pre-built doom-emacs inspired themes
+//! - 45+ pre-built themes
 
+#[macro_use]
+pub mod macros;
 pub mod theme;
 pub mod theme_picker;
 pub mod themes;
