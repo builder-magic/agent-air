@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::bindings::KeyBindings;
 use super::exit::ExitState;
-use super::types::{AppKeyAction, AppKeyResult, KeyContext};
+use super::types::{AppKeyAction, AppKeyResult, KeyCombo, KeyContext};
 
 /// Trait for customizing key handling at the App level.
 ///
@@ -53,9 +53,22 @@ pub trait KeyHandler: Send + 'static {
 /// The handler manages exit confirmation state internally, so agents
 /// get the two-key exit flow (e.g., press Ctrl+D twice) without needing
 /// to track any state in the App.
+///
+/// # Custom Bindings
+///
+/// In addition to the standard bindings, you can add custom key bindings
+/// that trigger custom actions:
+///
+/// ```ignore
+/// let handler = DefaultKeyHandler::new(KeyBindings::emacs())
+///     .with_custom_binding(KeyCombo::ctrl('t'), || {
+///         AppKeyAction::custom(MyCustomAction::ToggleSomething)
+///     });
+/// ```
 pub struct DefaultKeyHandler {
     bindings: KeyBindings,
     exit_state: ExitState,
+    custom_bindings: Vec<(KeyCombo, Box<dyn Fn() -> AppKeyAction + Send + Sync>)>,
 }
 
 impl DefaultKeyHandler {
@@ -64,12 +77,52 @@ impl DefaultKeyHandler {
         Self {
             bindings,
             exit_state: ExitState::default(),
+            custom_bindings: Vec::new(),
         }
+    }
+
+    /// Add a custom key binding that triggers a custom action.
+    ///
+    /// Custom bindings are checked before standard bindings, allowing
+    /// you to override default behavior or add new key combinations.
+    ///
+    /// # Arguments
+    ///
+    /// * `combo` - The key combination to bind
+    /// * `action_fn` - A function that returns the action to execute
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let handler = DefaultKeyHandler::new(KeyBindings::emacs())
+    ///     .with_custom_binding(KeyCombo::ctrl('t'), || {
+    ///         AppKeyAction::custom(MyCustomAction::ToggleSomething)
+    ///     })
+    ///     .with_custom_binding(KeyCombo::alt('h'), || {
+    ///         AppKeyAction::custom(MyCustomAction::ShowHelp)
+    ///     });
+    /// ```
+    pub fn with_custom_binding<F>(mut self, combo: KeyCombo, action_fn: F) -> Self
+    where
+        F: Fn() -> AppKeyAction + Send + Sync + 'static,
+    {
+        self.custom_bindings.push((combo, Box::new(action_fn)));
+        self
     }
 
     /// Check if the given key matches the exit mode binding.
     fn is_exit_key(&self, key: &KeyEvent) -> bool {
         KeyBindings::matches_any(&self.bindings.enter_exit_mode, key)
+    }
+
+    /// Check if the given key matches any custom binding.
+    fn check_custom_binding(&self, key: &KeyEvent) -> Option<AppKeyAction> {
+        for (combo, action_fn) in &self.custom_bindings {
+            if combo.matches(key) {
+                return Some(action_fn());
+            }
+        }
+        None
     }
 }
 
@@ -130,6 +183,11 @@ impl KeyHandler for DefaultKeyHandler {
             // Any other key cancels exit mode
             self.exit_state.reset();
             // Fall through to normal handling
+        }
+
+        // Check custom bindings first (allows overriding standard bindings)
+        if let Some(action) = self.check_custom_binding(&key) {
+            return AppKeyResult::Action(action);
         }
 
         // Application-level bindings
@@ -208,6 +266,109 @@ impl KeyHandler for DefaultKeyHandler {
         } else {
             None
         }
+    }
+}
+
+/// A composable key handler wrapper with pre-processing hooks.
+///
+/// `ComposedKeyHandler` wraps an inner handler and allows adding hooks
+/// that run before the inner handler processes keys. This enables:
+///
+/// - Intercepting specific keys before they reach the inner handler
+/// - Adding logging or debugging behavior
+/// - Implementing layered key handling (e.g., modal modes on top of base handler)
+///
+/// # Example
+///
+/// ```ignore
+/// let base_handler = DefaultKeyHandler::new(KeyBindings::emacs());
+/// let handler = ComposedKeyHandler::new(base_handler)
+///     .with_pre_hook(|key, _ctx| {
+///         // Intercept F1 for help
+///         if key.code == KeyCode::F(1) {
+///             return Some(AppKeyResult::Action(AppKeyAction::custom(ShowHelp)));
+///         }
+///         None // Let inner handler process
+///     });
+/// ```
+pub struct ComposedKeyHandler<H: KeyHandler> {
+    inner: H,
+    pre_hooks: Vec<Box<dyn Fn(&KeyEvent, &KeyContext) -> Option<AppKeyResult> + Send>>,
+}
+
+impl<H: KeyHandler> ComposedKeyHandler<H> {
+    /// Create a new composed handler wrapping the given inner handler.
+    pub fn new(inner: H) -> Self {
+        Self {
+            inner,
+            pre_hooks: Vec::new(),
+        }
+    }
+
+    /// Add a hook that runs before the inner handler.
+    ///
+    /// If the hook returns `Some(result)`, that result is used and the
+    /// inner handler is skipped. If the hook returns `None`, processing
+    /// continues to the next hook or the inner handler.
+    ///
+    /// Hooks are called in the order they were added.
+    ///
+    /// # Arguments
+    ///
+    /// * `hook` - A function that receives the key event and context,
+    ///   returning `Some(AppKeyResult)` to handle the key or `None` to pass through
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let handler = ComposedKeyHandler::new(DefaultKeyHandler::default())
+    ///     .with_pre_hook(|key, ctx| {
+    ///         // Log all key presses
+    ///         eprintln!("Key: {:?}", key);
+    ///         None // Don't consume, let inner handler process
+    ///     })
+    ///     .with_pre_hook(|key, _ctx| {
+    ///         // Intercept Ctrl+H for custom help
+    ///         if key.code == KeyCode::Char('h') && key.modifiers == KeyModifiers::CONTROL {
+    ///             return Some(AppKeyResult::Action(AppKeyAction::custom(MyHelp)));
+    ///         }
+    ///         None
+    ///     });
+    /// ```
+    pub fn with_pre_hook<F>(mut self, hook: F) -> Self
+    where
+        F: Fn(&KeyEvent, &KeyContext) -> Option<AppKeyResult> + Send + 'static,
+    {
+        self.pre_hooks.push(Box::new(hook));
+        self
+    }
+
+    /// Get a reference to the inner handler.
+    pub fn inner(&self) -> &H {
+        &self.inner
+    }
+
+    /// Get a mutable reference to the inner handler.
+    pub fn inner_mut(&mut self) -> &mut H {
+        &mut self.inner
+    }
+}
+
+impl<H: KeyHandler> KeyHandler for ComposedKeyHandler<H> {
+    fn handle_key(&mut self, key: KeyEvent, context: &KeyContext) -> AppKeyResult {
+        // Run pre-hooks in order
+        for hook in &self.pre_hooks {
+            if let Some(result) = hook(&key, context) {
+                return result;
+            }
+        }
+
+        // Fall through to inner handler
+        self.inner.handle_key(key, context)
+    }
+
+    fn status_hint(&self) -> Option<String> {
+        self.inner.status_hint()
     }
 }
 
@@ -340,5 +501,198 @@ mod tests {
 
         // Status hint should be cleared
         assert!(handler.status_hint().is_none());
+    }
+
+    #[test]
+    fn test_custom_binding_basic() {
+        // Create handler with a custom binding for Ctrl+T
+        let mut handler = DefaultKeyHandler::new(KeyBindings::emacs())
+            .with_custom_binding(KeyCombo::ctrl('t'), || {
+                AppKeyAction::custom("toggle")
+            });
+
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: false,
+        };
+
+        // Ctrl+T should trigger the custom action
+        let ctrl_t = KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL);
+        let result = handler.handle_key(ctrl_t, &context);
+
+        if let AppKeyResult::Action(AppKeyAction::Custom(any)) = result {
+            assert!(any.downcast_ref::<&str>().is_some());
+        } else {
+            panic!("Expected Custom action, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_custom_binding_overrides_standard() {
+        // Custom binding for Ctrl+P should override the standard move_up
+        let mut handler = DefaultKeyHandler::new(KeyBindings::emacs())
+            .with_custom_binding(KeyCombo::ctrl('p'), || {
+                AppKeyAction::custom("custom_up")
+            });
+
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: false,
+        };
+
+        let ctrl_p = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
+        let result = handler.handle_key(ctrl_p, &context);
+
+        // Should get custom action, not MoveUp
+        if let AppKeyResult::Action(AppKeyAction::Custom(_)) = result {
+            // Good - custom binding took precedence
+        } else {
+            panic!("Expected Custom action to override MoveUp, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_composed_handler_basic() {
+        let base = DefaultKeyHandler::new(KeyBindings::minimal());
+        let mut composed = ComposedKeyHandler::new(base);
+
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: false,
+        };
+
+        // Without hooks, should behave like the inner handler
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let result = composed.handle_key(esc, &context);
+        assert_eq!(result, AppKeyResult::Action(AppKeyAction::Quit));
+    }
+
+    #[test]
+    fn test_composed_handler_pre_hook_intercepts() {
+        let base = DefaultKeyHandler::new(KeyBindings::minimal());
+        let mut composed = ComposedKeyHandler::new(base)
+            .with_pre_hook(|key, _ctx| {
+                // Intercept F1 key
+                if key.code == KeyCode::F(1) {
+                    return Some(AppKeyResult::Action(AppKeyAction::custom("help")));
+                }
+                None
+            });
+
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: false,
+        };
+
+        // F1 should be intercepted by the hook
+        let f1 = KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE);
+        let result = composed.handle_key(f1, &context);
+
+        if let AppKeyResult::Action(AppKeyAction::Custom(_)) = result {
+            // Good - hook intercepted
+        } else {
+            panic!("Expected hook to intercept F1, got {:?}", result);
+        }
+
+        // Other keys should pass through to inner handler
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let result = composed.handle_key(esc, &context);
+        assert_eq!(result, AppKeyResult::Action(AppKeyAction::Quit));
+    }
+
+    #[test]
+    fn test_composed_handler_multiple_hooks() {
+        let base = DefaultKeyHandler::new(KeyBindings::minimal());
+        let mut composed = ComposedKeyHandler::new(base)
+            .with_pre_hook(|key, _ctx| {
+                // First hook intercepts F1
+                if key.code == KeyCode::F(1) {
+                    return Some(AppKeyResult::Action(AppKeyAction::custom("first")));
+                }
+                None
+            })
+            .with_pre_hook(|key, _ctx| {
+                // Second hook intercepts F2 and also F1 (but won't get F1)
+                if key.code == KeyCode::F(2) {
+                    return Some(AppKeyResult::Action(AppKeyAction::custom("second")));
+                }
+                if key.code == KeyCode::F(1) {
+                    return Some(AppKeyResult::Action(AppKeyAction::custom("should_not_see")));
+                }
+                None
+            });
+
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: false,
+        };
+
+        // F1 should be handled by first hook
+        let f1 = KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE);
+        let result = composed.handle_key(f1, &context);
+        if let AppKeyResult::Action(AppKeyAction::Custom(any)) = result {
+            let s = any.downcast_ref::<&str>().unwrap();
+            assert_eq!(*s, "first");
+        } else {
+            panic!("Expected first hook to handle F1");
+        }
+
+        // F2 should be handled by second hook
+        let f2 = KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE);
+        let result = composed.handle_key(f2, &context);
+        if let AppKeyResult::Action(AppKeyAction::Custom(any)) = result {
+            let s = any.downcast_ref::<&str>().unwrap();
+            assert_eq!(*s, "second");
+        } else {
+            panic!("Expected second hook to handle F2");
+        }
+    }
+
+    #[test]
+    fn test_composed_handler_status_hint() {
+        // Inner handler's status_hint should be accessible
+        let mut base = DefaultKeyHandler::new(KeyBindings::emacs());
+
+        // Put base handler into exit mode
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: false,
+        };
+        let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        base.handle_key(ctrl_d, &context);
+
+        // Now wrap it
+        let composed = ComposedKeyHandler::new(base);
+
+        // Status hint should come from inner handler
+        assert!(composed.status_hint().is_some());
+        assert!(composed.status_hint().unwrap().contains("exit"));
+    }
+
+    #[test]
+    fn test_composed_handler_inner_access() {
+        let base = DefaultKeyHandler::new(KeyBindings::emacs());
+        let mut composed = ComposedKeyHandler::new(base);
+
+        // Can access inner handler
+        assert!(composed.inner().status_hint().is_none());
+
+        // Can mutate inner handler
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: false,
+        };
+        let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        composed.inner_mut().handle_key(ctrl_d, &context);
+
+        // Inner state changed
+        assert!(composed.inner().status_hint().is_some());
     }
 }

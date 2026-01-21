@@ -51,5 +51,5 @@ mod types;
 // Re-export all public types
 pub use bindings::KeyBindings;
 pub use exit::{ExitHandler, ExitState};
-pub use handler::{DefaultKeyHandler, KeyHandler};
+pub use handler::{ComposedKeyHandler, DefaultKeyHandler, KeyHandler};
 pub use types::{AppKeyAction, AppKeyResult, KeyCombo, KeyContext};

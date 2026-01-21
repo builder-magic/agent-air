@@ -1297,6 +1297,11 @@ impl App {
             AppKeyAction::ActivateSlashPopup => {
                 self.activate_slash_popup();
             }
+            AppKeyAction::Custom(_) => {
+                // Custom actions are handled by the custom_action_handler if set.
+                // Users implementing custom key bindings should set a handler
+                // via with_custom_action_handler() to receive these actions.
+            }
         }
     }
 
