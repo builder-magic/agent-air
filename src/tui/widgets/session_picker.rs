@@ -309,7 +309,7 @@ impl Widget for SessionPickerState {
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         render_session_picker(self, frame, area, theme);
     }
 

@@ -121,7 +121,7 @@ pub trait Widget: Send + 'static {
     fn handle_key(&mut self, key: KeyEvent, theme: &Theme) -> WidgetKeyResult;
 
     /// Render the widget
-    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme);
+    fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
 
     /// Calculate required height for this widget
     ///

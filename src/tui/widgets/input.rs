@@ -354,7 +354,7 @@ impl Widget for TextInput {
         WidgetKeyResult::NotHandled
     }
 
-    fn render(&self, _frame: &mut Frame, _area: Rect, _theme: &Theme) {
+    fn render(&mut self, _frame: &mut Frame, _area: Rect, _theme: &Theme) {
         // TextInput rendering is handled by App directly
         // This is a no-op for Widget trait compatibility
     }

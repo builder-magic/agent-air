@@ -1069,7 +1069,7 @@ impl Widget for QuestionPanel {
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         self.render_panel(frame, area, theme);
     }
 

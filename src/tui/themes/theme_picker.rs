@@ -191,7 +191,7 @@ impl Widget for ThemePickerState {
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, _theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, area: Rect, _theme: &Theme) {
         render_theme_picker(self, frame, area);
     }
 

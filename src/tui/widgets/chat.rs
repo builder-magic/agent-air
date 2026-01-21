@@ -728,11 +728,10 @@ impl Widget for ChatView {
         WidgetKeyResult::NotHandled
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, _theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, area: Rect, _theme: &Theme) {
         // Note: This is a simplified render without pending_status
-        // App should use render_chat method with pending_status directly
-        let mut chat_view = self.clone_for_render();
-        chat_view.render_chat(frame, area, None);
+        // App may use render_chat method with pending_status directly for richer status
+        self.render_chat(frame, area, None);
     }
 
     fn required_height(&self, _available: u16) -> u16 {
@@ -760,20 +759,3 @@ impl Widget for ChatView {
     }
 }
 
-impl ChatView {
-    /// Create a shallow clone for rendering (avoids borrow issues in Widget::render)
-    fn clone_for_render(&self) -> Self {
-        Self {
-            messages: Vec::new(), // Empty - we won't modify during render
-            scroll_offset: self.scroll_offset,
-            streaming_buffer: self.streaming_buffer.clone(),
-            last_max_scroll: self.last_max_scroll,
-            auto_scroll_enabled: self.auto_scroll_enabled,
-            tool_index: HashMap::new(),
-            spinner_index: self.spinner_index,
-            title: self.title.clone(),
-            render_empty_state: None, // Not cloned - callbacks aren't Clone
-            config: self.config.clone(),
-        }
-    }
-}

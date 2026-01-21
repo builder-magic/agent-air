@@ -282,7 +282,7 @@ impl Widget for SlashPopupState {
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         // Note: This is a simplified render that doesn't have commands.
         // App should use render_slash_popup directly with filtered commands.
         // This default render shows an empty state.

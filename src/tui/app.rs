@@ -1602,7 +1602,7 @@ impl App {
                 }
                 _ => {
                     // Generic widget rendering
-                    if let Some(widget) = self.widgets.get(widget_id) {
+                    if let Some(widget) = self.widgets.get_mut(widget_id) {
                         if widget.is_active() {
                             widget.render(frame, *area, &theme);
                         }
