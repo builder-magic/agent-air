@@ -1,9 +1,18 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use thiserror::Error;
 use tokio::sync::RwLock;
 
 use super::types::Executable;
+
+/// Error type for tool registry operations.
+#[derive(Error, Debug)]
+pub enum RegistryError {
+    /// Tool with this name already exists.
+    #[error("Tool with name {0:?} already exists")]
+    DuplicateTool(String),
+}
 
 /// Thread-safe registry for managing available tools.
 pub struct ToolRegistry {
@@ -20,12 +29,12 @@ impl ToolRegistry {
 
     /// Register a tool in the registry.
     /// Returns an error if a tool with the same name already exists.
-    pub async fn register(&self, tool: Arc<dyn Executable>) -> Result<(), String> {
+    pub async fn register(&self, tool: Arc<dyn Executable>) -> Result<(), RegistryError> {
         let name = tool.name().to_string();
         let mut tools = self.tools.write().await;
 
         if tools.contains_key(&name) {
-            return Err(format!("tool with name {:?} already exists", name));
+            return Err(RegistryError::DuplicateTool(name));
         }
 
         tools.insert(name, tool);

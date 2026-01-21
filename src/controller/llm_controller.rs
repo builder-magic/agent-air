@@ -16,6 +16,7 @@ use crate::controller::tools::{
     PermissionRegistry, PermissionResponse, ToolBatchResult, ToolExecutor, ToolRegistry,
     ToolRequest, ToolResult, UserInteractionError, UserInteractionRegistry,
 };
+use crate::controller::error::ControllerError;
 use crate::controller::types::{
     ControlCmd, ControllerEvent, ControllerInputPayload, FromLLMPayload, InputType,
     LLMRequestType, LLMResponseType, ToLLMPayload, TurnId,
@@ -792,16 +793,16 @@ impl LLMController {
     /// * `input` - The input payload to send
     ///
     /// # Returns
-    /// Ok(()) if the input was sent successfully, Err with message otherwise
-    pub async fn send_input(&self, input: ControllerInputPayload) -> Result<(), String> {
+    /// Ok(()) if the input was sent successfully, Err otherwise.
+    pub async fn send_input(&self, input: ControllerInputPayload) -> Result<(), ControllerError> {
         if self.is_shutdown() {
-            return Err("Controller is shutdown".to_string());
+            return Err(ControllerError::Shutdown);
         }
 
         match tokio::time::timeout(SEND_INPUT_TIMEOUT, self.input_tx.send(input)).await {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(_)) => Err("Input channel closed".to_string()),
-            Err(_) => Err("Timeout sending input".to_string()),
+            Ok(Err(_)) => Err(ControllerError::ChannelClosed),
+            Err(_) => Err(ControllerError::SendTimeout(SEND_INPUT_TIMEOUT.as_secs())),
         }
     }
 

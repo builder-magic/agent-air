@@ -5,8 +5,8 @@ mod manager;
 mod session;
 
 pub use compactor::{
-    AsyncCompactor, CompactionError, CompactionResult, Compactor, LLMCompactor,
-    LLMCompactorConfig, ThresholdCompactor, ToolCompaction,
+    AsyncCompactor, CompactionError, CompactionResult, Compactor, CompactorConfigError,
+    LLMCompactor, LLMCompactorConfig, ThresholdCompactor, ToolCompaction,
 };
 pub use config::{CompactionConfig, CompactorType, LLMProvider, LLMSessionConfig};
 pub use manager::LLMSessionManager;

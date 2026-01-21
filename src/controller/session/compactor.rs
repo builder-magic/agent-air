@@ -3,10 +3,24 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
+use thiserror::Error;
+
 use crate::client::models::{Message as LLMMessage, MessageOptions};
 use crate::client::LLMClient;
 
 use crate::controller::types::{ContentBlock, Message, TextBlock, TurnId, UserMessage};
+
+/// Error type for compactor configuration.
+#[derive(Error, Debug)]
+pub enum CompactorConfigError {
+    /// Invalid threshold value.
+    #[error("Invalid threshold {0}: must be between 0.0 and 1.0 (exclusive)")]
+    InvalidThreshold(f64),
+
+    /// Invalid keep_recent_turns value.
+    #[error("Invalid keep_recent_turns {0}: must be at least 1")]
+    InvalidKeepRecentTurns(usize),
+}
 
 /// Defines how tool results are handled during compaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,12 +156,9 @@ impl ThresholdCompactor {
         threshold: f64,
         keep_recent_turns: usize,
         tool_compaction: ToolCompaction,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, CompactorConfigError> {
         if threshold <= 0.0 || threshold >= 1.0 {
-            return Err(format!(
-                "threshold must be between 0 and 1 (exclusive), got {}",
-                threshold
-            ));
+            return Err(CompactorConfigError::InvalidThreshold(threshold));
         }
 
         Ok(Self {
@@ -355,12 +366,9 @@ impl LLMCompactorConfig {
     }
 
     /// Validates the configuration.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), CompactorConfigError> {
         if self.threshold <= 0.0 || self.threshold >= 1.0 {
-            return Err(format!(
-                "threshold must be between 0 and 1 (exclusive), got {}",
-                self.threshold
-            ));
+            return Err(CompactorConfigError::InvalidThreshold(self.threshold));
         }
         Ok(())
     }
@@ -408,7 +416,7 @@ impl LLMCompactor {
     ///
     /// # Returns
     /// Error if configuration is invalid.
-    pub fn new(client: LLMClient, config: LLMCompactorConfig) -> Result<Self, String> {
+    pub fn new(client: LLMClient, config: LLMCompactorConfig) -> Result<Self, CompactorConfigError> {
         config.validate()?;
 
         tracing::info!(

@@ -18,7 +18,7 @@ pub use ask_user_questions::{
     ASK_USER_QUESTIONS_TOOL_NAME, ASK_USER_QUESTIONS_TOOL_SCHEMA,
 };
 pub use executor::ToolExecutor;
-pub use registry::ToolRegistry;
+pub use registry::{RegistryError, ToolRegistry};
 pub use types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolBatchResult, ToolContext,
     ToolDefinition, ToolRequest, ToolResult, ToolResultStatus, ToolType,

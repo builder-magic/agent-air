@@ -15,6 +15,7 @@ use crate::controller::{
 };
 
 use super::config::{load_config, AgentConfig, LLMRegistry};
+use super::error::AgentError;
 use super::logger::Logger;
 use super::messages::channels::DEFAULT_CHANNEL_SIZE;
 use super::messages::UiMessage;
@@ -359,7 +360,7 @@ impl AgentCore {
     ///     tools::register_all_tools(registry, user_reg, perm_reg)
     /// })?;
     /// ```
-    pub fn register_tools<F>(&mut self, f: F) -> Result<(), String>
+    pub fn register_tools<F>(&mut self, f: F) -> Result<(), AgentError>
     where
         F: FnOnce(
             &Arc<ToolRegistry>,
@@ -371,7 +372,8 @@ impl AgentCore {
             self.controller.tool_registry(),
             &self.user_interaction_registry,
             &self.permission_registry,
-        )?;
+        )
+        .map_err(AgentError::ToolRegistration)?;
         self.tool_definitions = tool_defs;
         Ok(())
     }
@@ -447,15 +449,15 @@ impl AgentCore {
 
     /// Create an initial session using the default LLM provider.
     ///
-    /// Returns the session ID and model name, or an error message.
-    pub fn create_initial_session(&mut self) -> Result<(i64, String, i32), String> {
+    /// Returns the session ID, model name, and context limit.
+    pub fn create_initial_session(&mut self) -> Result<(i64, String, i32), AgentError> {
         let registry = self.llm_registry.as_ref().ok_or_else(|| {
-            "No LLM registry available. Configuration may have failed to load.".to_string()
+            AgentError::NoConfiguration("No LLM registry available".to_string())
         })?;
 
-        let config = registry
-            .get_default()
-            .ok_or_else(|| "No default LLM provider configured.".to_string())?;
+        let config = registry.get_default().ok_or_else(|| {
+            AgentError::NoConfiguration("No default LLM provider configured".to_string())
+        })?;
 
         let model = config.model.clone();
         let context_limit = config.context_limit;
@@ -463,14 +465,11 @@ impl AgentCore {
         let controller = self.controller.clone();
         let tool_definitions = self.tool_definitions.clone();
 
-        let session_id = self
-            .runtime
-            .block_on(Self::create_session_internal(
-                &controller,
-                config.clone(),
-                &tool_definitions,
-            ))
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let session_id = self.runtime.block_on(Self::create_session_internal(
+            &controller,
+            config.clone(),
+            &tool_definitions,
+        ))?;
 
         tracing::info!(
             session_id = session_id,
@@ -484,7 +483,7 @@ impl AgentCore {
     /// Create a session with the given configuration.
     ///
     /// Returns the session ID or an error.
-    pub fn create_session(&self, config: LLMSessionConfig) -> Result<i64, String> {
+    pub fn create_session(&self, config: LLMSessionConfig) -> Result<i64, AgentError> {
         let controller = self.controller.clone();
         let tool_definitions = self.tool_definitions.clone();
 
@@ -494,7 +493,7 @@ impl AgentCore {
                 config,
                 &tool_definitions,
             ))
-            .map_err(|e| format!("Failed to create session: {}", e))
+            .map_err(AgentError::from)
     }
 
     /// Signal shutdown to all background tasks and the controller.

@@ -32,11 +32,13 @@
 
 mod config;
 mod core;
+mod error;
 mod logger;
 mod messages;
 mod router;
 
 pub use config::{load_config, AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig};
+pub use error::AgentError;
 pub use core::{
     convert_controller_event_to_ui_message, AgentCore, FromControllerRx, FromControllerTx,
     ToControllerRx, ToControllerTx,
