@@ -154,6 +154,30 @@ impl LLMController {
 
         tracing::info!("Controller starting");
 
+        // Main event loop - processes events from 6 channels using tokio::select!
+        //
+        // DESIGN NOTE: Mutex Pattern for Multiple Receivers
+        // -------------------------------------------------
+        // This loop acquires all 6 receiver locks at the start of each iteration,
+        // then immediately drops them in each select! branch. This pattern is:
+        //
+        // 1. SAFE: No deadlock risk - locks acquired in consistent order, released immediately
+        // 2. EFFICIENT: Locks held only during polling (~microseconds), not while waiting
+        // 3. NON-BLOCKING: Tokio's mpsc senders are lock-free; only receivers need mutex
+        // 4. CLEAR: Explicit drops make guard lifecycle obvious
+        //
+        // Alternative patterns considered:
+        // - Unified event channel: Would lose type safety, require boxing all events
+        // - Select on lock().recv() directly: Makes code harder to reason about
+        // - Lock-free structures: Overkill; Tokio primitives are already optimized
+        //
+        // The receivers are only accessed here; senders are distributed to:
+        // - from_llm_tx: LLM session tasks (streaming responses)
+        // - input_tx: UI thread (user input with timeout)
+        // - batch_result_tx: Tool executor (completed batches)
+        // - tool_result_tx: Individual tool tasks (UI feedback)
+        // - user_interaction_tx: UserInteractionRegistry (tool questions)
+        // - permission_tx: PermissionRegistry (permission requests)
         loop {
             let mut from_llm_guard = self.from_llm_rx.lock().await;
             let mut input_guard = self.input_rx.lock().await;
