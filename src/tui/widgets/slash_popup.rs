@@ -15,6 +15,67 @@ use ratatui::{
 
 use crate::tui::themes::Theme;
 
+/// Default configuration values for SlashPopup
+pub mod defaults {
+    /// Header text shown at top of popup
+    pub const HEADER_TEXT: &str = " Slash command mode \u{2014} Use arrow keys to select, Enter to execute, Esc to cancel";
+    /// Message when no commands match
+    pub const NO_MATCHES_MESSAGE: &str = " No matching commands";
+    /// Command prefix (the slash)
+    pub const COMMAND_PREFIX: &str = " /";
+    /// Description indent
+    pub const DESCRIPTION_INDENT: &str = " ";
+}
+
+/// Configuration for SlashPopup widget
+#[derive(Clone)]
+pub struct SlashPopupConfig {
+    /// Header text shown at top of popup
+    pub header_text: String,
+    /// Message when no commands match the filter
+    pub no_matches_message: String,
+    /// Prefix shown before command names
+    pub command_prefix: String,
+    /// Indent for description lines
+    pub description_indent: String,
+}
+
+impl Default for SlashPopupConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SlashPopupConfig {
+    /// Create a new SlashPopupConfig with default values
+    pub fn new() -> Self {
+        Self {
+            header_text: defaults::HEADER_TEXT.to_string(),
+            no_matches_message: defaults::NO_MATCHES_MESSAGE.to_string(),
+            command_prefix: defaults::COMMAND_PREFIX.to_string(),
+            description_indent: defaults::DESCRIPTION_INDENT.to_string(),
+        }
+    }
+
+    /// Set the header text
+    pub fn with_header_text(mut self, text: impl Into<String>) -> Self {
+        self.header_text = text.into();
+        self
+    }
+
+    /// Set the no matches message
+    pub fn with_no_matches_message(mut self, message: impl Into<String>) -> Self {
+        self.no_matches_message = message.into();
+        self
+    }
+
+    /// Set the command prefix
+    pub fn with_command_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.command_prefix = prefix.into();
+        self
+    }
+}
+
 /// Trait for slash commands
 ///
 /// Applications implement this trait for their command types.
@@ -34,15 +95,33 @@ pub struct SlashPopupState {
     pub selected_index: usize,
     /// Number of filtered commands (for bounds checking)
     filtered_count: usize,
+    /// Configuration for display customization
+    config: SlashPopupConfig,
 }
 
 impl SlashPopupState {
     pub fn new() -> Self {
+        Self::with_config(SlashPopupConfig::new())
+    }
+
+    /// Create a new slash popup with custom configuration
+    pub fn with_config(config: SlashPopupConfig) -> Self {
         Self {
             active: false,
             selected_index: 0,
             filtered_count: 0,
+            config,
         }
+    }
+
+    /// Get the current configuration
+    pub fn config(&self) -> &SlashPopupConfig {
+        &self.config
+    }
+
+    /// Set a new configuration
+    pub fn set_config(&mut self, config: SlashPopupConfig) {
+        self.config = config;
     }
 
     /// Activate popup and reset state
@@ -268,7 +347,7 @@ pub fn render_slash_popup<C: SlashCommand>(
 
     // Header line with leading space
     lines.push(Line::from(vec![Span::styled(
-        " Slash command mode \u{2014} Use arrow keys to select, Enter to execute, Esc to cancel",
+        state.config.header_text.clone(),
         theme.popup_header(),
     )]));
     lines.push(Line::from("")); // Blank line after header
@@ -278,7 +357,7 @@ pub fn render_slash_popup<C: SlashCommand>(
         let is_selected = idx == state.selected_index;
 
         // Command name line with leading space, padded to full width for selected
-        let name_text = format!(" /{}", cmd.name());
+        let name_text = format!("{}{}", state.config.command_prefix, cmd.name());
         let name_style = if is_selected {
             theme.popup_selected_bg().patch(theme.popup_item_selected())
         } else {
@@ -293,7 +372,7 @@ pub fn render_slash_popup<C: SlashCommand>(
         }
 
         // Description line with leading space, padded to full width for selected
-        let desc_text = format!(" {}", cmd.description());
+        let desc_text = format!("{}{}", state.config.description_indent, cmd.description());
         let desc_style = if is_selected {
             theme.popup_selected_bg().patch(theme.popup_item_desc_selected())
         } else {
@@ -313,10 +392,10 @@ pub fn render_slash_popup<C: SlashCommand>(
         }
     }
 
-    // If no matches, show "No matching commands" with leading space
+    // If no matches, show empty message
     if commands.is_empty() {
         lines.push(Line::from(Span::styled(
-            " No matching commands",
+            state.config.no_matches_message.clone(),
             theme.popup_empty(),
         )));
     }

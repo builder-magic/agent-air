@@ -171,8 +171,10 @@ impl AgentCore {
         let ui_tx = from_controller_tx.clone();
         let event_handler = Box::new(move |event: ControllerEvent| {
             let msg = convert_controller_event_to_ui_message(event);
-            // Try to send, but don't block if channel is full
-            let _ = ui_tx.try_send(msg);
+            // Try to send, log if channel is full (non-blocking to avoid deadlock)
+            if let Err(e) = ui_tx.try_send(msg) {
+                tracing::warn!("Failed to send controller event to UI: {}", e);
+            }
         });
 
         let controller = Arc::new(LLMController::new(Some(event_handler)));
@@ -191,7 +193,9 @@ impl AgentCore {
         runtime.spawn(async move {
             while let Some(event) = interaction_event_rx.recv().await {
                 let msg = convert_controller_event_to_ui_message(event);
-                let _ = ui_tx_for_interactions.try_send(msg);
+                if let Err(e) = ui_tx_for_interactions.try_send(msg) {
+                    tracing::warn!("Failed to send user interaction event to UI: {}", e);
+                }
             }
         });
 
@@ -207,7 +211,9 @@ impl AgentCore {
         runtime.spawn(async move {
             while let Some(event) = permission_event_rx.recv().await {
                 let msg = convert_controller_event_to_ui_message(event);
-                let _ = ui_tx_for_permissions.try_send(msg);
+                if let Err(e) = ui_tx_for_permissions.try_send(msg) {
+                    tracing::warn!("Failed to send permission event to UI: {}", e);
+                }
             }
         });
 
@@ -416,6 +422,29 @@ impl AgentCore {
         }
     }
 
+    /// Internal helper to create a session and configure tools.
+    async fn create_session_internal(
+        controller: &Arc<LLMController>,
+        config: LLMSessionConfig,
+        tool_definitions: &[ToolDefinition],
+    ) -> Result<i64, crate::client::error::LlmError> {
+        let id = controller.create_session(config).await?;
+
+        // Set tools on the session after creation
+        if !tool_definitions.is_empty() {
+            let tools: Vec<LLMTool> = tool_definitions
+                .iter()
+                .map(|def| LLMTool::new(&def.name, &def.description, &def.input_schema))
+                .collect();
+
+            if let Some(session) = controller.get_session(id).await {
+                session.set_tools(tools).await;
+            }
+        }
+
+        Ok(id)
+    }
+
     /// Create an initial session using the default LLM provider.
     ///
     /// Returns the session ID and model name, or an error message.
@@ -430,30 +459,17 @@ impl AgentCore {
 
         let model = config.model.clone();
         let context_limit = config.context_limit;
-        let session_config = config.clone();
 
         let controller = self.controller.clone();
         let tool_definitions = self.tool_definitions.clone();
 
         let session_id = self
             .runtime
-            .block_on(async {
-                let id = controller.create_session(session_config).await?;
-
-                // Set tools on the session after creation
-                if !tool_definitions.is_empty() {
-                    let tools: Vec<LLMTool> = tool_definitions
-                        .iter()
-                        .map(|def| LLMTool::new(&def.name, &def.description, &def.input_schema))
-                        .collect();
-
-                    if let Some(session) = controller.get_session(id).await {
-                        session.set_tools(tools).await;
-                    }
-                }
-
-                Ok::<i64, crate::client::error::LlmError>(id)
-            })
+            .block_on(Self::create_session_internal(
+                &controller,
+                config.clone(),
+                &tool_definitions,
+            ))
             .map_err(|e| format!("Failed to create session: {}", e))?;
 
         tracing::info!(
@@ -473,23 +489,11 @@ impl AgentCore {
         let tool_definitions = self.tool_definitions.clone();
 
         self.runtime
-            .block_on(async {
-                let id = controller.create_session(config).await?;
-
-                // Set tools on the session after creation
-                if !tool_definitions.is_empty() {
-                    let tools: Vec<LLMTool> = tool_definitions
-                        .iter()
-                        .map(|def| LLMTool::new(&def.name, &def.description, &def.input_schema))
-                        .collect();
-
-                    if let Some(session) = controller.get_session(id).await {
-                        session.set_tools(tools).await;
-                    }
-                }
-
-                Ok::<i64, crate::client::error::LlmError>(id)
-            })
+            .block_on(Self::create_session_internal(
+                &controller,
+                config,
+                &tool_definitions,
+            ))
             .map_err(|e| format!("Failed to create session: {}", e))
     }
 
@@ -537,6 +541,7 @@ impl AgentCore {
             welcome_art: self.welcome_art.clone(),
             welcome_subtitle_indices: self.welcome_subtitle_indices.clone(),
             custom_commands: Vec::new(),
+            ..Default::default()
         };
         let mut app = App::with_config(app_config);
 
@@ -798,26 +803,6 @@ pub fn convert_controller_event_to_ui_message(event: ControllerEvent) -> UiMessa
 mod tests {
     use super::*;
     use crate::controller::TurnId;
-
-    struct TestConfig;
-
-    impl AgentConfig for TestConfig {
-        fn config_path(&self) -> &str {
-            ".test_agent/config.yaml"
-        }
-
-        fn default_system_prompt(&self) -> &str {
-            "You are a test agent."
-        }
-
-        fn log_prefix(&self) -> &str {
-            "test_agent"
-        }
-
-        fn name(&self) -> &str {
-            "TestAgent"
-        }
-    }
 
     #[test]
     fn test_convert_text_chunk_event() {

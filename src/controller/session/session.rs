@@ -15,6 +15,20 @@ use crate::client::LLMClient;
 
 use super::compactor::{AsyncCompactor, Compactor, LLMCompactor, ThresholdCompactor};
 use super::config::{CompactorType, LLMProvider, LLMSessionConfig};
+
+/// Creates an LLMClient from the session configuration.
+fn create_llm_client(config: &LLMSessionConfig) -> Result<LLMClient, LlmError> {
+    match config.provider {
+        LLMProvider::Anthropic => {
+            let provider = AnthropicProvider::new(config.api_key.clone(), config.model.clone());
+            LLMClient::new(Box::new(provider))
+        }
+        LLMProvider::OpenAI => {
+            let provider = OpenAIProvider::new(config.api_key.clone(), config.model.clone());
+            LLMClient::new(Box::new(provider))
+        }
+    }
+}
 use crate::controller::types::{
     AssistantMessage, ContentBlock, FromLLMPayload, Message, ToLLMPayload, TurnId, UserMessage,
 };
@@ -155,22 +169,7 @@ impl LLMSession {
         let system_prompt = config.system_prompt.clone();
 
         // Create the LLMClient client based on the provider
-        let client = match config.provider {
-            LLMProvider::Anthropic => {
-                let provider = AnthropicProvider::new(
-                    config.api_key.clone(),
-                    config.model.clone(),
-                );
-                LLMClient::new(Box::new(provider))?
-            }
-            LLMProvider::OpenAI => {
-                let provider = OpenAIProvider::new(
-                    config.api_key.clone(),
-                    config.model.clone(),
-                );
-                LLMClient::new(Box::new(provider))?
-            }
-        };
+        let client = create_llm_client(&config)?;
 
         // Create compactor if configured
         let mut compactor: Option<Box<dyn Compactor>> = None;
@@ -196,22 +195,7 @@ impl LLMSession {
                 }
                 CompactorType::LLM(c) => {
                     // Create a separate LLMClient client for LLM compaction
-                    let llm_client = match config.provider {
-                        LLMProvider::Anthropic => {
-                            let provider = AnthropicProvider::new(
-                                config.api_key.clone(),
-                                config.model.clone(),
-                            );
-                            LLMClient::new(Box::new(provider))?
-                        }
-                        LLMProvider::OpenAI => {
-                            let provider = OpenAIProvider::new(
-                                config.api_key.clone(),
-                                config.model.clone(),
-                            );
-                            LLMClient::new(Box::new(provider))?
-                        }
-                    };
+                    let llm_client = create_llm_client(&config)?;
 
                     match LLMCompactor::new(llm_client, c.clone()) {
                         Ok(lc) => {
@@ -707,6 +691,65 @@ impl LLMSession {
         tracing::info!(session_id = self.id(), "Session stopped");
     }
 
+    // ---- Request Helper Methods ----
+
+    /// Returns the current timestamp in milliseconds.
+    fn current_timestamp_millis() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    /// Prepares the request context by setting up cancellation token and turn ID.
+    /// Returns the request token and effective turn ID.
+    async fn prepare_request(&self, request: &ToLLMPayload) -> (CancellationToken, TurnId) {
+        let request_token = CancellationToken::new();
+        {
+            let mut guard = self.current_cancel.lock().await;
+            *guard = Some(request_token.clone());
+        }
+
+        let effective_turn_id = request
+            .turn_id
+            .clone()
+            .unwrap_or_else(|| TurnId::new_user_turn(0));
+        {
+            let mut guard = self.current_turn_id.write().await;
+            *guard = Some(effective_turn_id.clone());
+        }
+
+        (request_token, effective_turn_id)
+    }
+
+    /// Builds the message options with tools for the LLM request.
+    async fn build_message_options(&self) -> crate::client::models::MessageOptions {
+        use crate::client::models::MessageOptions;
+
+        let max_tokens = self.max_tokens.load(Ordering::SeqCst) as u32;
+        let tools = self.tool_definitions.read().await.clone();
+        let tools_option = if tools.is_empty() { None } else { Some(tools) };
+
+        MessageOptions {
+            max_tokens: Some(max_tokens),
+            temperature: self.config.temperature,
+            tools: tools_option,
+            ..Default::default()
+        }
+    }
+
+    /// Clears the request cancellation token and turn ID after request completion.
+    async fn cleanup_request(&self) {
+        {
+            let mut guard = self.current_cancel.lock().await;
+            *guard = None;
+        }
+        {
+            let mut guard = self.current_turn_id.write().await;
+            *guard = None;
+        }
+    }
+
     /// Handles a single request from the ToLLM channel.
     async fn handle_request(&self, request: ToLLMPayload) {
         if self.config.streaming {
@@ -720,24 +763,10 @@ impl LLMSession {
     async fn handle_non_streaming_request(&self, request: ToLLMPayload) {
         use super::convert::{from_llm_message, to_llm_messages};
         use crate::controller::types::{LLMRequestType, LLMResponseType};
-        use crate::client::models::{Message as LLMMessage, MessageOptions};
+        use crate::client::models::Message as LLMMessage;
 
-        // Create a cancellation token for this request
-        let request_token = CancellationToken::new();
-        {
-            let mut guard = self.current_cancel.lock().await;
-            *guard = Some(request_token.clone());
-        }
-
-        // Store the turn ID for this request (used for filtering on interrupt)
-        let effective_turn_id = request
-            .turn_id
-            .clone()
-            .unwrap_or_else(|| TurnId::new_user_turn(0));
-        {
-            let mut guard = self.current_turn_id.write().await;
-            *guard = Some(effective_turn_id.clone());
-        }
+        // Prepare request context
+        let (_request_token, effective_turn_id) = self.prepare_request(&request).await;
 
         let session_id = self.id();
         tracing::debug!(session_id, turn_id = %effective_turn_id, "Handling request");
@@ -766,10 +795,7 @@ impl LLMSession {
                         id: format!("user_{}", self.request_count.load(Ordering::SeqCst)),
                         session_id: session_id.to_string(),
                         turn_id: effective_turn_id.clone(),
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as i64,
+                        created_at: Self::current_timestamp_millis(),
                         content: vec![ContentBlock::text(&request.content)],
                     });
                     self.conversation.write().await.push(user_msg);
@@ -798,10 +824,7 @@ impl LLMSession {
                         id: format!("tool_result_{}", self.request_count.load(Ordering::SeqCst)),
                         session_id: session_id.to_string(),
                         turn_id: effective_turn_id.clone(),
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as i64,
+                        created_at: Self::current_timestamp_millis(),
                         content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
                             tool_use_id: tool_result.tool_use_id.clone(),
                             content: tool_result.content.clone(),
@@ -818,15 +841,7 @@ impl LLMSession {
         self.maybe_compact().await;
 
         // Build message options with tools
-        let max_tokens = self.max_tokens.load(Ordering::SeqCst) as u32;
-        let tools = self.tool_definitions.read().await.clone();
-        let tools_option = if tools.is_empty() { None } else { Some(tools) };
-        let options = MessageOptions {
-            max_tokens: Some(max_tokens),
-            temperature: self.config.temperature,
-            tools: tools_option,
-            ..Default::default()
-        };
+        let options = self.build_message_options().await;
 
         // Call the LLM
         let result = self.client.send_message(&llm_messages, &options).await;
@@ -880,10 +895,7 @@ impl LLMSession {
                 }
 
                 // Add assistant message to conversation history
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as i64;
+                let now = Self::current_timestamp_millis();
                 let asst_msg = Message::Assistant(AssistantMessage {
                     id: format!("asst_{}", self.request_count.load(Ordering::SeqCst)),
                     session_id: session_id.to_string(),
@@ -933,14 +945,7 @@ impl LLMSession {
         }
 
         // Clear the request cancellation token and turn ID when done
-        {
-            let mut guard = self.current_cancel.lock().await;
-            *guard = None;
-        }
-        {
-            let mut guard = self.current_turn_id.write().await;
-            *guard = None;
-        }
+        self.cleanup_request().await;
     }
 
     /// Handles a streaming request.
@@ -949,25 +954,11 @@ impl LLMSession {
         use crate::controller::types::{LLMRequestType, LLMResponseType};
         use futures::StreamExt;
         use crate::client::models::{
-            ContentBlockType, Message as LLMMessage, MessageOptions, StreamEvent,
+            ContentBlockType, Message as LLMMessage, StreamEvent,
         };
 
-        // Create a cancellation token for this request
-        let request_token = CancellationToken::new();
-        {
-            let mut guard = self.current_cancel.lock().await;
-            *guard = Some(request_token.clone());
-        }
-
-        // Store the turn ID for this request (used for filtering on interrupt)
-        let effective_turn_id = request
-            .turn_id
-            .clone()
-            .unwrap_or_else(|| TurnId::new_user_turn(0));
-        {
-            let mut guard = self.current_turn_id.write().await;
-            *guard = Some(effective_turn_id.clone());
-        }
+        // Prepare request context
+        let (request_token, effective_turn_id) = self.prepare_request(&request).await;
 
         let session_id = self.id();
         tracing::debug!(session_id, turn_id = %effective_turn_id, "Handling streaming request");
@@ -996,10 +987,7 @@ impl LLMSession {
                         id: format!("user_{}", self.request_count.load(Ordering::SeqCst)),
                         session_id: session_id.to_string(),
                         turn_id: effective_turn_id.clone(),
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as i64,
+                        created_at: Self::current_timestamp_millis(),
                         content: vec![ContentBlock::text(&request.content)],
                     });
                     self.conversation.write().await.push(user_msg);
@@ -1038,10 +1026,7 @@ impl LLMSession {
                         id: format!("tool_result_{}", self.request_count.load(Ordering::SeqCst)),
                         session_id: session_id.to_string(),
                         turn_id: effective_turn_id.clone(),
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as i64,
+                        created_at: Self::current_timestamp_millis(),
                         content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
                             tool_use_id: tool_result.tool_use_id.clone(),
                             content: tool_result.content.clone(),
@@ -1058,15 +1043,7 @@ impl LLMSession {
         self.maybe_compact().await;
 
         // Build message options with tools
-        let max_tokens = self.max_tokens.load(Ordering::SeqCst) as u32;
-        let tools = self.tool_definitions.read().await.clone();
-        let tools_option = if tools.is_empty() { None } else { Some(tools) };
-        let options = MessageOptions {
-            max_tokens: Some(max_tokens),
-            temperature: self.config.temperature,
-            tools: tools_option,
-            ..Default::default()
-        };
+        let options = self.build_message_options().await;
 
         // Call the streaming LLM API
         let stream_result = self
@@ -1231,10 +1208,7 @@ impl LLMSession {
                                                 "MessageStop: saving assistant message to history"
                                             );
                                             if !response_text.is_empty() || !completed_tool_uses.is_empty() {
-                                                let now = std::time::SystemTime::now()
-                                                    .duration_since(std::time::UNIX_EPOCH)
-                                                    .unwrap_or_default()
-                                                    .as_millis() as i64;
+                                                let now = Self::current_timestamp_millis();
 
                                                 // Build content blocks: text first, then tool uses
                                                 let mut content_blocks = Vec::new();
@@ -1348,13 +1322,6 @@ impl LLMSession {
         }
 
         // Clear the request cancellation token and turn ID when done
-        {
-            let mut guard = self.current_cancel.lock().await;
-            *guard = None;
-        }
-        {
-            let mut guard = self.current_turn_id.write().await;
-            *guard = None;
-        }
+        self.cleanup_request().await;
     }
 }

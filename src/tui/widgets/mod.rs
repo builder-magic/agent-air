@@ -32,16 +32,20 @@ pub mod question_panel;
 pub mod session_picker;
 pub mod slash_popup;
 
-pub use chat::{ChatView, MessageRole, ToolMessageData, ToolStatus};
+pub use chat::{ChatView, ChatViewConfig, MessageRole, ToolMessageData, ToolStatus};
 pub use chat_helpers::{centered_text, title_bar, welcome_art, welcome_art_styled, RenderFn};
 pub use input::TextInput;
-pub use permission_panel::{KeyAction as PermissionKeyAction, PermissionOption, PermissionPanel};
+pub use permission_panel::{
+    KeyAction as PermissionKeyAction, PermissionOption, PermissionPanel, PermissionPanelConfig,
+};
 pub use question_panel::{
     AnswerState, EnterAction, FocusItem, KeyAction as QuestionKeyAction, QuestionPanel,
+    QuestionPanelConfig,
 };
-pub use session_picker::{render_session_picker, SessionInfo, SessionPickerState};
+pub use session_picker::{render_session_picker, SessionInfo, SessionPickerConfig, SessionPickerState};
 pub use slash_popup::{
-    render_slash_popup, SimpleCommand, SlashCommand as SlashCommandTrait, SlashPopupState,
+    render_slash_popup, SimpleCommand, SlashCommand as SlashCommandTrait, SlashPopupConfig,
+    SlashPopupState,
 };
 
 /// Standard widget IDs for built-in widgets

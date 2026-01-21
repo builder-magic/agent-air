@@ -13,6 +13,94 @@ use ratatui::{
 
 use crate::tui::themes::Theme;
 
+/// Default configuration values for SessionPicker
+pub mod defaults {
+    /// Current session marker
+    pub const CURRENT_MARKER: &str = "*";
+    /// No current marker (space)
+    pub const NO_MARKER: &str = " ";
+    /// Selection prefix for focused items
+    pub const SELECTION_PREFIX: &str = " > ";
+    /// No selection prefix
+    pub const NO_SELECTION_PREFIX: &str = "   ";
+    /// Block title
+    pub const TITLE: &str = " Sessions ";
+    /// Help text
+    pub const HELP_TEXT: &str = " Arrow keys to navigate | Enter to switch | Esc to cancel | * = current session";
+    /// No sessions message
+    pub const NO_SESSIONS_MESSAGE: &str = "   No sessions available";
+}
+
+/// Configuration for SessionPicker widget
+#[derive(Clone)]
+pub struct SessionPickerConfig {
+    /// Marker for current session
+    pub current_marker: String,
+    /// Marker for non-current sessions
+    pub no_marker: String,
+    /// Prefix for selected/focused item
+    pub selection_prefix: String,
+    /// Prefix for non-selected items
+    pub no_selection_prefix: String,
+    /// Block title
+    pub title: String,
+    /// Help text shown at bottom
+    pub help_text: String,
+    /// Message when no sessions available
+    pub no_sessions_message: String,
+}
+
+impl Default for SessionPickerConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SessionPickerConfig {
+    /// Create a new SessionPickerConfig with default values
+    pub fn new() -> Self {
+        Self {
+            current_marker: defaults::CURRENT_MARKER.to_string(),
+            no_marker: defaults::NO_MARKER.to_string(),
+            selection_prefix: defaults::SELECTION_PREFIX.to_string(),
+            no_selection_prefix: defaults::NO_SELECTION_PREFIX.to_string(),
+            title: defaults::TITLE.to_string(),
+            help_text: defaults::HELP_TEXT.to_string(),
+            no_sessions_message: defaults::NO_SESSIONS_MESSAGE.to_string(),
+        }
+    }
+
+    /// Set the current session marker
+    pub fn with_current_marker(mut self, marker: impl Into<String>) -> Self {
+        self.current_marker = marker.into();
+        self
+    }
+
+    /// Set the selection prefix
+    pub fn with_selection_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.selection_prefix = prefix.into();
+        self
+    }
+
+    /// Set the block title
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// Set the help text
+    pub fn with_help_text(mut self, text: impl Into<String>) -> Self {
+        self.help_text = text.into();
+        self
+    }
+
+    /// Set the no sessions message
+    pub fn with_no_sessions_message(mut self, message: impl Into<String>) -> Self {
+        self.no_sessions_message = message.into();
+        self
+    }
+}
+
 /// Information about a session for display purposes
 #[derive(Clone)]
 pub struct SessionInfo {
@@ -45,16 +133,34 @@ pub struct SessionPickerState {
     sessions: Vec<SessionInfo>,
     /// Current active session ID (for marking with *)
     current_session_id: i64,
+    /// Configuration for display customization
+    config: SessionPickerConfig,
 }
 
 impl SessionPickerState {
     pub fn new() -> Self {
+        Self::with_config(SessionPickerConfig::new())
+    }
+
+    /// Create a new session picker with custom configuration
+    pub fn with_config(config: SessionPickerConfig) -> Self {
         Self {
             active: false,
             selected_index: 0,
             sessions: Vec::new(),
             current_session_id: 0,
+            config,
         }
+    }
+
+    /// Get the current configuration
+    pub fn config(&self) -> &SessionPickerConfig {
+        &self.config
+    }
+
+    /// Set a new configuration
+    pub fn set_config(&mut self, config: SessionPickerConfig) {
+        self.config = config;
     }
 
     /// Activate the picker with the given sessions
@@ -249,7 +355,7 @@ pub fn render_session_picker(state: &SessionPickerState, frame: &mut Frame, area
     render_session_list(state, frame, main_chunks[0], theme);
 
     // Bottom help bar
-    render_help_bar(frame, main_chunks[1], theme);
+    render_help_bar(state, frame, main_chunks[1], theme);
 }
 
 /// Render the session list with all info on each line
@@ -266,7 +372,7 @@ fn render_session_list(
 
     if state.sessions.is_empty() {
         lines.push(Line::from(Span::styled(
-            "   No sessions available",
+            state.config.no_sessions_message.clone(),
             theme.text(),
         )));
     } else {
@@ -282,8 +388,8 @@ fn render_session_list(
             let is_selected = idx == state.selected_index;
             let is_current = session.id == state.current_session_id;
 
-            let marker = if is_current { "*" } else { " " };
-            let prefix = if is_selected { " > " } else { "   " };
+            let marker = if is_current { &state.config.current_marker } else { &state.config.no_marker };
+            let prefix = if is_selected { &state.config.selection_prefix } else { &state.config.no_selection_prefix };
             let context_str = format_context(session.context_used, session.context_limit);
             let time_str = session.created_at.format("%H:%M:%S").to_string();
 
@@ -313,7 +419,7 @@ fn render_session_list(
     }
 
     let block = Block::default()
-        .title(" Sessions ")
+        .title(state.config.title.clone())
         .borders(Borders::ALL)
         .border_style(theme.popup_border());
 
@@ -325,10 +431,8 @@ fn render_session_list(
 }
 
 /// Render the help bar at the bottom
-fn render_help_bar(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let help_text =
-        " Arrow keys to navigate | Enter to switch | Esc to cancel | * = current session";
-    let help = Paragraph::new(help_text).style(theme.status_help());
+fn render_help_bar(state: &SessionPickerState, frame: &mut Frame, area: Rect, theme: &Theme) {
+    let help = Paragraph::new(state.config.help_text.clone()).style(theme.status_help());
     frame.render_widget(help, area);
 }
 

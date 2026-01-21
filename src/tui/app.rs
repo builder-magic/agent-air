@@ -46,7 +46,6 @@ use super::commands::{
     SlashCommand,
 };
 use super::keys::{AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, KeyBindings, KeyContext, KeyHandler};
-use super::messages::{different_random_index, random_message_index, FUNNY_MESSAGES};
 use super::widgets::{
     widget_ids, ChatView, TextInput, ToolStatus, SessionInfo, SessionPickerState,
     SlashPopupState, Widget, WidgetAction, WidgetKeyResult, render_session_picker, render_slash_popup,
@@ -74,6 +73,8 @@ pub struct AppConfig {
     pub welcome_subtitle_indices: Vec<usize>,
     /// Custom slash commands (in addition to defaults)
     pub custom_commands: Vec<SlashCommand>,
+    /// Message shown while processing a request
+    pub processing_message: String,
 }
 
 impl Default for AppConfig {
@@ -87,6 +88,7 @@ impl Default for AppConfig {
             ],
             welcome_subtitle_indices: vec![1],
             custom_commands: Vec::new(),
+            processing_message: "Processing request...".to_string(),
         }
     }
 }
@@ -178,12 +180,6 @@ pub struct App {
     /// Frame counter for throttling animation speed
     animation_frame_counter: u8,
 
-    /// Current funny message index
-    message_index: usize,
-
-    /// When the message was last changed (for rotation)
-    last_message_change: Option<Instant>,
-
     /// Current turn ID we're expecting responses for (to filter stale messages)
     current_turn_id: Option<TurnId>,
 
@@ -205,7 +201,7 @@ pub struct App {
     /// Chat views for each session (used for session switching)
     session_chat_views: HashMap<i64, ChatView>,
 
-    /// Custom throbber message (overrides FUNNY_MESSAGES when set)
+    /// Custom throbber message (overrides processing_message when set)
     custom_throbber_message: Option<String>,
 
     /// User interaction registry for responding to AskUserQuestions
@@ -258,8 +254,6 @@ impl App {
             waiting_for_response: false,
             waiting_started: None,
             animation_frame_counter: 0,
-            message_index: random_message_index(),
-            last_message_change: None,
             current_turn_id: None,
             executing_tools: HashSet::new(),
             widgets: HashMap::new(),
@@ -545,9 +539,6 @@ impl App {
                 // Immediately show throbber (before streaming starts)
                 self.waiting_for_response = true;
                 self.waiting_started = Some(Instant::now());
-                // Pick a random funny message and start rotation timer
-                self.message_index = random_message_index();
-                self.last_message_change = Some(Instant::now());
                 // Track the expected turn ID to filter stale messages
                 self.current_turn_id = Some(TurnId::new_user_turn(self.user_turn_counter));
             }
@@ -571,7 +562,6 @@ impl App {
                 // Reset waiting state immediately for responsive UI
                 self.waiting_for_response = false;
                 self.waiting_started = None;
-                self.last_message_change = None;
                 self.executing_tools.clear();
                 // Keep partial streaming content visible (save it as a message)
                 if let Some(chat) = self.chat_mut() {
@@ -646,7 +636,9 @@ impl App {
             if let Some(ref tx) = self.to_controller {
                 let payload =
                     ControllerInputPayload::control(self.session_id, ControlCmd::Clear);
-                let _ = tx.try_send(payload);
+                if let Err(e) = tx.try_send(payload) {
+                    tracing::warn!("Failed to send clear command to controller: {}", e);
+                }
             }
         }
     }
@@ -968,7 +960,6 @@ impl App {
                 if !is_tool_use {
                     self.waiting_for_response = false;
                     self.waiting_started = None;
-                    self.last_message_change = None;
                 }
             }
             UiMessage::TokenUpdate {
@@ -988,7 +979,6 @@ impl App {
                 }
                 self.waiting_for_response = false;
                 self.waiting_started = None;
-                self.last_message_change = None;
                 self.current_turn_id = None;
                 if let Some(chat) = self.chat_mut() {
                     chat.add_system_message(format!("Error: {}", error));
@@ -1467,16 +1457,6 @@ impl App {
                         chat.step_spinner();
                     }
                 }
-
-                // Rotate funny message
-                if let Some(last_change) = self.last_message_change {
-                    let elapsed = last_change.elapsed().as_secs();
-                    let interval = 5 + (self.message_index % 11);
-                    if elapsed >= interval as u64 {
-                        self.message_index = different_random_index(self.message_index);
-                        self.last_message_change = Some(Instant::now());
-                    }
-                }
             }
 
             let prompt_len = PROMPT.chars().count();
@@ -1611,7 +1591,7 @@ impl App {
                     let message = self
                         .custom_throbber_message
                         .as_deref()
-                        .unwrap_or(FUNNY_MESSAGES[self.message_index]);
+                        .unwrap_or(&self.config.processing_message);
                     let throbber = Throbber::default()
                         .label(message)
                         .style(theme.throbber_label)

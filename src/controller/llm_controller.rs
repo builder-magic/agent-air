@@ -446,10 +446,6 @@ impl LLMController {
                     context_limit,
                 })
             }
-            LLMResponseType::Citations | LLMResponseType::ServerToolUse => {
-                // Not yet implemented
-                None
-            }
         };
 
         // Emit event if we have one and a callback is registered

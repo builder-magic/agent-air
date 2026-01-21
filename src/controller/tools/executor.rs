@@ -61,7 +61,9 @@ impl ToolExecutor {
                 turn_id,
                 results: Vec::new(),
             };
-            let _ = self.batch_result_tx.send(batch_result).await;
+            if let Err(e) = self.batch_result_tx.send(batch_result).await {
+                tracing::debug!("Failed to send empty batch result: {}", e);
+            }
             return batch_id;
         }
 
@@ -244,7 +246,9 @@ impl ToolExecutorBatch {
     /// Add a result to the batch and check for completion.
     async fn add_result(&self, result: ToolResult) {
         // Send individual result for UI feedback
-        let _ = self.tool_result_tx.send(result.clone()).await;
+        if let Err(e) = self.tool_result_tx.send(result.clone()).await {
+            tracing::debug!("Failed to send tool result: {}", e);
+        }
 
         let mut results = self.results.lock().await;
         results.insert(result.tool_use_id.clone(), result);
@@ -285,7 +289,9 @@ impl ToolExecutorBatch {
             "Sending batch result"
         );
 
-        let _ = self.batch_result_tx.send(batch_result).await;
+        if let Err(e) = self.batch_result_tx.send(batch_result).await {
+            tracing::debug!("Failed to send batch result: {}", e);
+        }
     }
 }
 
@@ -330,7 +336,6 @@ mod tests {
         }
     }
 
-    #[allow(dead_code)]
     struct SlowTool;
 
     impl Executable for SlowTool {
@@ -457,5 +462,38 @@ mod tests {
         let result = tool_rx.recv().await.unwrap();
         assert_eq!(result.status, ToolResultStatus::Error);
         assert!(result.error.unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_tool_cancellation() {
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register(Arc::new(SlowTool)).await.unwrap();
+
+        let (tool_tx, mut tool_rx) = mpsc::channel(10);
+        let (batch_tx, _batch_rx) = mpsc::channel(10);
+
+        let executor = ToolExecutor::new(registry, tool_tx, batch_tx);
+
+        let request = ToolRequest {
+            tool_use_id: "test_1".to_string(),
+            tool_name: "slow".to_string(),
+            input: HashMap::new(),
+        };
+
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+
+        // Start execution
+        executor.execute(1, None, request, cancel).await;
+
+        // Cancel after a short delay
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel_clone.cancel();
+        });
+
+        // Wait for result - should be timeout/cancelled
+        let result = tool_rx.recv().await.unwrap();
+        assert_eq!(result.status, ToolResultStatus::Timeout);
     }
 }

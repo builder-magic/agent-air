@@ -21,7 +21,6 @@ pub mod layout;
 pub mod themes;
 mod commands;
 pub mod markdown;
-pub mod messages;
 pub mod table;
 pub mod widgets;
 
@@ -48,7 +47,6 @@ pub use markdown::{
     wrap_with_prefix, ContentSegment,
 };
 pub use table::{is_table_line, is_table_separator, render_table, PulldownRenderer, TableRenderer};
-pub use messages::{different_random_index, random_message_index, FUNNY_MESSAGES};
 
 // Re-export theme types for convenience
 pub use themes::{

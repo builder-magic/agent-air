@@ -14,14 +14,154 @@ use ratatui::{
 use crate::tui::themes::theme as app_theme;
 use crate::tui::markdown::{render_markdown_with_prefix, wrap_with_prefix};
 
-// First line prefixes (symbol + space)
-const USER_PREFIX: &str = "> ";
-const SYSTEM_PREFIX: &str = "* ";
-const TIMESTAMP_PREFIX: &str = "  - ";
-// Continuation line prefix (spaces to align with text after symbol)
-const CONTINUATION: &str = "  ";
-// Spinner characters for pending status animation
-const SPINNER_CHARS: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+/// Default configuration values for ChatView
+pub mod defaults {
+    /// Default prefix for user messages
+    pub const USER_PREFIX: &str = "> ";
+    /// Default prefix for system messages
+    pub const SYSTEM_PREFIX: &str = "* ";
+    /// Default prefix for timestamps
+    pub const TIMESTAMP_PREFIX: &str = "  - ";
+    /// Default continuation line prefix (spaces to align with text after symbol)
+    pub const CONTINUATION: &str = "  ";
+    /// Default spinner characters for pending status animation
+    pub const SPINNER_CHARS: &[char] = &['\u{280B}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283C}', '\u{2834}', '\u{2826}', '\u{2827}', '\u{2807}', '\u{280F}'];
+    /// Default title for the chat view
+    pub const DEFAULT_TITLE: &str = "Chat";
+    /// Default empty state message
+    pub const DEFAULT_EMPTY_MESSAGE: &str = "    Type a message to start chatting...";
+    /// Default tool header icon (hammer and pick)
+    pub const TOOL_ICON: &str = "\u{2692}";
+    /// Default tool executing arrow
+    pub const TOOL_EXECUTING_ARROW: &str = "\u{2192}";
+    /// Default tool completed checkmark
+    pub const TOOL_COMPLETED_CHECKMARK: &str = "\u{2713}";
+    /// Default tool failed warning icon
+    pub const TOOL_FAILED_ICON: &str = "\u{26A0}";
+}
+
+/// Configuration for ChatView widget
+///
+/// Use the builder pattern to customize the chat view appearance.
+///
+/// # Example
+/// ```rust,ignore
+/// let config = ChatViewConfig::new()
+///     .with_user_prefix("You: ")
+///     .with_spinner_chars(&['|', '/', '-', '\\']);
+/// let chat = ChatView::with_config(config);
+/// ```
+#[derive(Clone)]
+pub struct ChatViewConfig {
+    /// Prefix for user messages (e.g., "> ")
+    pub user_prefix: String,
+    /// Prefix for system messages (e.g., "* ")
+    pub system_prefix: String,
+    /// Prefix for timestamps (e.g., "  - ")
+    pub timestamp_prefix: String,
+    /// Continuation line prefix for wrapped text
+    pub continuation: String,
+    /// Spinner characters for pending status animation
+    pub spinner_chars: Vec<char>,
+    /// Default title for the chat view
+    pub default_title: String,
+    /// Message shown when chat is empty
+    pub empty_message: String,
+    /// Icon for tool headers
+    pub tool_icon: String,
+    /// Arrow for executing tools
+    pub tool_executing_arrow: String,
+    /// Checkmark for completed tools
+    pub tool_completed_checkmark: String,
+    /// Warning icon for failed tools
+    pub tool_failed_icon: String,
+}
+
+impl Default for ChatViewConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChatViewConfig {
+    /// Create a new ChatViewConfig with default values
+    pub fn new() -> Self {
+        Self {
+            user_prefix: defaults::USER_PREFIX.to_string(),
+            system_prefix: defaults::SYSTEM_PREFIX.to_string(),
+            timestamp_prefix: defaults::TIMESTAMP_PREFIX.to_string(),
+            continuation: defaults::CONTINUATION.to_string(),
+            spinner_chars: defaults::SPINNER_CHARS.to_vec(),
+            default_title: defaults::DEFAULT_TITLE.to_string(),
+            empty_message: defaults::DEFAULT_EMPTY_MESSAGE.to_string(),
+            tool_icon: defaults::TOOL_ICON.to_string(),
+            tool_executing_arrow: defaults::TOOL_EXECUTING_ARROW.to_string(),
+            tool_completed_checkmark: defaults::TOOL_COMPLETED_CHECKMARK.to_string(),
+            tool_failed_icon: defaults::TOOL_FAILED_ICON.to_string(),
+        }
+    }
+
+    /// Set the user message prefix
+    pub fn with_user_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.user_prefix = prefix.into();
+        self
+    }
+
+    /// Set the system message prefix
+    pub fn with_system_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.system_prefix = prefix.into();
+        self
+    }
+
+    /// Set the timestamp prefix
+    pub fn with_timestamp_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.timestamp_prefix = prefix.into();
+        self
+    }
+
+    /// Set the continuation line prefix
+    pub fn with_continuation(mut self, continuation: impl Into<String>) -> Self {
+        self.continuation = continuation.into();
+        self
+    }
+
+    /// Set the spinner characters
+    pub fn with_spinner_chars(mut self, chars: &[char]) -> Self {
+        self.spinner_chars = chars.to_vec();
+        self
+    }
+
+    /// Set the default title
+    pub fn with_default_title(mut self, title: impl Into<String>) -> Self {
+        self.default_title = title.into();
+        self
+    }
+
+    /// Set the empty state message
+    pub fn with_empty_message(mut self, message: impl Into<String>) -> Self {
+        self.empty_message = message.into();
+        self
+    }
+
+    /// Set the tool header icon
+    pub fn with_tool_icon(mut self, icon: impl Into<String>) -> Self {
+        self.tool_icon = icon.into();
+        self
+    }
+
+    /// Set all tool status icons at once
+    pub fn with_tool_status_icons(
+        mut self,
+        executing_arrow: impl Into<String>,
+        completed_checkmark: impl Into<String>,
+        failed_icon: impl Into<String>,
+    ) -> Self {
+        self.tool_executing_arrow = executing_arrow.into();
+        self.tool_completed_checkmark = completed_checkmark.into();
+        self.tool_failed_icon = failed_icon.into();
+        self
+    }
+}
 
 /// Role of a chat message
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -87,7 +227,7 @@ impl Message {
     }
 
     /// Get or render cached lines for this message
-    fn get_rendered_lines(&mut self, available_width: usize) -> &[Line<'static>] {
+    fn get_rendered_lines(&mut self, available_width: usize, config: &ChatViewConfig) -> &[Line<'static>] {
         // Invalidate cache if width changed
         if self.cached_width != available_width {
             self.cached_lines = None;
@@ -95,7 +235,7 @@ impl Message {
 
         // Render and cache if needed
         if self.cached_lines.is_none() {
-            let lines = self.render_lines(available_width);
+            let lines = self.render_lines(available_width, config);
             self.cached_lines = Some(lines);
             self.cached_width = available_width;
         }
@@ -104,7 +244,7 @@ impl Message {
     }
 
     /// Render this message to lines (called only when cache is invalid)
-    fn render_lines(&self, available_width: usize) -> Vec<Line<'static>> {
+    fn render_lines(&self, available_width: usize, config: &ChatViewConfig) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
         let t = app_theme();
 
@@ -112,9 +252,9 @@ impl Message {
             MessageRole::User => {
                 let rendered = wrap_with_prefix(
                     &self.content,
-                    USER_PREFIX,
+                    &config.user_prefix,
                     t.user_prefix,
-                    CONTINUATION,
+                    &config.continuation,
                     available_width,
                     &t,
                 );
@@ -123,9 +263,9 @@ impl Message {
             MessageRole::System => {
                 let rendered = wrap_with_prefix(
                     &self.content,
-                    SYSTEM_PREFIX,
+                    &config.system_prefix,
                     t.system_prefix,
-                    CONTINUATION,
+                    &config.continuation,
                     available_width,
                     &t,
                 );
@@ -137,7 +277,7 @@ impl Message {
             }
             MessageRole::Tool => {
                 if let Some(ref data) = self.tool_data {
-                    lines.extend(render_tool_message(data));
+                    lines.extend(render_tool_message(data, config));
                 }
             }
         }
@@ -146,7 +286,7 @@ impl Message {
         // Note: Using %I (with leading zero) instead of %-I for cross-platform compatibility
         if self.role != MessageRole::Assistant && self.role != MessageRole::Tool {
             let time_str = self.timestamp.format("%I:%M:%S %p").to_string();
-            let timestamp_text = format!("{}{}", TIMESTAMP_PREFIX, time_str);
+            let timestamp_text = format!("{}{}", config.timestamp_prefix, time_str);
             lines.push(Line::from(vec![Span::styled(
                 timestamp_text,
                 app_theme().timestamp,
@@ -180,11 +320,19 @@ pub struct ChatView {
     title: String,
     /// Optional custom empty state renderer (shown when no messages)
     render_empty_state: Option<RenderFn>,
+    /// Configuration for display customization
+    config: ChatViewConfig,
 }
 
 impl ChatView {
     /// Create a new ChatView with default settings
     pub fn new() -> Self {
+        Self::with_config(ChatViewConfig::new())
+    }
+
+    /// Create a new ChatView with custom configuration
+    pub fn with_config(config: ChatViewConfig) -> Self {
+        let title = config.default_title.clone();
         Self {
             messages: Vec::new(),
             scroll_offset: 0,
@@ -193,8 +341,23 @@ impl ChatView {
             auto_scroll_enabled: true,
             tool_index: HashMap::new(),
             spinner_index: 0,
-            title: "Chat".to_string(),
+            title,
             render_empty_state: None,
+            config,
+        }
+    }
+
+    /// Get the current configuration
+    pub fn config(&self) -> &ChatViewConfig {
+        &self.config
+    }
+
+    /// Set a new configuration
+    pub fn set_config(&mut self, config: ChatViewConfig) {
+        self.config = config;
+        // Invalidate all message caches since prefixes may have changed
+        for msg in &mut self.messages {
+            msg.cached_lines = None;
         }
     }
 
@@ -228,7 +391,8 @@ impl ChatView {
 
     /// Advance the spinner animation
     pub fn step_spinner(&mut self) {
-        self.spinner_index = (self.spinner_index + 1) % SPINNER_CHARS.len();
+        let len = self.config.spinner_chars.len().max(1);
+        self.spinner_index = (self.spinner_index + 1) % len;
     }
 
     /// Add a user message (does not force scroll - caller should handle that)
@@ -436,14 +600,14 @@ impl ChatView {
         if is_empty_state {
             message_lines.push(Line::from(""));
             message_lines.push(Line::from(Span::styled(
-                "    Type a message to start chatting...",
+                self.config.empty_message.clone(),
                 Style::default().fg(Color::DarkGray),
             )));
         }
 
         for msg in &mut self.messages {
             // Use cached lines (renders only if cache is invalid)
-            let cached = msg.get_rendered_lines(available_width);
+            let cached = msg.get_rendered_lines(available_width, &self.config);
             message_lines.extend(cached.iter().cloned());
         }
 
@@ -458,7 +622,7 @@ impl ChatView {
             }
         } else if let Some(status) = pending_status {
             // Show pending status with spinner when not streaming
-            let spinner_char = SPINNER_CHARS[self.spinner_index];
+            let spinner_char = self.config.spinner_chars.get(self.spinner_index).copied().unwrap_or(' ');
             message_lines.push(Line::from(vec![
                 Span::styled(format!("{} ", spinner_char), app_theme().throbber_spinner),
                 Span::styled(status, app_theme().throbber_label),
@@ -497,33 +661,33 @@ impl ChatView {
 }
 
 /// Render a tool execution message
-fn render_tool_message(data: &ToolMessageData) -> Vec<Line<'static>> {
+fn render_tool_message(data: &ToolMessageData, config: &ChatViewConfig) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
-    // Line 1: hammer and pick icon + DisplayName(DisplayTitle)
+    // Line 1: tool icon + DisplayName(DisplayTitle)
     let header = if data.display_title.is_empty() {
-        format!("\u{2692} {}", data.display_name)
+        format!("{} {}", config.tool_icon, data.display_name)
     } else {
-        format!("\u{2692} {}({})", data.display_name, data.display_title)
+        format!("{} {}({})", config.tool_icon, data.display_name, data.display_title)
     };
     lines.push(Line::from(Span::styled(header, app_theme().tool_header)));
 
     // Line 2: Status with appropriate icon and color
     let status_line = match &data.status {
         ToolStatus::Executing => Line::from(Span::styled(
-            "   \u{2192} executing...".to_string(),
+            format!("   {} executing...", config.tool_executing_arrow),
             app_theme().tool_executing,
         )),
         ToolStatus::WaitingForUser => Line::from(Span::styled(
-            "   \u{2192} waiting for user...".to_string(),
+            format!("   {} waiting for user...", config.tool_executing_arrow),
             app_theme().tool_executing,
         )),
         ToolStatus::Completed => Line::from(Span::styled(
-            "   \u{2713} Completed".to_string(),
+            format!("   {} Completed", config.tool_completed_checkmark),
             app_theme().tool_completed,
         )),
         ToolStatus::Failed(err) => Line::from(Span::styled(
-            format!("   \u{26A0} {}", err),
+            format!("   {} {}", config.tool_failed_icon, err),
             app_theme().tool_failed,
         )),
     };
@@ -609,6 +773,7 @@ impl ChatView {
             spinner_index: self.spinner_index,
             title: self.title.clone(),
             render_empty_state: None, // Not cloned - callbacks aren't Clone
+            config: self.config.clone(),
         }
     }
 }

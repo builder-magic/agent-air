@@ -1,11 +1,11 @@
-pub mod controller;
+mod llm_controller;
 pub mod session;
 pub mod stateless;
 pub mod tools;
 pub mod types;
 pub mod usage;
 
-pub use controller::{EventFunc, LLMController};
+pub use llm_controller::{EventFunc, LLMController};
 pub use session::{
     CompactResult, CompactionConfig, LLMProvider, LLMSession, LLMSessionConfig, LLMSessionManager,
     SessionStatus, TokenUsage, ToolCompaction,

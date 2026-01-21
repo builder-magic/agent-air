@@ -22,8 +22,124 @@ use ratatui::{
 
 use crate::tui::themes::Theme;
 
-/// Maximum percentage of screen height the panel can use
-const MAX_PANEL_PERCENT: u16 = 50;
+/// Default configuration values for PermissionPanel
+pub mod defaults {
+    /// Maximum percentage of screen height the panel can use
+    pub const MAX_PANEL_PERCENT: u16 = 50;
+    /// Selection indicator for focused items
+    pub const SELECTION_INDICATOR: &str = " \u{203A} ";
+    /// Blank space for non-focused items (same width as indicator)
+    pub const NO_INDICATOR: &str = "   ";
+    /// Panel title
+    pub const TITLE: &str = " Permission Required ";
+    /// Help text
+    pub const HELP_TEXT: &str = " Up/Down: Navigate \u{00B7} Enter/Space: Select \u{00B7} Esc: Cancel";
+    /// Category icons
+    pub const ICON_FILE_WRITE: &str = "\u{270E}";
+    pub const ICON_FILE_DELETE: &str = "\u{2717}";
+    pub const ICON_NETWORK: &str = "\u{2194}";
+    pub const ICON_SYSTEM: &str = "\u{2295}";
+    pub const ICON_OTHER: &str = "\u{25CB}";
+    /// Resource tree characters
+    pub const TREE_BRANCH: &str = "   \u{251C}\u{2500} ";
+    pub const TREE_LAST: &str = "   \u{2514}\u{2500} ";
+}
+
+/// Configuration for PermissionPanel widget
+#[derive(Clone)]
+pub struct PermissionPanelConfig {
+    /// Maximum percentage of screen height the panel can use
+    pub max_panel_percent: u16,
+    /// Selection indicator for focused items
+    pub selection_indicator: String,
+    /// Blank space for non-focused items
+    pub no_indicator: String,
+    /// Panel title
+    pub title: String,
+    /// Help text
+    pub help_text: String,
+    /// Category icon for file write
+    pub icon_file_write: String,
+    /// Category icon for file delete
+    pub icon_file_delete: String,
+    /// Category icon for network
+    pub icon_network: String,
+    /// Category icon for system
+    pub icon_system: String,
+    /// Category icon for other
+    pub icon_other: String,
+    /// Tree branch character
+    pub tree_branch: String,
+    /// Tree last item character
+    pub tree_last: String,
+}
+
+impl Default for PermissionPanelConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PermissionPanelConfig {
+    /// Create a new PermissionPanelConfig with default values
+    pub fn new() -> Self {
+        Self {
+            max_panel_percent: defaults::MAX_PANEL_PERCENT,
+            selection_indicator: defaults::SELECTION_INDICATOR.to_string(),
+            no_indicator: defaults::NO_INDICATOR.to_string(),
+            title: defaults::TITLE.to_string(),
+            help_text: defaults::HELP_TEXT.to_string(),
+            icon_file_write: defaults::ICON_FILE_WRITE.to_string(),
+            icon_file_delete: defaults::ICON_FILE_DELETE.to_string(),
+            icon_network: defaults::ICON_NETWORK.to_string(),
+            icon_system: defaults::ICON_SYSTEM.to_string(),
+            icon_other: defaults::ICON_OTHER.to_string(),
+            tree_branch: defaults::TREE_BRANCH.to_string(),
+            tree_last: defaults::TREE_LAST.to_string(),
+        }
+    }
+
+    /// Set the maximum panel height percentage
+    pub fn with_max_panel_percent(mut self, percent: u16) -> Self {
+        self.max_panel_percent = percent;
+        self
+    }
+
+    /// Set the selection indicator
+    pub fn with_selection_indicator(mut self, indicator: impl Into<String>) -> Self {
+        self.selection_indicator = indicator.into();
+        self
+    }
+
+    /// Set the panel title
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// Set the help text
+    pub fn with_help_text(mut self, text: impl Into<String>) -> Self {
+        self.help_text = text.into();
+        self
+    }
+
+    /// Set category icons
+    pub fn with_category_icons(
+        mut self,
+        file_write: impl Into<String>,
+        file_delete: impl Into<String>,
+        network: impl Into<String>,
+        system: impl Into<String>,
+        other: impl Into<String>,
+    ) -> Self {
+        self.icon_file_write = file_write.into();
+        self.icon_file_delete = file_delete.into();
+        self.icon_network = network.into();
+        self.icon_system = system.into();
+        self.icon_other = other.into();
+        self
+    }
+}
 
 /// Options available for the user to select
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,11 +227,18 @@ pub struct PermissionPanel {
     turn_id: Option<TurnId>,
     /// Currently selected option index
     selected_idx: usize,
+    /// Configuration for display customization
+    config: PermissionPanelConfig,
 }
 
 impl PermissionPanel {
     /// Create a new inactive permission panel
     pub fn new() -> Self {
+        Self::with_config(PermissionPanelConfig::new())
+    }
+
+    /// Create a new inactive permission panel with custom configuration
+    pub fn with_config(config: PermissionPanelConfig) -> Self {
         Self {
             active: false,
             tool_use_id: String::new(),
@@ -128,7 +251,18 @@ impl PermissionPanel {
             },
             turn_id: None,
             selected_idx: 0,
+            config,
         }
+    }
+
+    /// Get the current configuration
+    pub fn config(&self) -> &PermissionPanelConfig {
+        &self.config
+    }
+
+    /// Set a new configuration
+    pub fn set_config(&mut self, config: PermissionPanelConfig) {
+        self.config = config;
     }
 
     /// Activate the panel with a permission request
@@ -291,7 +425,7 @@ impl PermissionPanel {
         lines += 2; // Borders
 
         // Cap at percentage of available height
-        let max_from_percent = (max_height * MAX_PANEL_PERCENT) / 100;
+        let max_from_percent = (max_height * self.config.max_panel_percent) / 100;
         lines.min(max_from_percent).min(max_height.saturating_sub(6))
     }
 
@@ -313,20 +447,19 @@ impl PermissionPanel {
         let mut lines: Vec<Line> = Vec::new();
 
         // Help text at top
-        let help = " Up/Down: Navigate \u{00B7} Enter/Space: Select \u{00B7} Esc: Cancel";
         lines.push(Line::from(Span::styled(
-            truncate_text(help, inner_width),
+            truncate_text(&self.config.help_text, inner_width),
             theme.help_text(),
         )));
         lines.push(Line::from("")); // Blank line
 
         // Category with icon
         let category_icon = match self.request.category {
-            PermissionCategory::FileWrite => "\u{270E}", // pencil
-            PermissionCategory::FileDelete => "\u{2717}", // ballot x
-            PermissionCategory::Network => "\u{2194}", // left right arrow
-            PermissionCategory::System => "\u{2295}", // circled plus
-            PermissionCategory::Other => "\u{25CB}", // white circle
+            PermissionCategory::FileWrite => &self.config.icon_file_write,
+            PermissionCategory::FileDelete => &self.config.icon_file_delete,
+            PermissionCategory::Network => &self.config.icon_network,
+            PermissionCategory::System => &self.config.icon_system,
+            PermissionCategory::Other => &self.config.icon_other,
         };
         lines.push(Line::from(vec![
             Span::styled(
@@ -367,12 +500,12 @@ impl PermissionPanel {
             )));
             for (i, resource) in self.request.resources.iter().take(5).enumerate() {
                 let prefix = if i < self.request.resources.len() - 1 || self.request.resources.len() <= 5 {
-                    "   \u{251C}\u{2500} " // ├─
+                    &self.config.tree_branch
                 } else {
-                    "   \u{2514}\u{2500} " // └─
+                    &self.config.tree_last
                 };
                 lines.push(Line::from(vec![
-                    Span::raw(prefix),
+                    Span::raw(prefix.clone()),
                     Span::styled(
                         truncate_text(resource, inner_width - 8),
                         theme.resource(),
@@ -390,14 +523,10 @@ impl PermissionPanel {
         // Blank line before options
         lines.push(Line::from(""));
 
-        // Selection indicator
-        const INDICATOR: &str = " \u{203A} "; // › arrow
-        const NO_INDICATOR: &str = "   ";
-
         // Options
         for (idx, option) in PermissionOption::all().iter().enumerate() {
             let is_selected = idx == self.selected_idx;
-            let prefix = if is_selected { INDICATOR } else { NO_INDICATOR };
+            let prefix = if is_selected { &self.config.selection_indicator } else { &self.config.no_indicator };
 
             let (label_style, desc_style) = if is_selected {
                 match option {
@@ -426,7 +555,7 @@ impl PermissionPanel {
             };
 
             lines.push(Line::from(vec![
-                Span::styled(prefix, indicator_style),
+                Span::styled(prefix.clone(), indicator_style),
                 Span::styled(option.label(), label_style),
                 Span::styled(" - ", theme.muted_text()),
                 Span::styled(option.description(), desc_style),
@@ -438,7 +567,7 @@ impl PermissionPanel {
             .borders(Borders::ALL)
             .border_style(theme.warning())
             .title(Span::styled(
-                " Permission Required ",
+                self.config.title.clone(),
                 theme.warning().add_modifier(Modifier::BOLD),
             ));
 

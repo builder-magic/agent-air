@@ -41,10 +41,6 @@ pub enum LLMResponseType {
     Error,
     /// Token usage update
     TokenUpdate,
-    /// Citations from web search
-    Citations,
-    /// Server-side tool use
-    ServerToolUse,
 }
 
 impl fmt::Display for LLMResponseType {
@@ -59,8 +55,6 @@ impl fmt::Display for LLMResponseType {
             Self::Complete => write!(f, "complete"),
             Self::Error => write!(f, "error"),
             Self::TokenUpdate => write!(f, "token_update"),
-            Self::Citations => write!(f, "citations"),
-            Self::ServerToolUse => write!(f, "server_tool_use"),
         }
     }
 }

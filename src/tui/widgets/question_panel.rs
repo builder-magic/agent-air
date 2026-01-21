@@ -28,8 +28,113 @@ use tui_textarea::TextArea;
 
 use crate::tui::themes::Theme;
 
-/// Maximum percentage of screen height the panel can use
-const MAX_PANEL_PERCENT: u16 = 70;
+/// Default configuration values for QuestionPanel
+pub mod defaults {
+    /// Maximum percentage of screen height the panel can use
+    pub const MAX_PANEL_PERCENT: u16 = 70;
+    /// Selection indicator for focused items
+    pub const SELECTION_INDICATOR: &str = " \u{203A} ";
+    /// Blank space for non-focused items
+    pub const NO_INDICATOR: &str = "   ";
+    /// Panel title
+    pub const TITLE: &str = " User Input Required ";
+    /// Help text for navigation mode
+    pub const HELP_TEXT_NAV: &str = " Up/Down: Navigate | Enter/Space: Select | Tab: Submit | Esc: Cancel";
+    /// Help text for text input mode
+    pub const HELP_TEXT_INPUT: &str = " Type text | Enter: Next | Tab: Submit | Esc: Cancel";
+    /// Question prefix icon
+    pub const QUESTION_PREFIX: &str = " \u{2237} ";
+    /// Radio button symbols (single choice)
+    pub const RADIO_SELECTED: &str = "\u{25CF}";
+    pub const RADIO_UNSELECTED: &str = "\u{25CB}";
+    /// Checkbox symbols (multi choice)
+    pub const CHECKBOX_SELECTED: &str = "\u{25A0}";
+    pub const CHECKBOX_UNSELECTED: &str = "\u{25A1}";
+}
+
+/// Configuration for QuestionPanel widget
+#[derive(Clone)]
+pub struct QuestionPanelConfig {
+    /// Maximum percentage of screen height the panel can use
+    pub max_panel_percent: u16,
+    /// Selection indicator for focused items
+    pub selection_indicator: String,
+    /// Blank space for non-focused items
+    pub no_indicator: String,
+    /// Panel title
+    pub title: String,
+    /// Help text for navigation mode
+    pub help_text_nav: String,
+    /// Help text for text input mode
+    pub help_text_input: String,
+    /// Question prefix icon
+    pub question_prefix: String,
+    /// Radio button selected symbol
+    pub radio_selected: String,
+    /// Radio button unselected symbol
+    pub radio_unselected: String,
+    /// Checkbox selected symbol
+    pub checkbox_selected: String,
+    /// Checkbox unselected symbol
+    pub checkbox_unselected: String,
+}
+
+impl Default for QuestionPanelConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QuestionPanelConfig {
+    /// Create a new QuestionPanelConfig with default values
+    pub fn new() -> Self {
+        Self {
+            max_panel_percent: defaults::MAX_PANEL_PERCENT,
+            selection_indicator: defaults::SELECTION_INDICATOR.to_string(),
+            no_indicator: defaults::NO_INDICATOR.to_string(),
+            title: defaults::TITLE.to_string(),
+            help_text_nav: defaults::HELP_TEXT_NAV.to_string(),
+            help_text_input: defaults::HELP_TEXT_INPUT.to_string(),
+            question_prefix: defaults::QUESTION_PREFIX.to_string(),
+            radio_selected: defaults::RADIO_SELECTED.to_string(),
+            radio_unselected: defaults::RADIO_UNSELECTED.to_string(),
+            checkbox_selected: defaults::CHECKBOX_SELECTED.to_string(),
+            checkbox_unselected: defaults::CHECKBOX_UNSELECTED.to_string(),
+        }
+    }
+
+    /// Set the maximum panel height percentage
+    pub fn with_max_panel_percent(mut self, percent: u16) -> Self {
+        self.max_panel_percent = percent;
+        self
+    }
+
+    /// Set the selection indicator
+    pub fn with_selection_indicator(mut self, indicator: impl Into<String>) -> Self {
+        self.selection_indicator = indicator.into();
+        self
+    }
+
+    /// Set the panel title
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// Set radio button symbols
+    pub fn with_radio_symbols(mut self, selected: impl Into<String>, unselected: impl Into<String>) -> Self {
+        self.radio_selected = selected.into();
+        self.radio_unselected = unselected.into();
+        self
+    }
+
+    /// Set checkbox symbols
+    pub fn with_checkbox_symbols(mut self, selected: impl Into<String>, unselected: impl Into<String>) -> Self {
+        self.checkbox_selected = selected.into();
+        self.checkbox_unselected = unselected.into();
+        self
+    }
+}
 
 /// Represents a focusable item in the panel
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,11 +330,18 @@ pub struct QuestionPanel {
     focus_items: Vec<FocusItem>,
     /// Current focus index
     focus_idx: usize,
+    /// Configuration for display customization
+    config: QuestionPanelConfig,
 }
 
 impl QuestionPanel {
     /// Create a new inactive question panel
     pub fn new() -> Self {
+        Self::with_config(QuestionPanelConfig::new())
+    }
+
+    /// Create a new inactive question panel with custom configuration
+    pub fn with_config(config: QuestionPanelConfig) -> Self {
         Self {
             active: false,
             tool_use_id: String::new(),
@@ -241,7 +353,18 @@ impl QuestionPanel {
             answers: Vec::new(),
             focus_items: Vec::new(),
             focus_idx: 0,
+            config,
         }
+    }
+
+    /// Get the current configuration
+    pub fn config(&self) -> &QuestionPanelConfig {
+        &self.config
+    }
+
+    /// Set a new configuration
+    pub fn set_config(&mut self, config: QuestionPanelConfig) {
+        self.config = config;
     }
 
     /// Activate the panel with questions
@@ -635,7 +758,7 @@ impl QuestionPanel {
         let total = lines + spacing + 7;
 
         // Cap at percentage of available height, leaving room for chat and input
-        let max_from_percent = (max_height * MAX_PANEL_PERCENT) / 100;
+        let max_from_percent = (max_height * self.config.max_panel_percent) / 100;
         total.min(max_from_percent).min(max_height.saturating_sub(6))
     }
 
@@ -664,15 +787,12 @@ impl QuestionPanel {
 
         // Help text at top
         let help_text = if self.is_text_focused() {
-            " Type text | Enter: Next | Tab: Submit | Esc: Cancel"
+            &self.config.help_text_input
         } else {
-            " Up/Down: Navigate | Enter/Space: Select | Tab: Submit | Esc: Cancel"
+            &self.config.help_text_nav
         };
-        lines.push(Line::from(Span::styled(help_text, theme.help_text())));
+        lines.push(Line::from(Span::styled(help_text.clone(), theme.help_text())));
         lines.push(Line::from("")); // blank line after help
-
-        // Question prefix - dots icon (with leading space for padding from border)
-        const QUESTION_PREFIX: &str = " \u{2237} "; // space + proportion (double colon dots)
 
         // Render each question vertically
         for (q_idx, (question, answer)) in self
@@ -689,7 +809,7 @@ impl QuestionPanel {
 
             // Question text with arrow prefix and required marker
             let required = if question.is_required() { "*" } else { "" };
-            let q_text = format!("{}{}{}", QUESTION_PREFIX, question.text(), required);
+            let q_text = format!("{}{}{}", self.config.question_prefix, question.text(), required);
             lines.push(Line::from(Span::styled(
                 truncate_text(&q_text, inner_width),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -747,7 +867,7 @@ impl QuestionPanel {
             .borders(Borders::ALL)
             .border_style(theme.warning())
             .title(Span::styled(
-                " User Input Required ",
+                self.config.title.clone(),
                 theme.warning().add_modifier(Modifier::BOLD),
             ));
 
@@ -766,10 +886,6 @@ impl QuestionPanel {
         inner_width: usize,
         theme: &Theme,
     ) {
-        // Selection indicator for focused items
-        const INDICATOR: &str = " \u{203A} "; // space + arrow
-        const NO_INDICATOR: &str = "   "; // 3 spaces to match
-
         for (c_idx, choice_text) in choices.iter().enumerate() {
             let is_focused = self.current_focus()
                 == Some(&FocusItem::Choice {
@@ -779,17 +895,17 @@ impl QuestionPanel {
             let is_selected = answer.is_selected(choice_text);
 
             let symbol = if is_multi {
-                if is_selected { "\u{25A0}" } else { "\u{25A1}" } // filled/empty square
+                if is_selected { &self.config.checkbox_selected } else { &self.config.checkbox_unselected }
             } else {
-                if is_selected { "\u{25CF}" } else { "\u{25CB}" } // filled/empty circle
+                if is_selected { &self.config.radio_selected } else { &self.config.radio_unselected }
             };
 
-            let prefix = if is_focused { INDICATOR } else { NO_INDICATOR };
+            let prefix = if is_focused { &self.config.selection_indicator } else { &self.config.no_indicator };
             let display_text = truncate_text(choice_text, inner_width - 8);
 
             if is_focused {
                 lines.push(Line::from(vec![
-                    Span::styled(prefix, theme.focus_indicator()),
+                    Span::styled(prefix.clone(), theme.focus_indicator()),
                     Span::styled(format!("{} {}", symbol, display_text), theme.focused_text()),
                 ]));
             } else {
@@ -816,12 +932,12 @@ impl QuestionPanel {
         };
 
         let symbol = if is_multi {
-            if is_other_selected { "\u{25A0}" } else { "\u{25A1}" }
+            if is_other_selected { &self.config.checkbox_selected } else { &self.config.checkbox_unselected }
         } else {
-            if is_other_selected { "\u{25CF}" } else { "\u{25CB}" }
+            if is_other_selected { &self.config.radio_selected } else { &self.config.radio_unselected }
         };
 
-        let prefix = if is_this_focused { INDICATOR } else { NO_INDICATOR };
+        let prefix = if is_this_focused { &self.config.selection_indicator } else { &self.config.no_indicator };
 
         // Get the text input content and cursor position
         let (other_text, cursor_col) = match answer {
@@ -843,7 +959,7 @@ impl QuestionPanel {
             let after: String = chars.get(cursor_pos + 1..).map(|s| s.iter().collect()).unwrap_or_default();
 
             lines.push(Line::from(vec![
-                Span::styled(prefix, theme.focus_indicator()),
+                Span::styled(prefix.clone(), theme.focus_indicator()),
                 Span::styled(format!("{} Type Something: ", symbol), theme.focused_text()),
                 Span::styled(before, theme.focused_text()),
                 Span::styled(cursor_char.to_string(), theme.cursor()),
@@ -867,10 +983,6 @@ impl QuestionPanel {
         inner_width: usize,
         theme: &Theme,
     ) {
-        // Selection indicator for focused items
-        const INDICATOR: &str = " \u{203A} "; // space + arrow
-        const NO_INDICATOR: &str = "   "; // 3 spaces to match
-
         let is_focused = self.current_focus() == Some(&FocusItem::TextInput { question_idx });
 
         let (text, cursor_col) = match answer {
@@ -882,7 +994,7 @@ impl QuestionPanel {
             _ => (String::new(), 0),
         };
 
-        let prefix = if is_focused { INDICATOR } else { NO_INDICATOR };
+        let prefix = if is_focused { &self.config.selection_indicator } else { &self.config.no_indicator };
 
         if is_focused {
             // Show cursor as inverse character
@@ -893,7 +1005,7 @@ impl QuestionPanel {
             let after: String = chars.get(cursor_pos + 1..).map(|s| s.iter().collect()).unwrap_or_default();
 
             lines.push(Line::from(vec![
-                Span::styled(prefix, theme.focus_indicator()),
+                Span::styled(prefix.clone(), theme.focus_indicator()),
                 Span::styled("Type Something: ", theme.focused_text()),
                 Span::styled(before, theme.focused_text()),
                 Span::styled(cursor_char.to_string(), theme.cursor()),
