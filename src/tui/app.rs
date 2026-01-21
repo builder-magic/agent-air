@@ -60,8 +60,12 @@ const CONTINUATION_INDENT: &str = "   ";
 const PENDING_STATUS_TOOLS: &str = "running tools...";
 const PENDING_STATUS_LLM: &str = "Processing response from LLM...";
 
+/// Callback for dynamic processing messages (e.g., rotating messages).
+/// Called on each render frame when waiting for a response.
+pub type ProcessingMessageFn = Arc<dyn Fn() -> String + Send + Sync>;
+
 /// Configuration for the App
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppConfig {
     /// Agent name (displayed in title bar)
     pub agent_name: String,
@@ -73,8 +77,25 @@ pub struct AppConfig {
     pub welcome_subtitle_indices: Vec<usize>,
     /// Custom slash commands (in addition to defaults)
     pub custom_commands: Vec<SlashCommand>,
-    /// Message shown while processing a request
+    /// Static message shown while processing (default: "Processing request...")
     pub processing_message: String,
+    /// Optional callback for dynamic messages. When set, overrides processing_message.
+    /// Use this for rotating messages or context-aware status.
+    pub processing_message_fn: Option<ProcessingMessageFn>,
+}
+
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppConfig")
+            .field("agent_name", &self.agent_name)
+            .field("version", &self.version)
+            .field("welcome_art", &self.welcome_art)
+            .field("welcome_subtitle_indices", &self.welcome_subtitle_indices)
+            .field("custom_commands", &self.custom_commands)
+            .field("processing_message", &self.processing_message)
+            .field("processing_message_fn", &self.processing_message_fn.as_ref().map(|_| "<fn>"))
+            .finish()
+    }
 }
 
 impl Default for AppConfig {
@@ -89,6 +110,7 @@ impl Default for AppConfig {
             welcome_subtitle_indices: vec![1],
             custom_commands: Vec::new(),
             processing_message: "Processing request...".to_string(),
+            processing_message_fn: None, // Simple by default
         }
     }
 }
@@ -1588,10 +1610,15 @@ impl App {
         if let Some(input_area) = layout.input_area {
             if !question_panel_active && !permission_panel_active {
                 if show_throbber {
-                    let message = self
-                        .custom_throbber_message
-                        .as_deref()
-                        .unwrap_or(&self.config.processing_message);
+                    let default_message;
+                    let message = if let Some(msg) = &self.custom_throbber_message {
+                        msg.as_str()
+                    } else if let Some(ref msg_fn) = self.config.processing_message_fn {
+                        default_message = msg_fn();
+                        &default_message
+                    } else {
+                        &self.config.processing_message
+                    };
                     let throbber = Throbber::default()
                         .label(message)
                         .style(theme.throbber_label)
