@@ -230,14 +230,6 @@ impl Widget for SessionPickerState {
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
-
-    fn activate_sessions(&mut self, sessions: Vec<SessionInfo>, current_session_id: i64) {
-        self.activate(sessions, current_session_id);
-    }
-
-    fn deactivate(&mut self) {
-        self.cancel();
-    }
 }
 
 /// Render the session picker

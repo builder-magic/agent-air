@@ -239,18 +239,6 @@ impl Widget for SlashPopupState {
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
-
-    fn activate_slash(&mut self) {
-        self.activate();
-    }
-
-    fn set_slash_context(&mut self, filtered_count: usize) {
-        self.set_filtered_count(filtered_count);
-    }
-
-    fn deactivate(&mut self) {
-        SlashPopupState::deactivate(self);
-    }
 }
 
 /// Render the slash command popup

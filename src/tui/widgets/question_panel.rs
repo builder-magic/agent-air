@@ -988,20 +988,6 @@ impl Widget for QuestionPanel {
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
-
-    fn activate_question(
-        &mut self,
-        tool_use_id: String,
-        session_id: i64,
-        request: AskUserQuestionsRequest,
-        turn_id: Option<TurnId>,
-    ) {
-        self.activate(tool_use_id, session_id, request, turn_id);
-    }
-
-    fn deactivate(&mut self) {
-        QuestionPanel::deactivate(self);
-    }
 }
 
 /// Truncate text to fit width

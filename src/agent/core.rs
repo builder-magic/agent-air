@@ -20,7 +20,7 @@ use super::messages::channels::DEFAULT_CHANNEL_SIZE;
 use super::messages::UiMessage;
 use super::router::InputRouter;
 
-use crate::tui::{App, AppConfig, LayoutTemplate, SessionInfo};
+use crate::tui::{App, AppConfig, DefaultKeyHandler, ExitHandler, KeyBindings, KeyHandler, LayoutTemplate, SessionInfo};
 use crate::tui::widgets::Widget;
 
 /// Sender for messages from TUI to controller
@@ -116,6 +116,12 @@ pub struct AgentCore {
 
     /// Layout template for the TUI
     layout_template: Option<LayoutTemplate>,
+
+    /// Key handler for customizable key bindings
+    key_handler: Option<Box<dyn KeyHandler>>,
+
+    /// Exit handler for cleanup before quitting
+    exit_handler: Option<Box<dyn ExitHandler>>,
 }
 
 impl AgentCore {
@@ -227,6 +233,8 @@ impl AgentCore {
             tool_definitions: Vec::new(),
             widgets_to_register: Vec::new(),
             layout_template: None,
+            key_handler: None,
+            exit_handler: None,
         })
     }
 
@@ -260,6 +268,76 @@ impl AgentCore {
     /// ```
     pub fn set_layout(&mut self, template: LayoutTemplate) -> &mut Self {
         self.layout_template = Some(template);
+        self
+    }
+
+    /// Set a custom key handler for the TUI.
+    ///
+    /// This allows full control over key handling behavior. For simpler
+    /// customization where you just want to change which keys trigger
+    /// which actions, use [`set_key_bindings`] instead.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// struct VimKeyHandler { mode: VimMode }
+    /// impl KeyHandler for VimKeyHandler {
+    ///     fn handle_key(&mut self, key: KeyEvent, ctx: &KeyContext) -> AppKeyResult {
+    ///         // Implement vim-style modal editing
+    ///     }
+    /// }
+    ///
+    /// let mut agent = AgentCore::new(&config)?;
+    /// agent.set_key_handler(VimKeyHandler { mode: VimMode::Normal });
+    /// ```
+    pub fn set_key_handler<H: KeyHandler>(&mut self, handler: H) -> &mut Self {
+        self.key_handler = Some(Box::new(handler));
+        self
+    }
+
+    /// Set custom key bindings using the default handler.
+    ///
+    /// This is a simpler alternative to [`set_key_handler`] when you
+    /// only need to change which keys trigger which actions.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Use minimal bindings (Esc to quit, arrow keys only)
+    /// let mut agent = AgentCore::new(&config)?;
+    /// agent.set_key_bindings(KeyBindings::minimal());
+    ///
+    /// // Or customize specific bindings
+    /// let mut bindings = KeyBindings::emacs();
+    /// bindings.quit = vec![KeyCombo::key(KeyCode::Esc)];
+    /// agent.set_key_bindings(bindings);
+    /// ```
+    pub fn set_key_bindings(&mut self, bindings: KeyBindings) -> &mut Self {
+        self.key_handler = Some(Box::new(DefaultKeyHandler::new(bindings)));
+        self
+    }
+
+    /// Set an exit handler for cleanup before quitting.
+    ///
+    /// The exit handler's `on_exit()` method is called when the user
+    /// confirms exit. If it returns `false`, the exit is cancelled.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// struct SaveOnExitHandler { session_file: PathBuf }
+    /// impl ExitHandler for SaveOnExitHandler {
+    ///     fn on_exit(&mut self) -> bool {
+    ///         self.save_session();
+    ///         true // proceed with exit
+    ///     }
+    /// }
+    ///
+    /// let mut agent = AgentCore::new(&config)?;
+    /// agent.set_exit_handler(SaveOnExitHandler { session_file: path });
+    /// ```
+    pub fn set_exit_handler<H: ExitHandler>(&mut self, handler: H) -> &mut Self {
+        self.exit_handler = Some(Box::new(handler));
         self
     }
 
@@ -483,6 +561,16 @@ impl AgentCore {
         // Set layout template if specified
         if let Some(layout) = self.layout_template.take() {
             app.set_layout(layout);
+        }
+
+        // Set key handler if specified
+        if let Some(handler) = self.key_handler.take() {
+            app.set_key_handler_boxed(handler);
+        }
+
+        // Set exit handler if specified
+        if let Some(handler) = self.exit_handler.take() {
+            app.set_exit_handler_boxed(handler);
         }
 
         // Auto-create session if we have a configured LLM provider

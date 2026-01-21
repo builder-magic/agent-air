@@ -521,20 +521,6 @@ impl Widget for PermissionPanel {
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
-
-    fn activate_permission(
-        &mut self,
-        tool_use_id: String,
-        session_id: i64,
-        request: PermissionRequest,
-        turn_id: Option<TurnId>,
-    ) {
-        self.activate(tool_use_id, session_id, request, turn_id);
-    }
-
-    fn deactivate(&mut self) {
-        PermissionPanel::deactivate(self);
-    }
 }
 
 /// Truncate text to fit within a maximum width

@@ -160,29 +160,8 @@ impl Message {
     }
 }
 
-/// Configuration for ChatView display
-#[derive(Debug, Clone)]
-pub struct ChatViewConfig {
-    /// Agent name displayed in the title bar
-    pub agent_name: String,
-    /// Welcome ASCII art lines (displayed when chat is empty)
-    pub welcome_art: Vec<String>,
-    /// Subtitle line index in welcome_art (for different styling)
-    pub welcome_subtitle_indices: Vec<usize>,
-}
-
-impl Default for ChatViewConfig {
-    fn default() -> Self {
-        Self {
-            agent_name: "Agent".to_string(),
-            welcome_art: vec![
-                String::new(),
-                "    Type a message to start chatting...".to_string(),
-            ],
-            welcome_subtitle_indices: vec![1],
-        }
-    }
-}
+// Re-export RenderFn from chat_helpers for backwards compatibility
+pub use super::chat_helpers::RenderFn;
 
 pub struct ChatView {
     messages: Vec<Message>,
@@ -197,16 +176,15 @@ pub struct ChatView {
     tool_index: HashMap<String, usize>,
     /// Spinner index for pending status animation
     spinner_index: usize,
-    /// Configuration for display
-    config: ChatViewConfig,
+    /// Title displayed in the title bar
+    title: String,
+    /// Optional custom empty state renderer (shown when no messages)
+    render_empty_state: Option<RenderFn>,
 }
 
 impl ChatView {
+    /// Create a new ChatView with default settings
     pub fn new() -> Self {
-        Self::with_config(ChatViewConfig::default())
-    }
-
-    pub fn with_config(config: ChatViewConfig) -> Self {
         Self {
             messages: Vec::new(),
             scroll_offset: 0,
@@ -215,18 +193,37 @@ impl ChatView {
             auto_scroll_enabled: true,
             tool_index: HashMap::new(),
             spinner_index: 0,
-            config,
+            title: "Chat".to_string(),
+            render_empty_state: None,
         }
     }
 
-    /// Set the agent name displayed in the title bar
-    pub fn set_agent_name(&mut self, name: impl Into<String>) {
-        self.config.agent_name = name.into();
+    /// Set the title displayed in the title bar
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
     }
 
-    /// Get the current agent name
-    pub fn agent_name(&self) -> &str {
-        &self.config.agent_name
+    /// Set custom empty state renderer (shown when no messages)
+    ///
+    /// Use helper functions from `chat_helpers` for common patterns:
+    /// - `welcome_art()` - ASCII art welcome screen
+    /// - `centered_text()` - Simple centered message
+    ///
+    /// Or provide a custom closure for full ratatui control.
+    pub fn with_empty_state(mut self, render: RenderFn) -> Self {
+        self.render_empty_state = Some(render);
+        self
+    }
+
+    /// Set the title displayed in the title bar (mutable setter)
+    pub fn set_title(&mut self, title: impl Into<String>) {
+        self.title = title.into();
+    }
+
+    /// Get the current title
+    pub fn title(&self) -> &str {
+        &self.title
     }
 
     /// Advance the spinner animation
@@ -372,23 +369,54 @@ impl ChatView {
         // Green checkmark style for agent status
         let check_style = Style::default().fg(Color::Green);
 
-        // Left-aligned title: Agent Name
-        let left_title = Line::from(vec![
-            Span::styled("\u{2500} ", app_theme().title_separator),
-            Span::styled("\u{25CF} ", app_theme().title_indicator_connected),
-            Span::styled(&self.config.agent_name, app_theme().title_text),
-        ]);
+        // Helper to create title lines (called multiple times if needed)
+        let create_titles = || {
+            let left = Line::from(vec![
+                Span::styled("\u{2500} ", app_theme().title_separator),
+                Span::styled("\u{25CF} ", app_theme().title_indicator_connected),
+                Span::styled(self.title.clone(), app_theme().title_text),
+            ]);
 
-        // Right-aligned title: Agent status indicators (same color as title text)
-        let right_title = Line::from(vec![
-            Span::styled("[\u{2713}]", check_style),
-            Span::styled(" Manager Agent (1) ", app_theme().title_text),
-            Span::styled("[\u{2713}]", check_style),
-            Span::styled(" Coding Agents (4) ", app_theme().title_text),
-            Span::styled("[\u{2713}]", check_style),
-            Span::styled(" Code Reviewers (2) ", app_theme().title_text),
-            Span::styled("\u{2500}", app_theme().title_separator),
-        ]);
+            let right = Line::from(vec![
+                Span::styled("[\u{2713}]", check_style),
+                Span::styled(" Manager Agent (1) ", app_theme().title_text),
+                Span::styled("[\u{2713}]", check_style),
+                Span::styled(" Coding Agents (4) ", app_theme().title_text),
+                Span::styled("[\u{2713}]", check_style),
+                Span::styled(" Code Reviewers (2) ", app_theme().title_text),
+                Span::styled("\u{2500}", app_theme().title_separator),
+            ]);
+
+            (left, right)
+        };
+
+        // Check if we're in empty state with a custom renderer
+        let is_empty_state = self.messages.is_empty() && self.streaming_buffer.is_none() && pending_status.is_none();
+
+        // If we have a custom empty state renderer, use it and return early
+        if is_empty_state {
+            if let Some(ref render_fn) = self.render_empty_state {
+                let (left_title, right_title) = create_titles();
+
+                let empty_block = Block::default()
+                    .title(left_title)
+                    .title_alignment(Alignment::Left)
+                    .title(right_title.alignment(Alignment::Right))
+                    .borders(Borders::TOP)
+                    .border_style(app_theme().border)
+                    .padding(Padding::new(1, 0, 1, 0));
+
+                let inner = empty_block.inner(area);
+                frame.render_widget(empty_block, area);
+
+                // Call the custom renderer
+                render_fn(frame, inner, &app_theme());
+                return;
+            }
+        }
+
+        // Normal rendering path
+        let (left_title, right_title) = create_titles();
 
         let content_block = Block::default()
             .title(left_title)
@@ -404,19 +432,13 @@ impl ChatView {
         // Build message lines using cached rendering
         let mut message_lines: Vec<Line> = Vec::new();
 
-        // Show welcome ASCII art when chat is empty
-        if self.messages.is_empty() && self.streaming_buffer.is_none() && pending_status.is_none() {
-            let welcome_style = Style::default().fg(Color::Cyan);
-            let subtitle_style = Style::default().fg(Color::DarkGray);
-
-            for (i, line) in self.config.welcome_art.iter().enumerate() {
-                let style = if self.config.welcome_subtitle_indices.contains(&i) {
-                    subtitle_style
-                } else {
-                    welcome_style
-                };
-                message_lines.push(Line::from(Span::styled(line.clone(), style)));
-            }
+        // Show default empty state if no custom renderer
+        if is_empty_state {
+            message_lines.push(Line::from(""));
+            message_lines.push(Line::from(Span::styled(
+                "    Type a message to start chatting...",
+                Style::default().fg(Color::DarkGray),
+            )));
         }
 
         for msg in &mut self.messages {
@@ -585,7 +607,8 @@ impl ChatView {
             auto_scroll_enabled: self.auto_scroll_enabled,
             tool_index: HashMap::new(),
             spinner_index: self.spinner_index,
-            config: self.config.clone(),
+            title: self.title.clone(),
+            render_empty_state: None, // Not cloned - callbacks aren't Clone
         }
     }
 }

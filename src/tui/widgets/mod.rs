@@ -21,20 +21,19 @@ use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, Frame};
 use std::any::Any;
 
-use crate::controller::{
-    AskUserQuestionsRequest, AskUserQuestionsResponse, PermissionRequest, PermissionResponse,
-    TurnId,
-};
+use crate::controller::{AskUserQuestionsResponse, PermissionResponse};
 use crate::tui::themes::Theme;
 
 pub mod chat;
+pub mod chat_helpers;
 pub mod input;
 pub mod permission_panel;
 pub mod question_panel;
 pub mod session_picker;
 pub mod slash_popup;
 
-pub use chat::{ChatView, ChatViewConfig, MessageRole, ToolMessageData, ToolStatus};
+pub use chat::{ChatView, MessageRole, ToolMessageData, ToolStatus};
+pub use chat_helpers::{centered_text, title_bar, welcome_art, welcome_art_styled, RenderFn};
 pub use input::TextInput;
 pub use permission_panel::{KeyAction as PermissionKeyAction, PermissionOption, PermissionPanel};
 pub use question_panel::{
@@ -148,42 +147,4 @@ pub trait Widget: Send + 'static {
 
     /// Convert to Box<dyn Any> for owned downcasting
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
-
-    // --- Activation methods ---
-    // These have default no-op implementations. Specific widgets override.
-
-    /// Activate for a permission request
-    fn activate_permission(
-        &mut self,
-        _tool_use_id: String,
-        _session_id: i64,
-        _request: PermissionRequest,
-        _turn_id: Option<TurnId>,
-    ) {
-    }
-
-    /// Activate for a user question request
-    fn activate_question(
-        &mut self,
-        _tool_use_id: String,
-        _session_id: i64,
-        _request: AskUserQuestionsRequest,
-        _turn_id: Option<TurnId>,
-    ) {
-    }
-
-    /// Activate session picker with sessions
-    fn activate_sessions(&mut self, _sessions: Vec<SessionInfo>, _current_session_id: i64) {}
-
-    /// Activate theme picker
-    fn activate_theme(&mut self, _current_theme_name: &str, _current_theme: Theme) {}
-
-    /// Deactivate the widget
-    fn deactivate(&mut self) {}
-
-    /// Get additional context for slash popup (filtered command count)
-    fn set_slash_context(&mut self, _filtered_count: usize) {}
-
-    /// Activate slash popup
-    fn activate_slash(&mut self) {}
 }

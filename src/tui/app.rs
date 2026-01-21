@@ -45,16 +45,17 @@ use super::commands::{
     filter_commands, generate_help_message, get_default_commands, is_slash_command, parse_command,
     SlashCommand,
 };
+use super::keys::{AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, KeyBindings, KeyContext, KeyHandler};
 use super::messages::{different_random_index, random_message_index, FUNNY_MESSAGES};
 use super::widgets::{
-    widget_ids, ChatView, ChatViewConfig, TextInput, ToolStatus, SessionInfo, SessionPickerState,
+    widget_ids, ChatView, TextInput, ToolStatus, SessionInfo, SessionPickerState,
     SlashPopupState, Widget, WidgetAction, WidgetKeyResult, render_session_picker, render_slash_popup,
+    PermissionPanel, QuestionPanel, welcome_art_styled,
 };
 use super::{app_theme, current_theme_name, default_theme_name, get_theme, init_theme};
 
 const PROMPT: &str = " \u{203A} ";
 const CONTINUATION_INDENT: &str = "   ";
-pub const EXIT_MODE_TIMEOUT_SECS: u64 = 2;
 
 // Pending status messages for chat view spinner
 const PENDING_STATUS_TOOLS: &str = "running tools...";
@@ -125,11 +126,6 @@ fn format_tokens(tokens: i64) -> String {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum AppMode {
-    Normal,
-    Exit(Instant),
-}
 
 pub struct App {
     /// App configuration
@@ -138,7 +134,6 @@ pub struct App {
     /// All available commands (defaults + custom)
     commands: Vec<SlashCommand>,
 
-    pub mode: AppMode,
     pub should_quit: bool,
 
     /// Sender for messages to the controller
@@ -221,6 +216,12 @@ pub struct App {
 
     /// Layout template for widget arrangement
     layout_template: LayoutTemplate,
+
+    /// Key handler for customizable key bindings
+    key_handler: Box<dyn KeyHandler>,
+
+    /// Optional exit handler for cleanup before quitting
+    exit_handler: Option<Box<dyn ExitHandler>>,
 }
 
 impl App {
@@ -242,7 +243,6 @@ impl App {
         Self {
             config,
             commands,
-            mode: AppMode::Normal,
             should_quit: false,
             to_controller: None,
             from_controller: None,
@@ -271,6 +271,8 @@ impl App {
             user_interaction_registry: None,
             permission_registry: None,
             layout_template: LayoutTemplate::default(),
+            key_handler: Box::new(DefaultKeyHandler::default()),
+            exit_handler: None,
         }
     }
 
@@ -340,13 +342,15 @@ impl App {
         self.chat().map(|c| c.is_streaming()).unwrap_or(false)
     }
 
-    /// Build a ChatViewConfig from the current app config
-    fn build_chat_config(&self) -> ChatViewConfig {
-        ChatViewConfig {
-            agent_name: self.config.agent_name.clone(),
-            welcome_art: self.config.welcome_art.clone(),
-            welcome_subtitle_indices: self.config.welcome_subtitle_indices.clone(),
-        }
+    /// Create a ChatView with the app's configuration
+    fn create_chat_view(&self) -> ChatView {
+        // Convert welcome_art strings to string slices for the helper
+        let welcome_lines: Vec<&str> = self.config.welcome_art.iter().map(|s| s.as_str()).collect();
+        let empty_state = welcome_art_styled(&welcome_lines, &self.config.welcome_subtitle_indices);
+
+        ChatView::new()
+            .with_title(&self.config.agent_name)
+            .with_empty_state(empty_state)
     }
 
     /// Get the agent name
@@ -412,6 +416,42 @@ impl App {
     /// Set the layout template
     pub fn set_layout(&mut self, template: LayoutTemplate) {
         self.layout_template = template;
+    }
+
+    /// Set a custom key handler.
+    ///
+    /// This allows full control over key handling behavior.
+    /// For simpler customization, use [`set_key_bindings`] instead.
+    pub fn set_key_handler<H: KeyHandler>(&mut self, handler: H) {
+        self.key_handler = Box::new(handler);
+    }
+
+    /// Set a boxed key handler directly.
+    ///
+    /// This is useful when you have a `Box<dyn KeyHandler>` already.
+    pub fn set_key_handler_boxed(&mut self, handler: Box<dyn KeyHandler>) {
+        self.key_handler = handler;
+    }
+
+    /// Set custom key bindings using the default handler.
+    ///
+    /// This is a simpler alternative to [`set_key_handler`] when you
+    /// only need to change which keys trigger which actions.
+    pub fn set_key_bindings(&mut self, bindings: KeyBindings) {
+        self.key_handler = Box::new(DefaultKeyHandler::new(bindings));
+    }
+
+    /// Set an exit handler for cleanup before quitting.
+    ///
+    /// The exit handler's `on_exit()` method is called when the user
+    /// confirms exit. If it returns `false`, the exit is cancelled.
+    pub fn set_exit_handler<H: ExitHandler>(&mut self, handler: H) {
+        self.exit_handler = Some(Box::new(handler));
+    }
+
+    /// Set a boxed exit handler directly.
+    pub fn set_exit_handler_boxed(&mut self, handler: Box<dyn ExitHandler>) {
+        self.exit_handler = Some(handler);
     }
 
     /// Compute widget sizes for layout computation
@@ -596,8 +636,7 @@ impl App {
 
     fn cmd_clear(&mut self) {
         // Replace ChatView widget with new instance
-        let chat_config = self.build_chat_config();
-        let new_chat = ChatView::with_config(chat_config);
+        let new_chat = self.create_chat_view();
         self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(new_chat));
         self.rebuild_priority_order();
         self.user_turn_counter = 0;
@@ -694,8 +733,7 @@ impl App {
         }
 
         // Create new chat for the new session
-        let chat_config = self.build_chat_config();
-        let new_chat = ChatView::with_config(chat_config);
+        let new_chat = self.create_chat_view();
         self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(new_chat));
         self.rebuild_priority_order();
 
@@ -720,9 +758,11 @@ impl App {
 
     fn cmd_themes(&mut self) {
         if let Some(widget) = self.widgets.get_mut(widget_ids::THEME_PICKER) {
-            let current_name = current_theme_name();
-            let current_theme = app_theme();
-            widget.activate_theme(&current_name, current_theme);
+            if let Some(picker) = widget.as_any_mut().downcast_mut::<ThemePickerState>() {
+                let current_name = current_theme_name();
+                let current_theme = app_theme();
+                picker.activate(&current_name, current_theme);
+            }
         }
     }
 
@@ -733,7 +773,9 @@ impl App {
         }
 
         if let Some(widget) = self.widgets.get_mut(widget_ids::SESSION_PICKER) {
-            widget.activate_sessions(self.sessions.clone(), self.session_id);
+            if let Some(picker) = widget.as_any_mut().downcast_mut::<SessionPickerState>() {
+                picker.activate(self.sessions.clone(), self.session_id);
+            }
         }
     }
 
@@ -768,7 +810,7 @@ impl App {
             let chat = if let Some(stored_chat) = self.session_chat_views.remove(&session_id) {
                 stored_chat
             } else {
-                ChatView::with_config(self.build_chat_config())
+                self.create_chat_view()
             };
             self.widgets.insert(widget_ids::CHAT_VIEW, Box::new(chat));
             self.rebuild_priority_order();
@@ -796,7 +838,9 @@ impl App {
 
         // Deactivate the widget
         if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
-            widget.deactivate();
+            if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
+                panel.deactivate();
+            }
         }
     }
 
@@ -816,7 +860,9 @@ impl App {
 
         // Deactivate the widget
         if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
-            widget.deactivate();
+            if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
+                panel.deactivate();
+            }
         }
     }
 
@@ -834,7 +880,9 @@ impl App {
 
         // Deactivate the widget
         if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
-            widget.deactivate();
+            if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
+                panel.deactivate();
+            }
         }
     }
 
@@ -852,7 +900,9 @@ impl App {
 
         // Deactivate the widget
         if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
-            widget.deactivate();
+            if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
+                panel.deactivate();
+            }
         }
     }
 
@@ -1012,7 +1062,9 @@ impl App {
                     }
                     // Activate via widget registry if registered
                     if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
-                        widget.activate_question(tool_use_id, session_id, request, turn_id);
+                        if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
+                            panel.activate(tool_use_id, session_id, request, turn_id);
+                        }
                     }
                 }
             }
@@ -1028,7 +1080,9 @@ impl App {
                     }
                     // Activate via widget registry if registered
                     if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
-                        widget.activate_permission(tool_use_id, session_id, request, turn_id);
+                        if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
+                            panel.activate(tool_use_id, session_id, request, turn_id);
+                        }
                     }
                 }
             }
@@ -1094,44 +1148,30 @@ impl App {
 
     /// Handle key events
     fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
-        // Check for expired exit mode
-        if let AppMode::Exit(entered_at) = self.mode {
-            if entered_at.elapsed().as_secs() >= EXIT_MODE_TIMEOUT_SECS {
-                self.mode = AppMode::Normal;
+        // Build key context for the handler
+        let key_event = KeyEvent::new(key, modifiers);
+        let context = KeyContext {
+            input_empty: self.input().map(|i| i.is_empty()).unwrap_or(true),
+            is_processing: self.waiting_for_response || self.is_chat_streaming(),
+            widget_blocking: self.any_widget_blocks_input(),
+        };
+
+        // Let the key handler process first
+        // (handler manages exit confirmation state internally)
+        let result = self.key_handler.handle_key(key_event, &context);
+
+        match result {
+            AppKeyResult::Handled => return,
+            AppKeyResult::Action(action) => {
+                self.execute_key_action(action);
+                return;
             }
-        }
-
-        // Reset exit mode on any non-Ctrl+D key press
-        let is_ctrl_d = key == KeyCode::Char('d') && modifiers.contains(KeyModifiers::CONTROL);
-        if self.is_exit_mode_active() && !is_ctrl_d {
-            self.mode = AppMode::Normal;
-        }
-
-        // Check if any widget blocks input (modal panels)
-        let widget_blocks = self.any_widget_blocks_input();
-
-        // When spinner is active and no modal widget is blocking, only allow Esc and Ctrl+D
-        let is_processing = self.waiting_for_response || self.is_chat_streaming();
-        if is_processing && !widget_blocks {
-            match key {
-                KeyCode::Esc => {
-                    self.interrupt_request();
-                    return;
-                }
-                KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    if self.is_exit_mode_active() {
-                        self.should_quit = true;
-                    } else if self.input().map(|i| i.is_empty()).unwrap_or(true) {
-                        self.mode = AppMode::Exit(Instant::now());
-                    }
-                    return;
-                }
-                _ => return,
+            AppKeyResult::NotHandled => {
+                // Continue to widget dispatch
             }
         }
 
         // Try to send key event to registered widgets (by priority order)
-        let key_event = KeyEvent::new(key, modifiers);
         let theme = app_theme();
 
         // Collect widget IDs to check (we need to avoid borrow issues)
@@ -1159,100 +1199,92 @@ impl App {
             self.handle_slash_popup_key(key);
             return;
         }
+    }
 
-        // Check exit mode before getting mutable borrow
-        let is_exit_mode = self.is_exit_mode_active();
-        let is_input_empty = self.input().map(|i| i.is_empty()).unwrap_or(true);
-
-        // Normal input handling (requires TextInput widget to be registered)
-        let Some(input) = self.input_mut() else {
-            // No input widget registered - only handle Ctrl+D for exit
-            if key == KeyCode::Char('d') && modifiers.contains(KeyModifiers::CONTROL) {
-                if is_exit_mode {
-                    self.should_quit = true;
-                } else {
-                    self.mode = AppMode::Exit(Instant::now());
+    /// Execute an application-level key action.
+    fn execute_key_action(&mut self, action: AppKeyAction) {
+        match action {
+            AppKeyAction::MoveUp => {
+                if let Some(input) = self.input_mut() {
+                    input.move_up();
                 }
             }
-            return;
-        };
-
-        match key {
-            // Shift+Enter sends Ctrl+J in most terminals
-            KeyCode::Char('j') if modifiers.contains(KeyModifiers::CONTROL) => {
-                input.insert_char('\n');
+            AppKeyAction::MoveDown => {
+                if let Some(input) = self.input_mut() {
+                    input.move_down();
+                }
             }
-
-            // Cursor movement - Emacs style
-            KeyCode::Char('p') if modifiers.contains(KeyModifiers::CONTROL) => input.move_up(),
-            KeyCode::Char('n') if modifiers.contains(KeyModifiers::CONTROL) => {
-                input.move_down()
+            AppKeyAction::MoveLeft => {
+                if let Some(input) = self.input_mut() {
+                    input.move_left();
+                }
             }
-            KeyCode::Char('b') if modifiers.contains(KeyModifiers::CONTROL) => {
-                input.move_left()
+            AppKeyAction::MoveRight => {
+                if let Some(input) = self.input_mut() {
+                    input.move_right();
+                }
             }
-            KeyCode::Char('f') if modifiers.contains(KeyModifiers::CONTROL) => {
-                input.move_right()
+            AppKeyAction::MoveLineStart => {
+                if let Some(input) = self.input_mut() {
+                    input.move_to_line_start();
+                }
             }
-            KeyCode::Char('a') if modifiers.contains(KeyModifiers::CONTROL) => {
-                input.move_to_line_start()
+            AppKeyAction::MoveLineEnd => {
+                if let Some(input) = self.input_mut() {
+                    input.move_to_line_end();
+                }
             }
-            KeyCode::Char('e') if modifiers.contains(KeyModifiers::CONTROL) => {
-                input.move_to_line_end()
+            AppKeyAction::DeleteCharBefore => {
+                if let Some(input) = self.input_mut() {
+                    input.delete_char_before();
+                }
             }
-
-            // Editing - Emacs style
-            KeyCode::Char('k') if modifiers.contains(KeyModifiers::CONTROL) => {
-                input.kill_line()
-            }
-            KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if is_exit_mode {
-                    self.should_quit = true;
-                } else if is_input_empty {
-                    self.mode = AppMode::Exit(Instant::now());
-                } else {
+            AppKeyAction::DeleteCharAt => {
+                if let Some(input) = self.input_mut() {
                     input.delete_char_at();
                 }
             }
-
-            // Cursor movement - Arrow keys
-            KeyCode::Up => input.move_up(),
-            KeyCode::Down => input.move_down(),
-            KeyCode::Left => input.move_left(),
-            KeyCode::Right => input.move_right(),
-            KeyCode::Home => input.move_to_line_start(),
-            KeyCode::End => input.move_to_line_end(),
-
-            // Text input
-            KeyCode::Char(c) => {
-                input.insert_char(c);
+            AppKeyAction::KillLine => {
+                if let Some(input) = self.input_mut() {
+                    input.kill_line();
+                }
             }
-            KeyCode::Backspace => input.delete_char_before(),
-            KeyCode::Delete => input.delete_char_at(),
-            KeyCode::Enter | KeyCode::Esc => {
-                // These need to call self methods, handled after match
+            AppKeyAction::InsertNewline => {
+                if let Some(input) = self.input_mut() {
+                    input.insert_char('\n');
+                }
             }
-
-            _ => {}
-        }
-
-        // Handle cases that need to call self methods (after releasing input borrow)
-        match key {
-            KeyCode::Char('/') => {
-                // Check if we just typed "/" as the first character
-                if self.input().map(|i| i.buffer() == "/").unwrap_or(false) {
+            AppKeyAction::InsertChar(c) => {
+                if let Some(input) = self.input_mut() {
+                    input.insert_char(c);
+                }
+                // Check if we just typed "/" as the first character for slash popup
+                if c == '/' && self.input().map(|i| i.buffer() == "/").unwrap_or(false) {
                     self.activate_slash_popup();
                 }
             }
-            KeyCode::Enter => {
+            AppKeyAction::Submit => {
                 self.submit_message();
             }
-            KeyCode::Esc => {
-                if self.waiting_for_response || self.is_chat_streaming() {
-                    self.interrupt_request();
+            AppKeyAction::Interrupt => {
+                self.interrupt_request();
+            }
+            AppKeyAction::Quit => {
+                self.should_quit = true;
+            }
+            AppKeyAction::RequestExit => {
+                // Call exit handler if set, otherwise just quit
+                let should_quit = self.exit_handler
+                    .as_mut()
+                    .map(|h| h.on_exit())
+                    .unwrap_or(true);
+                if should_quit {
+                    self.should_quit = true;
                 }
             }
-            _ => {}
+            AppKeyAction::ActivateSlashPopup => {
+                self.activate_slash_popup();
+            }
         }
     }
 
@@ -1301,9 +1333,11 @@ impl App {
     /// Activate the slash popup
     fn activate_slash_popup(&mut self) {
         if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-            widget.activate_slash();
-            self.filtered_commands = filter_commands(get_default_commands(), "/");
-            widget.set_slash_context(self.filtered_commands.len());
+            if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                popup.activate();
+                self.filtered_commands = filter_commands(get_default_commands(), "/");
+                popup.set_filtered_count(self.filtered_commands.len());
+            }
         }
     }
 
@@ -1337,7 +1371,9 @@ impl App {
                     input.clear();
                 }
                 if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    widget.deactivate();
+                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                        popup.deactivate();
+                    }
                 }
                 self.filtered_commands.clear();
             }
@@ -1348,7 +1384,9 @@ impl App {
                         input.clear();
                     }
                     if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                        widget.deactivate();
+                        if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                            popup.deactivate();
+                        }
                     }
                     self.filtered_commands.clear();
                 } else {
@@ -1358,7 +1396,9 @@ impl App {
                     let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
                     self.filtered_commands = filter_commands(get_default_commands(), &buffer);
                     if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                        widget.set_slash_context(self.filtered_commands.len());
+                        if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                            popup.set_filtered_count(self.filtered_commands.len());
+                        }
                     }
                 }
             }
@@ -1369,12 +1409,16 @@ impl App {
                 let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
                 self.filtered_commands = filter_commands(get_default_commands(), &buffer);
                 if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    widget.set_slash_context(self.filtered_commands.len());
+                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                        popup.set_filtered_count(self.filtered_commands.len());
+                    }
                 }
             }
             _ => {
                 if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    widget.deactivate();
+                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                        popup.deactivate();
+                    }
                 }
             }
         }
@@ -1391,17 +1435,12 @@ impl App {
                 }
             }
             if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                widget.deactivate();
+                if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                    popup.deactivate();
+                }
             }
             self.filtered_commands.clear();
             self.submit_message();
-        }
-    }
-
-    fn is_exit_mode_active(&self) -> bool {
-        match self.mode {
-            AppMode::Exit(entered_at) => entered_at.elapsed().as_secs() < EXIT_MODE_TIMEOUT_SECS,
-            AppMode::Normal => false,
         }
     }
 
@@ -1648,8 +1687,8 @@ impl App {
 
             let help_text = if question_panel_active || permission_panel_active {
                 String::new()
-            } else if self.is_exit_mode_active() {
-                " Press Ctrl-D again to exit".to_string()
+            } else if let Some(hint) = self.key_handler.status_hint() {
+                format!(" {}", hint)
             } else if show_throbber {
                 let elapsed = self
                     .waiting_started

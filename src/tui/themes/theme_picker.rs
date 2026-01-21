@@ -218,14 +218,6 @@ impl Widget for ThemePickerState {
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
-
-    fn activate_theme(&mut self, current_theme_name: &str, current_theme: Theme) {
-        self.activate(current_theme_name, current_theme);
-    }
-
-    fn deactivate(&mut self) {
-        self.cancel();
-    }
 }
 
 /// Render the theme picker

@@ -16,6 +16,7 @@
 //! - Theme system with 45+ built-in themes
 
 mod app;
+pub mod keys;
 pub mod layout;
 pub mod themes;
 mod commands;
@@ -25,7 +26,7 @@ pub mod table;
 pub mod widgets;
 
 // Re-export App and related types
-pub use app::{App, AppConfig, AppMode, EXIT_MODE_TIMEOUT_SECS};
+pub use app::{App, AppConfig};
 pub use commands::{
     filter_commands, generate_help_message, get_command_by_name, get_default_commands,
     is_slash_command, parse_command, SlashCommand, DEFAULT_COMMANDS,
@@ -34,7 +35,9 @@ pub use commands::{
 // Re-export main types for convenience (now from widgets module)
 pub use widgets::{
     // Core widgets
-    ChatView, ChatViewConfig, MessageRole, TextInput, ToolMessageData, ToolStatus,
+    ChatView, MessageRole, TextInput, ToolMessageData, ToolStatus, RenderFn,
+    // Chat helpers for customization
+    centered_text, title_bar, welcome_art, welcome_art_styled,
     // Registerable widgets
     AnswerState, EnterAction, FocusItem, PermissionKeyAction, PermissionOption, PermissionPanel,
     QuestionKeyAction, QuestionPanel, SessionInfo, SessionPickerState, SimpleCommand,
@@ -60,4 +63,10 @@ pub use layout::{
     MinimalOptions, SidebarOptions, SidebarPosition, SidebarWidth,
     SplitOptions, SplitRatio, StandardOptions, WidgetSizes,
     helpers as layout_helpers,
+};
+
+// Re-export key handling types for convenience
+pub use keys::{
+    AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, ExitState,
+    KeyBindings, KeyCombo, KeyContext, KeyHandler,
 };

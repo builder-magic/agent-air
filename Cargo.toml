@@ -2,7 +2,7 @@
 name = "agent-core"
 version = "0.1.0"
 edition = "2024"
-description = "Reusable TUI components, LLM client, controller, and agent infrastructure for LLM applications"
+description = "A Rust Framework to build TUI Agents"
 
 [dependencies]
 # TUI dependencies
