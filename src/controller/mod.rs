@@ -7,7 +7,7 @@ pub mod types;
 pub mod usage;
 
 pub use error::ControllerError;
-pub use llm_controller::{EventFunc, LLMController};
+pub use llm_controller::{EventFunc, LLMController, DEFAULT_CHANNEL_SIZE};
 pub use session::{
     CompactResult, CompactionConfig, LLMProvider, LLMSession, LLMSessionConfig, LLMSessionManager,
     SessionStatus, TokenUsage, ToolCompaction,

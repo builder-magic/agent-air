@@ -26,8 +26,8 @@ use crate::controller::usage::TokenUsageTracker;
 /// Callback function type for controller events
 pub type EventFunc = Box<dyn Fn(ControllerEvent) + Send + Sync>;
 
-/// Channel buffer size for internal communication
-const CHANNEL_BUFFER_SIZE: usize = 100;
+/// Default channel buffer size for internal communication
+pub const DEFAULT_CHANNEL_SIZE: usize = 100;
 
 /// Timeout for sending input to the controller
 const SEND_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -95,19 +95,19 @@ impl LLMController {
     /// # Arguments
     /// * `event_func` - Optional callback for controller events
     pub fn new(event_func: Option<EventFunc>) -> Self {
-        let (from_llm_tx, from_llm_rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-        let (input_tx, input_rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let (from_llm_tx, from_llm_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (input_tx, input_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
 
         // Create tool execution channels
-        let (tool_result_tx, tool_result_rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
-        let (batch_result_tx, batch_result_rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let (tool_result_tx, tool_result_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (batch_result_tx, batch_result_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
 
         // Create user interaction registry with event channel
-        let (user_interaction_tx, user_interaction_rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let (user_interaction_tx, user_interaction_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let user_interaction_registry = Arc::new(UserInteractionRegistry::new(user_interaction_tx));
 
         // Create permission registry with event channel
-        let (permission_tx, permission_rx) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+        let (permission_tx, permission_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let permission_registry = Arc::new(PermissionRegistry::new(permission_tx));
 
         let tool_registry = Arc::new(ToolRegistry::new());

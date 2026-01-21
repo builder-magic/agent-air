@@ -104,6 +104,9 @@ pub mod channels {
 
     use super::UiMessage;
 
+    // Re-export from controller for backwards compatibility
+    pub use crate::controller::DEFAULT_CHANNEL_SIZE;
+
     /// Sender for messages from TUI to controller
     pub type ToControllerTx = mpsc::Sender<ControllerInputPayload>;
     /// Receiver for messages from TUI to controller
@@ -113,9 +116,6 @@ pub mod channels {
     pub type FromControllerTx = mpsc::Sender<UiMessage>;
     /// Receiver for messages from controller to TUI
     pub type FromControllerRx = mpsc::Receiver<UiMessage>;
-
-    /// Default channel buffer size
-    pub const DEFAULT_CHANNEL_SIZE: usize = 100;
 
     /// Creates a pair of channels for TUI-Controller communication
     pub fn create_channels() -> (ToControllerTx, ToControllerRx, FromControllerTx, FromControllerRx)
