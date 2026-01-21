@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -119,7 +120,7 @@ pub struct LLMSession {
     created_at: Instant,
 
     // Conversation state
-    conversation: RwLock<Vec<Message>>,
+    conversation: RwLock<Arc<Vec<Message>>>,
 
     // Shutdown management
     shutdown: AtomicBool,
@@ -226,7 +227,7 @@ impl LLMSession {
             system_prompt: RwLock::new(system_prompt),
             max_tokens: AtomicI64::new(max_tokens),
             created_at: Instant::now(),
-            conversation: RwLock::new(Vec::new()),
+            conversation: RwLock::new(Arc::new(Vec::new())),
             shutdown: AtomicBool::new(false),
             cancel_token,
             current_cancel: Mutex::new(None),
@@ -380,7 +381,12 @@ impl LLMSession {
 
             // Get conversation and summaries for async compaction
             let summaries = self.compact_summaries.read().await.clone();
-            let conversation = self.conversation.read().await.clone();
+            let conversation_arc = {
+                let guard = self.conversation.read().await;
+                Arc::clone(&*guard) // O(1)
+            };
+            let conversation = Arc::try_unwrap(conversation_arc)
+                .unwrap_or_else(|arc| (*arc).clone());
 
             tracing::info!(
                 session_id = self.id(),
@@ -393,7 +399,7 @@ impl LLMSession {
             match llm_compactor.compact_async(conversation, &summaries).await {
                 Ok((new_conversation, result)) => {
                     // Replace conversation with compacted version
-                    *self.conversation.write().await = new_conversation;
+                    *self.conversation.write().await = Arc::new(new_conversation);
 
                     if result.turns_compacted > 0 {
                         tracing::info!(
@@ -436,23 +442,23 @@ impl LLMSession {
 
         // Perform sync compaction
         let summaries = self.compact_summaries.read().await.clone();
-        let mut conversation = self.conversation.write().await;
+        let mut guard = self.conversation.write().await;
 
         tracing::info!(
             session_id = self.id(),
-            conversation_len = conversation.len(),
+            conversation_len = guard.len(),
             summaries_count = summaries.len(),
             "Starting threshold compaction"
         );
 
-        let result = compactor.compact(&mut conversation, &summaries);
+        let result = compactor.compact(Arc::make_mut(&mut *guard), &summaries);
 
         tracing::info!(
             session_id = self.id(),
             tool_results_summarized = result.tool_results_summarized,
             tool_results_redacted = result.tool_results_redacted,
             turns_compacted = result.turns_compacted,
-            conversation_len_after = conversation.len(),
+            conversation_len_after = guard.len(),
             "Threshold compaction completed"
         );
     }
@@ -461,8 +467,8 @@ impl LLMSession {
 
     /// Clears the conversation history and compact summaries.
     pub async fn clear_conversation(&self) {
-        let mut conversation = self.conversation.write().await;
-        conversation.clear();
+        let mut guard = self.conversation.write().await;
+        Arc::make_mut(&mut *guard).clear();
 
         let mut summaries = self.compact_summaries.write().await;
         summaries.clear();
@@ -480,7 +486,12 @@ impl LLMSession {
         // Check for LLM compactor first (async compaction)
         if let Some(ref llm_compactor) = self.llm_compactor {
             let summaries = self.compact_summaries.read().await.clone();
-            let conversation = self.conversation.read().await.clone();
+            let conversation_arc = {
+                let guard = self.conversation.read().await;
+                Arc::clone(&*guard) // O(1)
+            };
+            let conversation = Arc::try_unwrap(conversation_arc)
+                .unwrap_or_else(|arc| (*arc).clone());
             let messages_before = conversation.len();
             let turns_before = self.count_unique_turns(&conversation);
 
@@ -497,7 +508,7 @@ impl LLMSession {
                         0
                     };
 
-                    *self.conversation.write().await = new_conversation;
+                    *self.conversation.write().await = Arc::new(new_conversation);
 
                     if result.turns_compacted > 0 {
                         tracing::info!(
@@ -541,14 +552,14 @@ impl LLMSession {
         // Fall back to sync compactor (ThresholdCompactor)
         if let Some(ref compactor) = self.compactor {
             let summaries = self.compact_summaries.read().await.clone();
-            let mut conversation = self.conversation.write().await;
-            let messages_before = conversation.len();
-            let turns_before = self.count_unique_turns(&conversation);
+            let mut guard = self.conversation.write().await;
+            let messages_before = guard.len();
+            let turns_before = self.count_unique_turns(&guard);
 
-            let result = compactor.compact(&mut conversation, &summaries);
+            let result = compactor.compact(Arc::make_mut(&mut *guard), &summaries);
 
-            let messages_after = conversation.len();
-            let turns_after = self.count_unique_turns(&conversation);
+            let messages_after = guard.len();
+            let turns_after = self.count_unique_turns(&guard);
             let compacted = result.turns_compacted > 0 || result.total_compacted() > 0;
 
             if result.total_compacted() > 0 {
@@ -626,15 +637,15 @@ impl LLMSession {
             // assistant responses, etc.) from being included in subsequent API calls.
             let turn_id = self.current_turn_id.read().await.clone();
             if let Some(turn_id) = turn_id {
-                let mut conversation = self.conversation.write().await;
-                let original_len = conversation.len();
-                conversation.retain(|msg| msg.turn_id() != &turn_id);
-                let removed = original_len - conversation.len();
+                let mut guard = self.conversation.write().await;
+                let original_len = guard.len();
+                Arc::make_mut(&mut *guard).retain(|msg| msg.turn_id() != &turn_id);
+                let removed = original_len - guard.len();
                 tracing::debug!(
                     session_id = self.id(),
                     turn_id = %turn_id,
                     messages_removed = removed,
-                    conversation_length = conversation.len(),
+                    conversation_length = guard.len(),
                     "Removed messages from cancelled turn"
                 );
             }
@@ -798,7 +809,7 @@ impl LLMSession {
                         created_at: Self::current_timestamp_millis(),
                         content: vec![ContentBlock::text(&request.content)],
                     });
-                    self.conversation.write().await.push(user_msg);
+                    Arc::make_mut(&mut *self.conversation.write().await).push(user_msg);
                 }
             }
             LLMRequestType::ToolResult => {
@@ -832,7 +843,7 @@ impl LLMSession {
                             compact_summary,
                         })],
                     });
-                    self.conversation.write().await.push(user_msg);
+                    Arc::make_mut(&mut *self.conversation.write().await).push(user_msg);
                 }
             }
         }
@@ -913,7 +924,7 @@ impl LLMSession {
                     error: None,
                     content: content_blocks,
                 });
-                self.conversation.write().await.push(asst_msg);
+                Arc::make_mut(&mut *self.conversation.write().await).push(asst_msg);
 
                 // Send completion
                 let payload = FromLLMPayload {
@@ -990,7 +1001,7 @@ impl LLMSession {
                         created_at: Self::current_timestamp_millis(),
                         content: vec![ContentBlock::text(&request.content)],
                     });
-                    self.conversation.write().await.push(user_msg);
+                    Arc::make_mut(&mut *self.conversation.write().await).push(user_msg);
                 }
             }
             LLMRequestType::ToolResult => {
@@ -1034,7 +1045,7 @@ impl LLMSession {
                             compact_summary,
                         })],
                     });
-                    self.conversation.write().await.push(user_msg);
+                    Arc::make_mut(&mut *self.conversation.write().await).push(user_msg);
                 }
             }
         }
@@ -1237,7 +1248,7 @@ impl LLMSession {
                                                     error: None,
                                                     content: content_blocks,
                                                 });
-                                                self.conversation.write().await.push(asst_msg);
+                                                Arc::make_mut(&mut *self.conversation.write().await).push(asst_msg);
                                                 tracing::debug!(
                                                     session_id,
                                                     content_block_count,
