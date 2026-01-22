@@ -14,6 +14,12 @@ pub enum RegistryError {
     DuplicateTool(String),
 }
 
+impl From<RegistryError> for String {
+    fn from(err: RegistryError) -> Self {
+        err.to_string()
+    }
+}
+
 /// Thread-safe registry for managing available tools.
 pub struct ToolRegistry {
     tools: RwLock<HashMap<String, Arc<dyn Executable>>>,

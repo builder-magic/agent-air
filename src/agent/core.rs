@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::controller::{
     ControllerEvent, ControllerInputPayload, LLMController, LLMSessionConfig, LLMTool,
-    PermissionRegistry, ToolDefinition, ToolRegistry, UserInteractionRegistry,
+    PermissionRegistry, ToolRegistry, UserInteractionRegistry,
 };
 
 use super::config::{load_config, AgentConfig, LLMRegistry};
@@ -107,7 +107,7 @@ pub struct AgentCore {
     permission_registry: Arc<PermissionRegistry>,
 
     /// Tool definitions to register on sessions
-    tool_definitions: Vec<ToolDefinition>,
+    tool_definitions: Vec<LLMTool>,
 
     /// Widgets to register with the App
     widgets_to_register: Vec<Box<dyn Widget>>,
@@ -431,13 +431,40 @@ impl AgentCore {
             &Arc<ToolRegistry>,
             &Arc<UserInteractionRegistry>,
             &Arc<PermissionRegistry>,
-        ) -> Result<Vec<ToolDefinition>, String>,
+        ) -> Result<Vec<LLMTool>, String>,
     {
         let tool_defs = f(
             self.controller.tool_registry(),
             &self.user_interaction_registry,
             &self.permission_registry,
         )
+        .map_err(AgentError::ToolRegistration)?;
+        self.tool_definitions = tool_defs;
+        Ok(())
+    }
+
+    /// Register tools with the agent using an async function.
+    ///
+    /// Similar to `register_tools`, but accepts an async closure. The closure
+    /// is executed using the agent's tokio runtime via `block_on`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// core.register_tools_async(|registry, user_reg, perm_reg| async move {
+    ///     tools::register_all_tools(&registry, user_reg, perm_reg).await
+    /// })?;
+    /// ```
+    pub fn register_tools_async<F, Fut>(&mut self, f: F) -> Result<(), AgentError>
+    where
+        F: FnOnce(Arc<ToolRegistry>, Arc<UserInteractionRegistry>, Arc<PermissionRegistry>) -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<LLMTool>, String>>,
+    {
+        let tool_defs = self.runtime.block_on(f(
+            self.controller.tool_registry().clone(),
+            self.user_interaction_registry.clone(),
+            self.permission_registry.clone(),
+        ))
         .map_err(AgentError::ToolRegistration)?;
         self.tool_definitions = tool_defs;
         Ok(())
@@ -493,19 +520,14 @@ impl AgentCore {
     async fn create_session_internal(
         controller: &Arc<LLMController>,
         config: LLMSessionConfig,
-        tool_definitions: &[ToolDefinition],
+        tools: &[LLMTool],
     ) -> Result<i64, crate::client::error::LlmError> {
         let id = controller.create_session(config).await?;
 
         // Set tools on the session after creation
-        if !tool_definitions.is_empty() {
-            let tools: Vec<LLMTool> = tool_definitions
-                .iter()
-                .map(|def| LLMTool::new(&def.name, &def.description, &def.input_schema))
-                .collect();
-
+        if !tools.is_empty() {
             if let Some(session) = controller.get_session(id).await {
-                session.set_tools(tools).await;
+                session.set_tools(tools.to_vec()).await;
             }
         }
 
@@ -735,6 +757,13 @@ impl AgentCore {
     /// Returns the agent name.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Returns a clone of the UI message sender.
+    ///
+    /// This can be used to send messages to the App's UI event loop.
+    pub fn from_controller_tx(&self) -> FromControllerTx {
+        self.from_controller_tx.clone()
     }
 }
 

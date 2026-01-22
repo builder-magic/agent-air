@@ -8,8 +8,13 @@
 //! - Enter: Select choice or advance to next question
 //! - Space: Toggle selection (for multi-choice)
 //! - Esc: Cancel and close panel
-//! - Tab: Jump to Submit button
+//! - Tab: Jump to next question section
+//! - Shift+Tab: Jump to previous question section
 //! - For text fields: all typing goes to the TextArea
+//!
+//! # Submit Button
+//! The Submit button is disabled (grayed out) until all required questions
+//! have been answered.
 
 use std::collections::HashSet;
 
@@ -39,9 +44,9 @@ pub mod defaults {
     /// Panel title
     pub const TITLE: &str = " User Input Required ";
     /// Help text for navigation mode
-    pub const HELP_TEXT_NAV: &str = " Up/Down: Navigate | Enter/Space: Select | Tab: Submit | Esc: Cancel";
+    pub const HELP_TEXT_NAV: &str = " Up/Down: Navigate \u{00B7} Enter/Space: Select \u{00B7} Tab: Next Section \u{00B7} Esc: Cancel";
     /// Help text for text input mode
-    pub const HELP_TEXT_INPUT: &str = " Type text | Enter: Next | Tab: Submit | Esc: Cancel";
+    pub const HELP_TEXT_INPUT: &str = " Type text \u{00B7} Enter: Next \u{00B7} Tab: Next Section \u{00B7} Esc: Cancel";
     /// Question prefix icon
     pub const QUESTION_PREFIX: &str = " \u{2237} ";
     /// Radio button symbols (single choice)
@@ -286,6 +291,21 @@ impl AnswerState {
                 !other_text.lines().join("").is_empty()
             }
             AnswerState::FreeText { .. } => false,
+        }
+    }
+
+    /// Check if this answer has a valid response (selected choice or text entered)
+    pub fn has_answer(&self) -> bool {
+        match self {
+            AnswerState::SingleChoice { selected, other_text } => {
+                selected.is_some() || !other_text.lines().join("").trim().is_empty()
+            }
+            AnswerState::MultiChoice { selected, other_text } => {
+                !selected.is_empty() || !other_text.lines().join("").trim().is_empty()
+            }
+            AnswerState::FreeText { textarea } => {
+                !textarea.lines().join("").trim().is_empty()
+            }
         }
     }
 }
@@ -556,7 +576,13 @@ impl QuestionPanel {
                 self.advance_to_next_question(question_idx);
                 EnterAction::Selected
             }
-            Some(FocusItem::Submit) => EnterAction::Submit,
+            Some(FocusItem::Submit) => {
+                if self.can_submit() {
+                    EnterAction::Submit
+                } else {
+                    EnterAction::None // Can't submit yet, required fields missing
+                }
+            }
             Some(FocusItem::Cancel) => EnterAction::Cancel,
             None => EnterAction::None,
         }
@@ -579,6 +605,79 @@ impl QuestionPanel {
             // No more questions, go to Submit
             self.focus_submit();
         }
+    }
+
+    /// Get the question index for the current focus item
+    fn current_question_idx(&self) -> Option<usize> {
+        match self.current_focus() {
+            Some(FocusItem::Choice { question_idx, .. })
+            | Some(FocusItem::OtherOption { question_idx })
+            | Some(FocusItem::OtherText { question_idx })
+            | Some(FocusItem::TextInput { question_idx }) => Some(*question_idx),
+            _ => None,
+        }
+    }
+
+    /// Focus the next question section (Tab behavior)
+    /// Moves to the first item (or selected item) of the next question
+    fn focus_next_section(&mut self) {
+        let current_q = self.current_question_idx();
+        let next_q = current_q.map(|q| q + 1).unwrap_or(0);
+
+        // Find first focus item for next question, or Submit if no more questions
+        if let Some(idx) = self.focus_items.iter().position(|f| match f {
+            FocusItem::Choice { question_idx, .. }
+            | FocusItem::OtherOption { question_idx }
+            | FocusItem::OtherText { question_idx }
+            | FocusItem::TextInput { question_idx } => *question_idx == next_q,
+            FocusItem::Submit | FocusItem::Cancel => false,
+        }) {
+            self.focus_idx = idx;
+        } else {
+            // No more questions, go to Submit
+            self.focus_submit();
+        }
+    }
+
+    /// Focus the previous question section (Shift+Tab behavior)
+    fn focus_prev_section(&mut self) {
+        let current_q = self.current_question_idx();
+
+        // If on Submit/Cancel or question 0, go to first question
+        let prev_q = match current_q {
+            Some(q) if q > 0 => q - 1,
+            _ => {
+                // Already on first question or on buttons, find last question
+                let last_q = self.request.questions.len().saturating_sub(1);
+                if current_q == Some(0) {
+                    // On first question, wrap to Submit
+                    self.focus_submit();
+                    return;
+                }
+                last_q
+            }
+        };
+
+        // Find first focus item for previous question
+        if let Some(idx) = self.focus_items.iter().position(|f| match f {
+            FocusItem::Choice { question_idx, .. }
+            | FocusItem::OtherOption { question_idx }
+            | FocusItem::OtherText { question_idx }
+            | FocusItem::TextInput { question_idx } => *question_idx == prev_q,
+            FocusItem::Submit | FocusItem::Cancel => false,
+        }) {
+            self.focus_idx = idx;
+        }
+    }
+
+    /// Check if all required questions have been answered
+    pub fn can_submit(&self) -> bool {
+        for (question, answer) in self.request.questions.iter().zip(self.answers.iter()) {
+            if question.is_required() && !answer.has_answer() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Handle key input for text areas
@@ -683,9 +782,15 @@ impl QuestionPanel {
                 return KeyAction::Handled;
             }
 
-            // Tab to jump to submit
+            // Tab to move to next question section
             KeyCode::Tab => {
-                self.focus_submit();
+                self.focus_next_section();
+                return KeyAction::Handled;
+            }
+
+            // Shift+Tab to move to previous question section
+            KeyCode::BackTab => {
+                self.focus_prev_section();
                 return KeyAction::Handled;
             }
 
@@ -834,8 +939,11 @@ impl QuestionPanel {
         // Add buttons - Submit and Cancel side by side
         let submit_focused = self.current_focus() == Some(&FocusItem::Submit);
         let cancel_focused = self.current_focus() == Some(&FocusItem::Cancel);
+        let submit_enabled = self.can_submit();
 
-        let submit_style = if submit_focused {
+        let submit_style = if !submit_enabled {
+            theme.muted_text()
+        } else if submit_focused {
             theme.button_confirm_focused()
         } else {
             theme.button_confirm()
@@ -848,8 +956,8 @@ impl QuestionPanel {
 
         let mut button_spans = vec![Span::raw("  ")];
 
-        // Submit with indicator if focused
-        if submit_focused {
+        // Submit with indicator if focused (only if enabled)
+        if submit_focused && submit_enabled {
             button_spans.push(Span::styled("\u{203A} ", theme.focus_indicator()));
         }
         button_spans.push(Span::styled("Submit", submit_style));
