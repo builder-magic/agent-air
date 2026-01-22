@@ -11,12 +11,16 @@ use crate::client::traits::LlmProvider;
 use std::future::Future;
 use std::pin::Pin;
 
+/// Anthropic Claude API provider.
 pub struct AnthropicProvider {
+    /// Anthropic API key.
     pub api_key: String,
+    /// Model identifier (e.g., "claude-3-5-sonnet-20241022").
     pub model: String,
 }
 
 impl AnthropicProvider {
+    /// Create a new Anthropic provider with API key and model.
     pub fn new(api_key: String, model: String) -> Self {
         Self { api_key, model }
     }

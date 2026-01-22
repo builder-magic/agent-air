@@ -5,6 +5,9 @@ use futures::Stream;
 use std::future::Future;
 use std::pin::Pin;
 
+/// Provider interface for LLM APIs.
+///
+/// Implement this trait to add support for new LLM providers.
 pub trait LlmProvider {
     /// Send a message to the LLM.
     /// Returns the assistant's response message or an error.

@@ -1,3 +1,5 @@
+//! Tool execution framework with built-in tools.
+
 mod ask_for_permissions;
 mod ask_user_questions;
 mod executor;

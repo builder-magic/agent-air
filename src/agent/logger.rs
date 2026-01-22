@@ -10,6 +10,9 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 const LOG_DIR: &str = "logs";
 
+/// Tracing-based logger that writes to daily log files.
+///
+/// Holds a worker guard to ensure logs are flushed before shutdown.
 pub struct Logger {
     _guard: WorkerGuard,
 }

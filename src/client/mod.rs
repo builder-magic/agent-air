@@ -1,7 +1,14 @@
+//! LLM client with provider-agnostic interface.
+
+/// Error types for LLM operations.
 pub mod error;
+/// HTTP client with TLS and retry logic.
 pub mod http;
+/// Message and request/response models.
 pub mod models;
+/// LLM provider implementations (Anthropic, OpenAI).
 pub mod providers;
+/// Provider trait definition.
 pub mod traits;
 
 use futures::Stream;
@@ -19,6 +26,7 @@ pub struct LLMClient {
 }
 
 impl LLMClient {
+    /// Create a new LLM client with the specified provider.
     pub fn new(provider: Box<dyn LlmProvider + Send + Sync>) -> Result<Self, LlmError> {
         Ok(Self {
             http_client: HttpClient::new()?,
@@ -26,10 +34,12 @@ impl LLMClient {
         })
     }
 
+    /// Send a message and wait for the complete response.
     pub async fn send_message(&self, messages: &[Message], options: &MessageOptions) -> Result<Message, LlmError> {
         self.provider.send_msg(&self.http_client, messages, options).await
     }
 
+    /// Send a message and receive a stream of response events.
     pub async fn send_message_stream(
         &self,
         messages: &[Message],

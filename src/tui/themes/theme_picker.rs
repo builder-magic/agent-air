@@ -26,6 +26,7 @@ pub struct ThemePickerState {
 }
 
 impl ThemePickerState {
+    /// Create a new theme picker in inactive state.
     pub fn new() -> Self {
         Self {
             active: false,

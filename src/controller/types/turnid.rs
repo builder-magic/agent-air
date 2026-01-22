@@ -3,8 +3,9 @@
 use std::fmt;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-/// Owner constants for turn identification
+/// Owner identifier for user turns.
 pub const OWNER_USER: &str = "u";
+/// Owner identifier for assistant turns.
 pub const OWNER_ASSISTANT: &str = "a";
 
 /// Identifies a turn in the conversation (e.g., "u1", "a1", "u2", "a2")

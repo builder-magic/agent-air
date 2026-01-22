@@ -1,3 +1,5 @@
+//! LLM session management with automatic context compaction.
+
 mod compactor;
 mod config;
 mod convert;

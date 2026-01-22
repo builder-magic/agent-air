@@ -123,6 +123,7 @@ pub struct SlashPopupState {
 }
 
 impl SlashPopupState {
+    /// Create a new slash popup with default configuration.
     pub fn new() -> Self {
         Self::with_config(SlashPopupConfig::new())
     }

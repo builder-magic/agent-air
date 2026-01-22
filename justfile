@@ -25,3 +25,6 @@ fmt-check:
 # Clean build artifacts
 clean:
     @cargo clean
+
+doc:
+    cargo doc --no-deps --all

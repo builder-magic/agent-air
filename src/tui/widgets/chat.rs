@@ -182,12 +182,17 @@ pub enum ToolStatus {
 }
 
 /// Data for tool execution messages
+/// Display data for tool execution messages.
 #[derive(Debug, Clone)]
 pub struct ToolMessageData {
+    /// Unique identifier for the tool use.
     #[allow(dead_code)] // Used as HashMap key, kept here for debugging
     pub tool_use_id: String,
+    /// Tool name for display.
     pub display_name: String,
+    /// Tool execution title.
     pub display_title: String,
+    /// Current execution status.
     pub status: ToolStatus,
 }
 
@@ -309,6 +314,7 @@ use crate::tui::themes::Theme;
 /// Returns (left_title, right_title) as ratatui Lines
 pub type TitleRenderFn = Box<dyn Fn(&str, &Theme) -> (Line<'static>, Line<'static>) + Send + Sync>;
 
+/// Chat message display widget with streaming and tool execution support.
 pub struct ChatView {
     messages: Vec<Message>,
     scroll_offset: u16,

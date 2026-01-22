@@ -9,9 +9,13 @@
 //! - 45+ pre-built themes
 
 #[macro_use]
+/// Theme definition macros.
 pub mod macros;
+/// Theme runtime management.
 pub mod theme;
+/// Theme picker widget.
 pub mod theme_picker;
+/// Built-in theme definitions.
 pub mod themes;
 
 pub use theme::{current_theme_name, init_theme, set_theme, theme, Theme};

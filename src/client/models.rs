@@ -1,7 +1,11 @@
+/// Message role in a conversation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Role {
+    /// System message providing instructions or context.
     System,
+    /// User message containing requests or responses.
     User,
+    /// Assistant message containing responses or tool use.
     Assistant,
 }
 
@@ -52,13 +56,17 @@ pub enum Content {
     ToolResult(ToolResult),
 }
 
+/// Conversation message with role and content blocks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Message {
+    /// Role of the message sender.
     pub role: Role,
+    /// Content blocks (text, images, tool use, tool results).
     pub content: Vec<Content>,
 }
 
 impl Message {
+    /// Create a new message with a single text content block.
     pub fn new(role: Role, text: impl Into<String>) -> Self {
         Self {
             role,
@@ -71,14 +79,17 @@ impl Message {
         Self { role, content }
     }
 
+    /// Create a system message with text content.
     pub fn system(text: impl Into<String>) -> Self {
         Self::new(Role::System, text)
     }
 
+    /// Create a user message with text content.
     pub fn user(text: impl Into<String>) -> Self {
         Self::new(Role::User, text)
     }
 
+    /// Create an assistant message with text content.
     pub fn assistant(text: impl Into<String>) -> Self {
         Self::new(Role::Assistant, text)
     }
@@ -108,6 +119,7 @@ pub struct Tool {
 }
 
 impl Tool {
+    /// Create a new tool definition.
     pub fn new(
         name: impl Into<String>,
         description: impl Into<String>,
@@ -147,6 +159,7 @@ pub struct Metadata {
     pub user_id: Option<String>,
 }
 
+/// Options for LLM message requests.
 #[derive(Debug, Clone, Default)]
 pub struct MessageOptions {
     /// Sampling temperature (0.0-1.0).

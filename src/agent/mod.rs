@@ -3,7 +3,7 @@
 //! Core infrastructure for building LLM-powered agents.
 //!
 //! This module provides:
-//! - [`AgentCore`] - Complete working agent infrastructure
+//! - AgentCore - Complete working agent infrastructure
 //! - Message types for TUI-Controller communication
 //! - Input routing between TUI and controller
 //! - Logging infrastructure

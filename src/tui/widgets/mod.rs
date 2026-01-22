@@ -14,7 +14,7 @@
 //!
 //! # Widget System
 //!
-//! Widgets can be registered with the App via the [`Widget`] trait. This allows
+//! Widgets can be registered with the App via the Widget trait. This allows
 //! agents to customize which widgets are available.
 
 use crossterm::event::KeyEvent;
@@ -166,6 +166,6 @@ pub trait Widget: Send + 'static {
     /// Cast to Any for mutable downcasting
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// Convert to Box<dyn Any> for owned downcasting
+    /// Convert to `Box<dyn Any>` for owned downcasting
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
 }

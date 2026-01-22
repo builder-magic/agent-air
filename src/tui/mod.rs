@@ -4,9 +4,9 @@
 //!
 //! This module provides:
 //!
-//! - [`App`] - Complete TUI application with chat, input, and command handling
-//! - [`ChatView`] - Chat message display with streaming support
-//! - [`layout`] - Flexible layout system with templates and custom layouts
+//! - App - Complete TUI application with chat, input, and command handling
+//! - ChatView - Chat message display with streaming support
+//! - Layout system - Flexible layout system with templates and custom layouts
 //! - Permission and question panels for tool interactions
 //! - Markdown rendering with theming support
 //! - Table rendering
@@ -16,12 +16,19 @@
 //! - Theme system with 45+ built-in themes
 
 mod app;
+/// Slash command system.
 pub mod commands;
+/// Key handling and bindings.
 pub mod keys;
+/// Layout templates and providers.
 pub mod layout;
+/// Markdown rendering utilities.
 pub mod markdown;
+/// Table rendering utilities.
 pub mod table;
+/// Theme system and built-in themes.
 pub mod themes;
+/// TUI widgets (chat, input, panels).
 pub mod widgets;
 
 // Re-export App and related types

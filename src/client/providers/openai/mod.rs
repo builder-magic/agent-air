@@ -7,12 +7,16 @@ use crate::client::traits::LlmProvider;
 use std::future::Future;
 use std::pin::Pin;
 
+/// OpenAI API provider.
 pub struct OpenAIProvider {
+    /// OpenAI API key.
     pub api_key: String,
+    /// Model identifier (e.g., "gpt-4").
     pub model: String,
 }
 
 impl OpenAIProvider {
+    /// Create a new OpenAI provider with API key and model.
     pub fn new(api_key: String, model: String) -> Self {
         Self { api_key, model }
     }

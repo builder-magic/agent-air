@@ -1,9 +1,16 @@
+//! LLM session controller and tool execution framework.
+
 mod error;
 mod llm_controller;
+/// Session management and context compaction.
 pub mod session;
+/// Stateless execution support.
 pub mod stateless;
+/// Tool execution and user interaction.
 pub mod tools;
+/// Core types for controller communication.
 pub mod types;
+/// Token usage tracking.
 pub mod usage;
 
 pub use error::ControllerError;

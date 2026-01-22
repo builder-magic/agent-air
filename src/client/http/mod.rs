@@ -24,6 +24,7 @@ const BASE_DELAY_MS: u64 = 1000;
 /// Maximum delay cap (in milliseconds)
 const MAX_DELAY_MS: u64 = 60000;
 
+/// HTTP client with TLS support and automatic retry logic.
 #[derive(Clone)]
 pub struct HttpClient {
     client: HttpsClient,
@@ -91,6 +92,7 @@ fn rand_factor() -> f64 {
 }
 
 impl HttpClient {
+    /// Create a new HTTP client with native TLS roots.
     pub fn new() -> Result<Self, LlmError> {
         let https = HttpsConnectorBuilder::new()
             .with_native_roots()
@@ -108,6 +110,7 @@ impl HttpClient {
         Ok(Self { client })
     }
 
+    /// Send a GET request and return the response body as a string.
     pub async fn get(&self, uri: &str) -> Result<String, LlmError> {
         let uri: hyper::Uri = uri
             .parse()
@@ -135,6 +138,9 @@ impl HttpClient {
             .map_err(|e| LlmError::new("HTTP_INVALID_UTF8", format!("{}", e)))
     }
 
+    /// Send a POST request with automatic retry on rate limits.
+    ///
+    /// Retries up to 3 times on 429 or 529 status codes with exponential backoff.
     pub async fn post(
         &self,
         uri: &str,

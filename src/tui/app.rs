@@ -72,7 +72,7 @@ pub struct AppConfig {
     pub version: String,
     /// Slash commands (if None, uses default commands)
     pub commands: Option<Vec<Box<dyn SlashCommand>>>,
-    /// Extension data available to commands via ctx.extension::<T>()
+    /// Extension data available to commands via `ctx.extension::<T>()`
     pub command_extension: Option<Box<dyn std::any::Any + Send>>,
     /// Static message shown while processing (default: "Processing request...")
     pub processing_message: String,
@@ -142,7 +142,9 @@ fn format_tokens(tokens: i64) -> String {
     }
 }
 
-
+/// Terminal UI application with chat, input, and command handling.
+///
+/// Manages the main event loop, widget rendering, and communication with the controller.
 pub struct App {
     /// Agent name
     agent_name: String,
@@ -162,6 +164,7 @@ pub struct App {
     /// Optional callback for dynamic processing messages
     processing_message_fn: Option<ProcessingMessageFn>,
 
+    /// Whether the application should quit.
     pub should_quit: bool,
 
     /// Sender for messages to the controller
@@ -253,10 +256,12 @@ pub struct App {
 }
 
 impl App {
+    /// Create a new App with default configuration.
     pub fn new() -> Self {
         Self::with_config(AppConfig::default())
     }
 
+    /// Create a new App with custom configuration.
     pub fn with_config(config: AppConfig) -> Self {
         use super::commands::default_commands;
 
@@ -462,7 +467,7 @@ impl App {
     /// Set a custom key handler.
     ///
     /// This allows full control over key handling behavior.
-    /// For simpler customization, use [`set_key_bindings`] instead.
+    /// For simpler customization, use [`Self::set_key_bindings`] instead.
     pub fn set_key_handler<H: KeyHandler>(&mut self, handler: H) {
         self.key_handler = Box::new(handler);
     }
@@ -476,7 +481,7 @@ impl App {
 
     /// Set custom key bindings using the default handler.
     ///
-    /// This is a simpler alternative to [`set_key_handler`] when you
+    /// This is a simpler alternative to [`Self::set_key_handler`] when you
     /// only need to change which keys trigger which actions.
     pub fn set_key_bindings(&mut self, bindings: KeyBindings) {
         self.key_handler = Box::new(DefaultKeyHandler::new(bindings));

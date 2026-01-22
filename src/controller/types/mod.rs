@@ -1,3 +1,5 @@
+//! Core types for controller communication and message handling.
+
 mod content;
 mod enums;
 mod message;

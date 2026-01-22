@@ -300,7 +300,7 @@ impl AgentCore {
     ///
     /// This allows full control over key handling behavior. For simpler
     /// customization where you just want to change which keys trigger
-    /// which actions, use [`set_key_bindings`] instead.
+    /// which actions, use [`Self::set_key_bindings`] instead.
     ///
     /// # Example
     ///
@@ -322,7 +322,7 @@ impl AgentCore {
 
     /// Set custom key bindings using the default handler.
     ///
-    /// This is a simpler alternative to [`set_key_handler`] when you
+    /// This is a simpler alternative to [`Self::set_key_handler`] when you
     /// only need to change which keys trigger which actions.
     ///
     /// # Example

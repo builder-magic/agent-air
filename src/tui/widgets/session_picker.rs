@@ -102,16 +102,23 @@ impl SessionPickerConfig {
 }
 
 /// Information about a session for display purposes
+/// Information about an LLM session for display in the session picker.
 #[derive(Clone)]
 pub struct SessionInfo {
+    /// Session identifier.
     pub id: i64,
+    /// Model name.
     pub model: String,
+    /// Tokens used in context.
     pub context_used: i64,
+    /// Maximum context limit.
     pub context_limit: i32,
+    /// Session creation timestamp.
     pub created_at: DateTime<Local>,
 }
 
 impl SessionInfo {
+    /// Create a new session info.
     pub fn new(id: i64, model: String, context_limit: i32) -> Self {
         Self {
             id,

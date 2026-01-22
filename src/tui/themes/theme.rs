@@ -51,11 +51,16 @@ pub fn theme() -> Theme {
         .unwrap_or_default()
 }
 
-/// Complete theme definition for the TUI
+/// Complete theme definition for the TUI.
+///
+/// Contains styles for all UI elements including chat messages, markdown formatting,
+/// tool execution, input areas, popups, and interactive panels.
 #[derive(Clone)]
 pub struct Theme {
     // Base
+    /// Background style for the entire UI.
     pub background: Style,
+    /// Default text style.
     pub text: Style,
 
     // Borders & Chrome

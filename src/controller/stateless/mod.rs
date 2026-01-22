@@ -1,3 +1,5 @@
+//! Stateless LLM execution without session management.
+
 mod executor;
 mod types;
 
