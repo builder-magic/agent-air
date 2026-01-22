@@ -76,15 +76,38 @@ impl SlashPopupConfig {
     }
 }
 
-/// Trait for slash commands
+/// Trait for displaying slash commands in the popup.
 ///
-/// Applications implement this trait for their command types.
-pub trait SlashCommand {
+/// This is a simple trait that just requires name and description.
+/// The full `SlashCommand` trait from `commands` module extends this.
+pub trait SlashCommandDisplay {
     /// The command name (without the leading /)
     fn name(&self) -> &str;
 
     /// A short description of what the command does
     fn description(&self) -> &str;
+}
+
+// Blanket impl: any commands::SlashCommand also implements SlashCommandDisplay
+impl<T: crate::tui::commands::SlashCommand + ?Sized> SlashCommandDisplay for T {
+    fn name(&self) -> &str {
+        crate::tui::commands::SlashCommand::name(self)
+    }
+
+    fn description(&self) -> &str {
+        crate::tui::commands::SlashCommand::description(self)
+    }
+}
+
+// Impl for references to dyn SlashCommand
+impl SlashCommandDisplay for &dyn crate::tui::commands::SlashCommand {
+    fn name(&self) -> &str {
+        crate::tui::commands::SlashCommand::name(*self)
+    }
+
+    fn description(&self) -> &str {
+        crate::tui::commands::SlashCommand::description(*self)
+    }
 }
 
 /// State for the slash command popup
@@ -351,7 +374,7 @@ impl Widget for SlashPopupState {
 /// * `frame` - The ratatui frame
 /// * `area` - The area to render in
 /// * `theme` - The theme to use
-pub fn render_slash_popup<C: SlashCommand>(
+pub fn render_slash_popup<C: SlashCommandDisplay>(
     state: &SlashPopupState,
     commands: &[C],
     frame: &mut Frame,
@@ -450,7 +473,7 @@ impl SimpleCommand {
     }
 }
 
-impl SlashCommand for SimpleCommand {
+impl SlashCommandDisplay for SimpleCommand {
     fn name(&self) -> &str {
         &self.name
     }

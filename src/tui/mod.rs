@@ -16,19 +16,27 @@
 //! - Theme system with 45+ built-in themes
 
 mod app;
+pub mod commands;
 pub mod keys;
 pub mod layout;
-pub mod themes;
-mod commands;
 pub mod markdown;
 pub mod table;
+pub mod themes;
 pub mod widgets;
 
 // Re-export App and related types
 pub use app::{App, AppConfig};
+
+// Re-export command system types
 pub use commands::{
-    filter_commands, generate_help_message, get_command_by_name, get_default_commands,
-    is_slash_command, parse_command, SlashCommand, DEFAULT_COMMANDS,
+    // Core types
+    CommandContext, CommandRegistry, CommandResult, CustomCommand, SlashCommand,
+    // Standard commands
+    ClearCommand, CompactCommand, HelpCommand, NewSessionCommand, QuitCommand,
+    SessionsCommand, StatusCommand, ThemesCommand, VersionCommand,
+    // Helper functions
+    default_commands, filter_commands, generate_help_message, get_command_by_name,
+    is_slash_command, parse_command,
 };
 
 // Re-export main types for convenience (now from widgets module)
@@ -40,7 +48,7 @@ pub use widgets::{
     // Registerable widgets
     AnswerState, EnterAction, FocusItem, PermissionKeyAction, PermissionOption, PermissionPanel,
     QuestionKeyAction, QuestionPanel, SessionInfo, SessionPickerState, SimpleCommand,
-    SlashCommandTrait, SlashPopupState, render_session_picker, render_slash_popup,
+    SlashCommandDisplay, SlashPopupState, render_session_picker, render_slash_popup,
 };
 pub use markdown::{
     parse_to_spans, parse_to_styled_words, render_markdown_with_prefix, split_content_segments,

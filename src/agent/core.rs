@@ -120,6 +120,12 @@ pub struct AgentCore {
 
     /// Exit handler for cleanup before quitting
     exit_handler: Option<Box<dyn ExitHandler>>,
+
+    /// Slash commands (None means use defaults)
+    commands: Option<Vec<Box<dyn crate::tui::commands::SlashCommand>>>,
+
+    /// Extension data available to commands
+    command_extension: Option<Box<dyn std::any::Any + Send>>,
 }
 
 impl AgentCore {
@@ -235,6 +241,8 @@ impl AgentCore {
             layout_template: None,
             key_handler: None,
             exit_handler: None,
+            commands: None,
+            command_extension: None,
         })
     }
 
@@ -355,6 +363,53 @@ impl AgentCore {
     /// ```
     pub fn set_exit_handler<H: ExitHandler>(&mut self, handler: H) -> &mut Self {
         self.exit_handler = Some(Box::new(handler));
+        self
+    }
+
+    /// Set the slash commands for this agent.
+    ///
+    /// If not called, uses the default command set.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use agent_core::tui::commands::{CommandRegistry, CustomCommand, CommandResult};
+    ///
+    /// agent.set_commands(
+    ///     CommandRegistry::with_defaults()
+    ///         .add(CustomCommand::new("deploy", "Deploy app", |args, ctx| {
+    ///             CommandResult::Message(format!("Deployed to {}", args))
+    ///         }))
+    ///         .remove("quit")
+    ///         .build()
+    /// );
+    /// ```
+    pub fn set_commands(
+        &mut self,
+        commands: Vec<Box<dyn crate::tui::commands::SlashCommand>>,
+    ) -> &mut Self {
+        self.commands = Some(commands);
+        self
+    }
+
+    /// Set extension data available to custom commands.
+    ///
+    /// Commands can access this via `ctx.extension::<T>()`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// struct MyContext { api_key: String }
+    ///
+    /// agent.set_command_extension(MyContext {
+    ///     api_key: "secret".to_string()
+    /// });
+    /// ```
+    pub fn set_command_extension<T: std::any::Any + Send + 'static>(
+        &mut self,
+        ext: T,
+    ) -> &mut Self {
+        self.command_extension = Some(Box::new(ext));
         self
     }
 
@@ -547,7 +602,8 @@ impl AgentCore {
         let app_config = AppConfig {
             agent_name: self.name.clone(),
             version: self.version.clone(),
-            custom_commands: Vec::new(),
+            commands: self.commands.take(),
+            command_extension: self.command_extension.take(),
             ..Default::default()
         };
         let mut app = App::with_config(app_config);

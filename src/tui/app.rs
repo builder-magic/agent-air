@@ -42,8 +42,8 @@ use crate::controller::{
 use super::layout::{LayoutContext, LayoutTemplate, WidgetSizes};
 use super::themes::{render_theme_picker, ThemePickerState};
 use super::commands::{
-    filter_commands, generate_help_message, get_default_commands, is_slash_command, parse_command,
-    SlashCommand,
+    is_slash_command, parse_command,
+    CommandContext, CommandResult, PendingAction, SlashCommand,
 };
 use super::keys::{AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, KeyBindings, KeyContext, KeyHandler, NavigationHelper};
 use super::widgets::{
@@ -65,14 +65,15 @@ const PENDING_STATUS_LLM: &str = "Processing response from LLM...";
 pub type ProcessingMessageFn = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// Configuration for the App
-#[derive(Clone)]
 pub struct AppConfig {
     /// Agent name (displayed in title bar)
     pub agent_name: String,
     /// Agent version
     pub version: String,
-    /// Custom slash commands (in addition to defaults)
-    pub custom_commands: Vec<SlashCommand>,
+    /// Slash commands (if None, uses default commands)
+    pub commands: Option<Vec<Box<dyn SlashCommand>>>,
+    /// Extension data available to commands via ctx.extension::<T>()
+    pub command_extension: Option<Box<dyn std::any::Any + Send>>,
     /// Static message shown while processing (default: "Processing request...")
     pub processing_message: String,
     /// Optional callback for dynamic messages. When set, overrides processing_message.
@@ -85,7 +86,8 @@ impl std::fmt::Debug for AppConfig {
         f.debug_struct("AppConfig")
             .field("agent_name", &self.agent_name)
             .field("version", &self.version)
-            .field("custom_commands", &self.custom_commands)
+            .field("commands", &self.commands.as_ref().map(|c| format!("<{} commands>", c.len())))
+            .field("command_extension", &self.command_extension.as_ref().map(|_| "<extension>"))
             .field("processing_message", &self.processing_message)
             .field("processing_message_fn", &self.processing_message_fn.as_ref().map(|_| "<fn>"))
             .finish()
@@ -97,9 +99,10 @@ impl Default for AppConfig {
         Self {
             agent_name: "Agent".to_string(),
             version: "0.1.0".to_string(),
-            custom_commands: Vec::new(),
+            commands: None, // Use default commands
+            command_extension: None,
             processing_message: "Processing request...".to_string(),
-            processing_message_fn: None, // Simple by default
+            processing_message_fn: None,
         }
     }
 }
@@ -141,11 +144,23 @@ fn format_tokens(tokens: i64) -> String {
 
 
 pub struct App {
-    /// App configuration
-    config: AppConfig,
+    /// Agent name
+    agent_name: String,
 
-    /// All available commands (defaults + custom)
-    commands: Vec<SlashCommand>,
+    /// Agent version
+    version: String,
+
+    /// All available slash commands
+    commands: Vec<Box<dyn SlashCommand>>,
+
+    /// Extension data available to commands
+    command_extension: Option<Box<dyn std::any::Any + Send>>,
+
+    /// Processing message
+    processing_message: String,
+
+    /// Optional callback for dynamic processing messages
+    processing_message_fn: Option<ProcessingMessageFn>,
 
     pub should_quit: bool,
 
@@ -203,8 +218,8 @@ pub struct App {
     /// Cached sorted priority order for key event handling
     pub widget_priority_order: Vec<&'static str>,
 
-    /// Filtered slash commands for the popup (used by SlashPopup widget)
-    pub filtered_commands: Vec<&'static SlashCommand>,
+    /// Filtered slash commands for the popup (indices into self.commands)
+    filtered_command_indices: Vec<usize>,
 
     /// List of all sessions created in this instance
     sessions: Vec<SessionInfo>,
@@ -243,15 +258,16 @@ impl App {
     }
 
     pub fn with_config(config: AppConfig) -> Self {
+        use super::commands::default_commands;
+
         // Initialize default theme
         let theme_name = default_theme_name();
         if let Some(theme) = get_theme(theme_name) {
             init_theme(theme_name, theme);
         }
 
-        // Combine default commands with custom commands
-        let mut commands: Vec<SlashCommand> = get_default_commands().to_vec();
-        commands.extend(config.custom_commands.clone());
+        // Use provided commands or default commands
+        let commands = config.commands.unwrap_or_else(default_commands);
 
         // Create a default conversation factory (creates basic ChatView)
         let default_factory: ConversationViewFactory = Box::new(|| {
@@ -259,8 +275,12 @@ impl App {
         });
 
         Self {
-            config,
+            agent_name: config.agent_name,
+            version: config.version,
             commands,
+            command_extension: config.command_extension,
+            processing_message: config.processing_message,
+            processing_message_fn: config.processing_message_fn,
             should_quit: false,
             to_controller: None,
             from_controller: None,
@@ -280,7 +300,7 @@ impl App {
             executing_tools: HashSet::new(),
             widgets: HashMap::new(),
             widget_priority_order: Vec::new(),
-            filtered_commands: Vec::new(),
+            filtered_command_indices: Vec::new(),
             sessions: Vec::new(),
             session_states: HashMap::new(),
             conversation_view: (default_factory)(),
@@ -376,12 +396,12 @@ impl App {
 
     /// Get the agent name
     pub fn agent_name(&self) -> &str {
-        &self.config.agent_name
+        &self.agent_name
     }
 
     /// Get the agent version
     pub fn version(&self) -> &str {
-        &self.config.version
+        &self.version
     }
 
     /// Set the channel for sending messages to the controller
@@ -593,48 +613,71 @@ impl App {
         }
     }
 
-    /// Execute a slash command
+    /// Execute a slash command using the trait-based system
     fn execute_command(&mut self, input: &str) {
-        let Some((cmd_name, _args)) = parse_command(input) else {
+        let Some((cmd_name, args)) = parse_command(input) else {
             self.conversation_view.add_system_message("Invalid command format".to_string());
             return;
         };
 
-        // Handle commands that don't produce a message or handle their own output
-        match cmd_name {
-            "themes" => {
-                self.cmd_themes();
-                return;
-            }
-            "sessions" => {
-                self.cmd_sessions();
-                return;
-            }
-            "clear" => {
-                self.cmd_clear();
-                return;
-            }
-            "compact" => {
-                self.cmd_compact();
-                return;
-            }
-            _ => {}
-        }
-
-        let result = match cmd_name {
-            "help" => self.cmd_help(),
-            "status" => self.cmd_status(),
-            "new-session" => self.cmd_new_session(),
-            "quit" => self.cmd_quit(),
-            "version" => self.cmd_version(),
-            _ => format!("Unknown command: /{}", cmd_name),
+        // Find the command by name
+        let cmd_idx = self.commands.iter().position(|c| c.name() == cmd_name);
+        let Some(cmd_idx) = cmd_idx else {
+            self.conversation_view.add_system_message(format!("Unknown command: /{}", cmd_name));
+            return;
         };
 
-        self.conversation_view.add_system_message(result);
-    }
+        // Execute command and collect results (scoped to drop borrows)
+        let (result, pending_actions) = {
+            // Temporarily take command_extension to avoid borrow issues
+            let extension = self.command_extension.take();
+            let extension_ref = extension.as_ref().map(|e| e.as_ref() as &dyn std::any::Any);
 
-    fn cmd_help(&self) -> String {
-        generate_help_message(&self.commands)
+            let mut ctx = CommandContext::new(
+                self.session_id,
+                &self.agent_name,
+                &self.version,
+                &self.commands,
+                &mut *self.conversation_view,
+                self.to_controller.as_ref(),
+                extension_ref,
+            );
+
+            // Execute the command
+            let result = self.commands[cmd_idx].execute(args, &mut ctx);
+            let pending_actions = ctx.take_pending_actions();
+
+            // Restore extension before leaving scope
+            self.command_extension = extension;
+
+            (result, pending_actions)
+        };
+
+        // Handle pending actions (now that ctx is dropped)
+        for action in pending_actions {
+            match action {
+                PendingAction::OpenThemePicker => self.cmd_themes(),
+                PendingAction::OpenSessionPicker => self.cmd_sessions(),
+                PendingAction::ClearConversation => self.cmd_clear(),
+                PendingAction::CompactConversation => self.cmd_compact(),
+                PendingAction::CreateNewSession => { self.cmd_new_session(); }
+                PendingAction::Quit => { self.should_quit = true; }
+            }
+        }
+
+        // Handle result
+        match result {
+            CommandResult::Ok | CommandResult::Handled => {}
+            CommandResult::Message(msg) => {
+                self.conversation_view.add_system_message(msg);
+            }
+            CommandResult::Error(err) => {
+                self.conversation_view.add_system_message(format!("Error: {}", err));
+            }
+            CommandResult::Quit => {
+                self.should_quit = true;
+            }
+        }
     }
 
     fn cmd_clear(&mut self) {
@@ -673,17 +716,6 @@ impl App {
                 self.conversation_view.add_system_message("Failed to send compact command".to_string());
             }
         }
-    }
-
-    fn cmd_status(&self) -> String {
-        if self.session_id == 0 {
-            return "No active session".to_string();
-        }
-
-        format!(
-            "Session Status\n  ID: {}\n  Model: {}",
-            self.session_id, self.model_name
-        )
     }
 
     fn cmd_new_session(&mut self) -> String {
@@ -738,15 +770,6 @@ impl App {
 
         // Return empty string - no system message needed
         String::new()
-    }
-
-    fn cmd_quit(&mut self) -> String {
-        self.should_quit = true;
-        "Goodbye!".to_string()
-    }
-
-    fn cmd_version(&self) -> String {
-        format!("{} v{}", self.config.agent_name, self.config.version)
     }
 
     fn cmd_themes(&mut self) {
@@ -1297,13 +1320,28 @@ impl App {
             .unwrap_or(false)
     }
 
+    /// Filter commands by prefix and return indices into self.commands
+    fn filter_command_indices(&self, prefix: &str) -> Vec<usize> {
+        let search_term = prefix.trim_start_matches('/').to_lowercase();
+        self.commands
+            .iter()
+            .enumerate()
+            .filter(|(_, cmd)| cmd.name().to_lowercase().starts_with(&search_term))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Activate the slash popup
     fn activate_slash_popup(&mut self) {
+        // Filter first to avoid borrow issues
+        let indices = self.filter_command_indices("/");
+        let count = indices.len();
+        self.filtered_command_indices = indices;
+
         if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
             if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
                 popup.activate();
-                self.filtered_commands = filter_commands(get_default_commands(), "/");
-                popup.set_filtered_count(self.filtered_commands.len());
+                popup.set_filtered_count(count);
             }
         }
     }
@@ -1342,7 +1380,7 @@ impl App {
                         popup.deactivate();
                     }
                 }
-                self.filtered_commands.clear();
+                self.filtered_command_indices.clear();
             }
             KeyCode::Backspace => {
                 let is_just_slash = self.input().map(|i| i.buffer() == "/").unwrap_or(false);
@@ -1355,16 +1393,16 @@ impl App {
                             popup.deactivate();
                         }
                     }
-                    self.filtered_commands.clear();
+                    self.filtered_command_indices.clear();
                 } else {
                     if let Some(input) = self.input_mut() {
                         input.delete_char_before();
                     }
                     let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
-                    self.filtered_commands = filter_commands(get_default_commands(), &buffer);
+                    self.filtered_command_indices = self.filter_command_indices(&buffer);
                     if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
                         if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                            popup.set_filtered_count(self.filtered_commands.len());
+                            popup.set_filtered_count(self.filtered_command_indices.len());
                         }
                     }
                 }
@@ -1374,10 +1412,10 @@ impl App {
                     input.insert_char(c);
                 }
                 let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
-                self.filtered_commands = filter_commands(get_default_commands(), &buffer);
+                self.filtered_command_indices = self.filter_command_indices(&buffer);
                 if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
                     if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                        popup.set_filtered_count(self.filtered_commands.len());
+                        popup.set_filtered_count(self.filtered_command_indices.len());
                     }
                 }
             }
@@ -1391,23 +1429,26 @@ impl App {
         }
     }
 
-    /// Execute slash command at the given index in filtered_commands
+    /// Execute slash command at the given index in filtered list
     fn execute_slash_command_at_index(&mut self, idx: usize) {
-        if let Some(cmd) = self.filtered_commands.get(idx) {
-            let cmd_name = cmd.name;
-            if let Some(input) = self.input_mut() {
-                input.clear();
-                for c in format!("/{}", cmd_name).chars() {
-                    input.insert_char(c);
+        // Get the command index from the filtered list
+        if let Some(&cmd_idx) = self.filtered_command_indices.get(idx) {
+            if let Some(cmd) = self.commands.get(cmd_idx) {
+                let cmd_name = cmd.name().to_string();
+                if let Some(input) = self.input_mut() {
+                    input.clear();
+                    for c in format!("/{}", cmd_name).chars() {
+                        input.insert_char(c);
+                    }
                 }
-            }
-            if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                    popup.deactivate();
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
+                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
+                        popup.deactivate();
+                    }
                 }
+                self.filtered_command_indices.clear();
+                self.submit_message();
             }
-            self.filtered_commands.clear();
-            self.submit_message();
         }
     }
 
@@ -1537,9 +1578,14 @@ impl App {
                 id if id == widget_ids::SLASH_POPUP => {
                     if let Some(widget) = self.widgets.get(widget_ids::SLASH_POPUP) {
                         if let Some(popup_state) = widget.as_any().downcast_ref::<SlashPopupState>() {
+                            // Build filtered commands from indices
+                            let filtered: Vec<&dyn SlashCommand> = self.filtered_command_indices
+                                .iter()
+                                .filter_map(|&i| self.commands.get(i).map(|c| c.as_ref()))
+                                .collect();
                             render_slash_popup(
                                 popup_state,
-                                &self.filtered_commands,
+                                &filtered,
                                 frame,
                                 *area,
                                 &theme,
@@ -1565,11 +1611,11 @@ impl App {
                     let default_message;
                     let message = if let Some(msg) = &self.custom_throbber_message {
                         msg.as_str()
-                    } else if let Some(ref msg_fn) = self.config.processing_message_fn {
+                    } else if let Some(ref msg_fn) = self.processing_message_fn {
                         default_message = msg_fn();
                         &default_message
                     } else {
-                        &self.config.processing_message
+                        &self.processing_message
                     };
                     let throbber = Throbber::default()
                         .label(message)

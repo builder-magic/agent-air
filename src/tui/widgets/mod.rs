@@ -47,7 +47,7 @@ pub use question_panel::{
 };
 pub use session_picker::{render_session_picker, SessionInfo, SessionPickerConfig, SessionPickerState};
 pub use slash_popup::{
-    render_slash_popup, SimpleCommand, SlashCommand as SlashCommandTrait, SlashPopupConfig,
+    render_slash_popup, SimpleCommand, SlashCommandDisplay, SlashPopupConfig,
     SlashPopupState,
 };
 
