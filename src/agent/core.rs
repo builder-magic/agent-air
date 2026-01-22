@@ -126,6 +126,12 @@ pub struct AgentCore {
 
     /// Extension data available to commands
     command_extension: Option<Box<dyn std::any::Any + Send>>,
+
+    /// Custom status bar widget (replaces default if provided)
+    custom_status_bar: Option<Box<dyn Widget>>,
+
+    /// Whether to hide the default status bar
+    hide_status_bar: bool,
 }
 
 impl AgentCore {
@@ -243,6 +249,8 @@ impl AgentCore {
             exit_handler: None,
             commands: None,
             command_extension: None,
+            custom_status_bar: None,
+            hide_status_bar: false,
         })
     }
 
@@ -488,6 +496,45 @@ impl AgentCore {
         self
     }
 
+    /// Set a custom status bar widget to replace the default.
+    ///
+    /// This will unregister the default status bar and register the custom one.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use agent_core::tui::{StatusBar, StatusBarConfig};
+    ///
+    /// let mut agent = AgentCore::new(&MyConfig)?;
+    /// let custom_status_bar = StatusBar::new()
+    ///     .with_renderer(|data, theme| {
+    ///         vec![Line::from(format!(" {} | {}", data.model_name, data.session_id))]
+    ///     });
+    /// agent.set_status_bar(custom_status_bar);
+    /// agent.run()
+    /// ```
+    pub fn set_status_bar<W: Widget>(&mut self, status_bar: W) -> &mut Self {
+        self.custom_status_bar = Some(Box::new(status_bar));
+        self
+    }
+
+    /// Hide the default status bar.
+    ///
+    /// This will unregister the default status bar widget. Useful for minimal layouts
+    /// or when you want to implement your own status display.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut agent = AgentCore::new(&MyConfig)?;
+    /// agent.hide_status_bar();
+    /// agent.run()
+    /// ```
+    pub fn hide_status_bar(&mut self) -> &mut Self {
+        self.hide_status_bar = true;
+        self
+    }
+
     /// Start the controller and input router as background tasks.
     ///
     /// This must be called before sending messages or creating sessions.
@@ -633,6 +680,15 @@ impl AgentCore {
         // Set conversation factory if provided
         if let Some(factory) = self.conversation_factory.take() {
             app.set_conversation_factory(move || factory());
+        }
+
+        // Handle status bar customization
+        if self.hide_status_bar {
+            // Remove the default status bar
+            app.widgets.remove(crate::tui::widgets::widget_ids::STATUS_BAR);
+        } else if let Some(custom_status_bar) = self.custom_status_bar.take() {
+            // Replace default status bar with custom one
+            app.widgets.insert(crate::tui::widgets::widget_ids::STATUS_BAR, custom_status_bar);
         }
 
         // Register widgets with the App

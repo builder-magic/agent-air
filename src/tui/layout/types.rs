@@ -46,8 +46,6 @@ pub struct LayoutResult {
     pub widget_areas: HashMap<&'static str, Rect>,
     /// Order to render widgets (first = bottom layer)
     pub render_order: Vec<&'static str>,
-    /// Area for the status bar (special, not a widget)
-    pub status_bar_area: Option<Rect>,
     /// Area for the input/throbber (special handling)
     pub input_area: Option<Rect>,
 }

@@ -55,7 +55,8 @@ pub use widgets::{
     // Registerable widgets
     AnswerState, EnterAction, FocusItem, PermissionKeyAction, PermissionOption, PermissionPanel,
     QuestionKeyAction, QuestionPanel, SessionInfo, SessionPickerState, SimpleCommand,
-    SlashCommandDisplay, SlashPopupState, render_session_picker, render_slash_popup,
+    SlashCommandDisplay, SlashPopupState, StatusBar, StatusBarConfig, StatusBarData,
+    render_session_picker, render_slash_popup,
 };
 pub use markdown::{
     parse_to_spans, parse_to_styled_words, render_markdown_with_prefix, split_content_segments,

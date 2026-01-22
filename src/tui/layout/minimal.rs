@@ -90,6 +90,7 @@ mod tests {
 
         assert!(result.widget_areas.contains_key(widget_ids::CHAT_VIEW));
         assert!(result.widget_areas.contains_key(widget_ids::TEXT_INPUT));
-        assert!(result.status_bar_area.is_none());
+        // Minimal layout doesn't include status bar as a widget
+        assert!(!result.widget_areas.contains_key(widget_ids::STATUS_BAR));
     }
 }

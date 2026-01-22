@@ -23,10 +23,8 @@ pub struct StandardOptions {
     pub min_main_height: u16,
     /// Fixed input height (None = auto-size from content)
     pub fixed_input_height: Option<u16>,
-    /// Whether to show the status bar
-    pub show_status_bar: bool,
-    /// Height of the status bar
-    pub status_bar_height: u16,
+    /// Widget ID for the status bar (None = no status bar)
+    pub status_bar_widget_id: Option<&'static str>,
 }
 
 impl Default for StandardOptions {
@@ -45,8 +43,7 @@ impl Default for StandardOptions {
             ],
             min_main_height: 5,
             fixed_input_height: None,
-            show_status_bar: true,
-            status_bar_height: 2,
+            status_bar_widget_id: Some(widget_ids::STATUS_BAR),
         }
     }
 }
@@ -94,8 +91,11 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &StandardOptions)
 
     constraints.push(Constraint::Length(input_height)); // Input
 
-    if opts.show_status_bar {
-        constraints.push(Constraint::Length(opts.status_bar_height));
+    // Status bar
+    if let Some(status_id) = opts.status_bar_widget_id {
+        if sizes.is_active(status_id) {
+            constraints.push(Constraint::Length(sizes.height(status_id)));
+        }
     }
 
     // Apply layout
@@ -164,8 +164,11 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &StandardOptions)
     chunk_idx += 1;
 
     // Status bar
-    if opts.show_status_bar {
-        result.status_bar_area = Some(chunks[chunk_idx]);
+    if let Some(status_id) = opts.status_bar_widget_id {
+        if sizes.is_active(status_id) {
+            result.widget_areas.insert(status_id, chunks[chunk_idx]);
+            result.render_order.push(status_id);
+        }
     }
 
     // Overlays (use full frame area, added last to render on top)
@@ -215,6 +218,7 @@ mod tests {
 
         assert!(result.widget_areas.contains_key(widget_ids::CHAT_VIEW));
         assert!(result.widget_areas.contains_key(widget_ids::TEXT_INPUT));
-        assert!(result.status_bar_area.is_some());
+        // Status bar is now a regular widget, but won't be in widget_areas if not active
+        // (sizes.is_active returns false by default in test_sizes)
     }
 }

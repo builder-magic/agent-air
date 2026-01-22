@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn test_custom_action_clone() {
         #[derive(Debug)]
-        struct MyAction(String);
+        struct MyAction(#[allow(dead_code)] String);
 
         let action1 = AppKeyAction::custom(MyAction("test".to_string()));
         let action2 = action1.clone();

@@ -24,8 +24,6 @@ use crossterm::{
 use ratatui::{
     layout::Rect,
     prelude::CrosstermBackend,
-    style::{Color, Style},
-    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
     Terminal,
 };
@@ -50,6 +48,7 @@ use super::widgets::{
     widget_ids, ChatView, TextInput, ToolStatus, SessionInfo, SessionPickerState,
     SlashPopupState, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, render_session_picker, render_slash_popup,
     PermissionPanel, QuestionPanel, ConversationView, ConversationViewFactory,
+    StatusBar, StatusBarData,
 };
 use super::{app_theme, current_theme_name, default_theme_name, get_theme, init_theme};
 
@@ -104,41 +103,6 @@ impl Default for AppConfig {
             processing_message: "Processing request...".to_string(),
             processing_message_fn: None,
         }
-    }
-}
-
-/// Format a duration for display (e.g., "2s", "1m 30s", "2h 5m")
-fn format_elapsed(duration: std::time::Duration) -> String {
-    let secs = duration.as_secs();
-    if secs < 60 {
-        format!("{}s", secs)
-    } else if secs < 3600 {
-        let mins = secs / 60;
-        let remaining_secs = secs % 60;
-        if remaining_secs == 0 {
-            format!("{}m", mins)
-        } else {
-            format!("{}m {}s", mins, remaining_secs)
-        }
-    } else {
-        let hours = secs / 3600;
-        let remaining_mins = (secs % 3600) / 60;
-        if remaining_mins == 0 {
-            format!("{}h", hours)
-        } else {
-            format!("{}h {}m", hours, remaining_mins)
-        }
-    }
-}
-
-/// Format token counts for display (e.g., "4.3K", "200K", "850")
-fn format_tokens(tokens: i64) -> String {
-    if tokens >= 100_000 {
-        format!("{}K", tokens / 1000)
-    } else if tokens >= 1000 {
-        format!("{:.1}K", tokens as f64 / 1000.0)
-    } else {
-        format!("{}", tokens)
     }
 }
 
@@ -279,7 +243,7 @@ impl App {
             Box::new(ChatView::new())
         });
 
-        Self {
+        let mut app = Self {
             agent_name: config.agent_name,
             version: config.version,
             commands,
@@ -316,7 +280,12 @@ impl App {
             layout_template: LayoutTemplate::default(),
             key_handler: Box::new(DefaultKeyHandler::default()),
             exit_handler: None,
-        }
+        };
+
+        // Register default widgets
+        app.register_widget(StatusBar::new());
+
+        app
     }
 
     /// Register a widget with the app
@@ -1098,40 +1067,20 @@ impl App {
         self.conversation_view.scroll_down();
     }
 
-    /// Format the context display string for the status bar
-    fn format_context_display(&self) -> String {
-        if self.context_limit == 0 {
-            return String::new();
-        }
-
-        let utilization = (self.context_used as f64 / self.context_limit as f64) * 100.0;
-        let prefix = if utilization > 80.0 {
-            "Context Low:"
-        } else {
-            "Context:"
-        };
-
-        format!(
-            "{} {}/{} ({:.0}%)",
-            prefix,
-            format_tokens(self.context_used),
-            format_tokens(self.context_limit as i64),
-            utilization
-        )
-    }
-
-    /// Get the style for context display based on utilization
-    fn context_style(&self) -> Style {
-        if self.context_limit == 0 {
-            return app_theme().status_help;
-        }
-
-        let utilization = (self.context_used as f64 / self.context_limit as f64) * 100.0;
-        if utilization > 80.0 {
-            Style::default().fg(Color::Yellow)
-        } else {
-            app_theme().status_help
-        }
+    /// Get the current working directory with home directory substitution
+    fn get_cwd(&self) -> String {
+        std::env::current_dir()
+            .map(|p| {
+                let path_str = p.display().to_string();
+                if let Some(home) = std::env::var_os("HOME") {
+                    let home_str = home.to_string_lossy();
+                    if path_str.starts_with(home_str.as_ref()) {
+                        return format!("~{}", &path_str[home_str.len()..]);
+                    }
+                }
+                path_str
+            })
+            .unwrap_or_else(|_| "unknown".to_string())
     }
 
     /// Handle key events
@@ -1552,6 +1501,27 @@ impl App {
         let question_panel_active = sizes.is_active(widget_ids::QUESTION_PANEL);
         let permission_panel_active = sizes.is_active(widget_ids::PERMISSION_PANEL);
 
+        // Collect status bar data before taking mutable borrow
+        let status_bar_data = StatusBarData {
+            cwd: self.get_cwd(),
+            model_name: self.model_name.clone(),
+            context_used: self.context_used,
+            context_limit: self.context_limit,
+            session_id: self.session_id,
+            status_hint: self.key_handler.status_hint(),
+            is_waiting: show_throbber,
+            waiting_elapsed: self.waiting_started.map(|t| t.elapsed()),
+            input_empty: self.input().map(|i| i.is_empty()).unwrap_or(true),
+            panels_active: question_panel_active || permission_panel_active,
+        };
+
+        // Update status bar with collected data
+        if let Some(widget) = self.widgets.get_mut(widget_ids::STATUS_BAR) {
+            if let Some(status_bar) = widget.as_any_mut().downcast_mut::<StatusBar>() {
+                status_bar.update_data(status_bar_data);
+            }
+        }
+
         // Render widgets in the order specified by the layout
         for widget_id in &layout.render_order {
             // Skip overlays (rendered last) and special widgets
@@ -1680,73 +1650,6 @@ impl App {
             }
         }
 
-        // Render status bar
-        if let Some(status_area) = layout.status_bar_area {
-            let cwd = std::env::current_dir()
-                .map(|p| {
-                    let path_str = p.display().to_string();
-                    if let Some(home) = std::env::var_os("HOME") {
-                        let home_str = home.to_string_lossy();
-                        if path_str.starts_with(home_str.as_ref()) {
-                            return format!("~{}", &path_str[home_str.len()..]);
-                        }
-                    }
-                    path_str
-                })
-                .unwrap_or_else(|_| "unknown".to_string());
-
-            let help_text = if question_panel_active || permission_panel_active {
-                String::new()
-            } else if let Some(hint) = self.key_handler.status_hint() {
-                format!(" {}", hint)
-            } else if show_throbber {
-                let elapsed = self
-                    .waiting_started
-                    .map(|start| start.elapsed())
-                    .unwrap_or_default();
-                let elapsed_str = format_elapsed(elapsed);
-                format!(" escape to interrupt ({})", elapsed_str)
-            } else if self.session_id == 0 {
-                " No session - type /new-session to start".to_string()
-            } else if self.input().map(|i| i.is_empty()).unwrap_or(true) {
-                " Ctrl-D to exit".to_string()
-            } else {
-                " Shift-Enter to add a new line".to_string()
-            };
-
-            let context_str = self.format_context_display();
-            let context_style = self.context_style();
-
-            let status_width = status_area.width as usize;
-            let cwd_display = format!(" {}", cwd);
-            let cwd_len = cwd_display.chars().count();
-            let context_len = context_str.chars().count();
-            let model_len = self.model_name.chars().count() + 1;
-            let spacing = if context_len > 0 { 2 } else { 0 };
-            let total_right = context_len + spacing + model_len;
-            let line1_padding = status_width.saturating_sub(cwd_len + total_right);
-
-            let line1 = if context_len > 0 {
-                Line::from(vec![
-                    Span::styled(&cwd_display, theme.status_help),
-                    Span::raw(" ".repeat(line1_padding)),
-                    Span::styled(&context_str, context_style),
-                    Span::raw("  "),
-                    Span::styled(format!("{} ", self.model_name), theme.status_model),
-                ])
-            } else {
-                Line::from(vec![
-                    Span::styled(&cwd_display, theme.status_help),
-                    Span::raw(" ".repeat(line1_padding)),
-                    Span::styled(format!("{} ", self.model_name), theme.status_model),
-                ])
-            };
-
-            let line2 = Line::from(vec![Span::styled(&help_text, theme.status_help)]);
-
-            let status_msg = Paragraph::new(vec![line1, line2]);
-            frame.render_widget(status_msg, status_area);
-        }
 
         // Render overlay widgets (theme picker, session picker) - always on top
         if theme_picker_active {

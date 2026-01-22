@@ -19,8 +19,8 @@ pub struct SplitOptions {
     pub split: SplitRatio,
     /// Widget ID for input (shared below both areas)
     pub input_widget_id: &'static str,
-    /// Whether to show status bar
-    pub show_status_bar: bool,
+    /// Widget ID for the status bar (None = no status bar)
+    pub status_bar_widget_id: Option<&'static str>,
 }
 
 /// Split ratio specification
@@ -44,13 +44,13 @@ impl Default for SplitOptions {
             second_widget_id: "secondary",
             split: SplitRatio::Equal,
             input_widget_id: widget_ids::TEXT_INPUT,
-            show_status_bar: true,
+            status_bar_widget_id: Some(widget_ids::STATUS_BAR),
         }
     }
 }
 
 /// Compute the split layout
-pub fn compute(ctx: &LayoutContext, _sizes: &WidgetSizes, opts: &SplitOptions) -> LayoutResult {
+pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &SplitOptions) -> LayoutResult {
     let mut result = LayoutResult::default();
     let area = ctx.frame_area;
 
@@ -61,7 +61,15 @@ pub fn compute(ctx: &LayoutContext, _sizes: &WidgetSizes, opts: &SplitOptions) -
         (ctx.input_visual_lines as u16).max(1) + 2
     };
 
-    let status_height = if opts.show_status_bar { 2 } else { 0 };
+    let status_height = if let Some(status_id) = opts.status_bar_widget_id {
+        if sizes.is_active(status_id) {
+            sizes.height(status_id)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
     // First split: main content vs input/status
     let v_chunks = Layout::default()
@@ -77,8 +85,11 @@ pub fn compute(ctx: &LayoutContext, _sizes: &WidgetSizes, opts: &SplitOptions) -
     result.input_area = Some(v_chunks[1]);
     result.widget_areas.insert(opts.input_widget_id, v_chunks[1]);
 
-    if opts.show_status_bar {
-        result.status_bar_area = Some(v_chunks[2]);
+    if let Some(status_id) = opts.status_bar_widget_id {
+        if sizes.is_active(status_id) && status_height > 0 {
+            result.widget_areas.insert(status_id, v_chunks[2]);
+            result.render_order.push(status_id);
+        }
     }
 
     // Split content area

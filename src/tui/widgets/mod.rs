@@ -33,6 +33,7 @@ pub mod permission_panel;
 pub mod question_panel;
 pub mod session_picker;
 pub mod slash_popup;
+pub mod status_bar;
 
 pub use chat::{ChatView, ChatViewConfig, MessageRole, ToolMessageData, ToolStatus};
 pub use chat_helpers::RenderFn;
@@ -50,6 +51,7 @@ pub use slash_popup::{
     render_slash_popup, SimpleCommand, SlashCommandDisplay, SlashPopupConfig,
     SlashPopupState,
 };
+pub use status_bar::{StatusBar, StatusBarConfig, StatusBarData};
 
 /// Standard widget IDs for built-in widgets
 pub mod widget_ids {
@@ -63,6 +65,7 @@ pub mod widget_ids {
     pub const SESSION_PICKER: &str = "session_picker";
     pub const SLASH_POPUP: &str = "slash_popup";
     pub const THEME_PICKER: &str = "theme_picker";
+    pub const STATUS_BAR: &str = "status_bar";
 }
 
 /// Context provided to widgets when handling key events.
