@@ -8,12 +8,15 @@ pub const DEFAULT_MAX_TOKENS: u32 = 4096;
 /// Configuration for creating a stateless executor.
 #[derive(Debug, Clone)]
 pub struct StatelessConfig {
-    /// LLM provider (Anthropic, OpenAI).
+    /// LLM provider (Anthropic, OpenAI, Google).
     pub provider: LLMProvider,
     /// Provider API credentials.
     pub api_key: String,
     /// Default model for requests.
     pub model: String,
+    /// Custom base URL for OpenAI-compatible providers.
+    /// Only used when provider is OpenAI. If None, uses default OpenAI endpoint.
+    pub base_url: Option<String>,
     /// Default max tokens (0 = use DEFAULT_MAX_TOKENS).
     pub max_tokens: u32,
     /// Default system prompt (can be overridden per request).
@@ -29,6 +32,7 @@ impl StatelessConfig {
             provider: LLMProvider::Anthropic,
             api_key: api_key.into(),
             model: model.into(),
+            base_url: None,
             max_tokens: DEFAULT_MAX_TOKENS,
             system_prompt: None,
             temperature: None,
@@ -41,6 +45,27 @@ impl StatelessConfig {
             provider: LLMProvider::OpenAI,
             api_key: api_key.into(),
             model: model.into(),
+            base_url: None,
+            max_tokens: DEFAULT_MAX_TOKENS,
+            system_prompt: None,
+            temperature: None,
+        }
+    }
+
+    /// Creates a new OpenAI-compatible config with a custom base URL.
+    ///
+    /// Use this for providers like Groq, Together, Fireworks, etc. that have
+    /// OpenAI-compatible APIs.
+    pub fn openai_compatible(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Self {
+        Self {
+            provider: LLMProvider::OpenAI,
+            api_key: api_key.into(),
+            model: model.into(),
+            base_url: Some(base_url.into()),
             max_tokens: DEFAULT_MAX_TOKENS,
             system_prompt: None,
             temperature: None,
@@ -53,6 +78,7 @@ impl StatelessConfig {
             provider: LLMProvider::Google,
             api_key: api_key.into(),
             model: model.into(),
+            base_url: None,
             max_tokens: DEFAULT_MAX_TOKENS,
             system_prompt: None,
             temperature: None,

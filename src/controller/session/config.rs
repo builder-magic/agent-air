@@ -56,6 +56,9 @@ pub struct LLMSessionConfig {
     pub api_key: String,
     /// Model to use (e.g., "claude-3-sonnet-20240229", "gpt-4")
     pub model: String,
+    /// Custom base URL for OpenAI-compatible providers.
+    /// Only used when provider is OpenAI. If None, uses default OpenAI endpoint.
+    pub base_url: Option<String>,
     /// Default maximum tokens for responses
     pub max_tokens: Option<u32>,
     /// Default system prompt
@@ -77,6 +80,7 @@ impl LLMSessionConfig {
             provider: LLMProvider::Anthropic,
             api_key: api_key.into(),
             model: model.into(),
+            base_url: None,
             max_tokens: Some(4096),
             system_prompt: None,
             temperature: None,
@@ -92,11 +96,36 @@ impl LLMSessionConfig {
             provider: LLMProvider::OpenAI,
             api_key: api_key.into(),
             model: model.into(),
+            base_url: None,
             max_tokens: Some(4096),
             system_prompt: None,
             temperature: None,
             streaming: true,
             context_limit: 128_000, // GPT-4 default
+            compaction: Some(CompactorType::default()),
+        }
+    }
+
+    /// Creates a new OpenAI-compatible session config with a custom base URL.
+    ///
+    /// Use this for providers like Groq, Together, Fireworks, etc. that have
+    /// OpenAI-compatible APIs.
+    pub fn openai_compatible(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        base_url: impl Into<String>,
+        context_limit: i32,
+    ) -> Self {
+        Self {
+            provider: LLMProvider::OpenAI,
+            api_key: api_key.into(),
+            model: model.into(),
+            base_url: Some(base_url.into()),
+            max_tokens: Some(4096),
+            system_prompt: None,
+            temperature: None,
+            streaming: true,
+            context_limit,
             compaction: Some(CompactorType::default()),
         }
     }
@@ -107,6 +136,7 @@ impl LLMSessionConfig {
             provider: LLMProvider::Google,
             api_key: api_key.into(),
             model: model.into(),
+            base_url: None,
             max_tokens: Some(4096),
             system_prompt: None,
             temperature: None,
@@ -143,6 +173,12 @@ impl LLMSessionConfig {
     /// Sets the model's context window size
     pub fn with_context_limit(mut self, context_limit: i32) -> Self {
         self.context_limit = context_limit;
+        self
+    }
+
+    /// Sets a custom base URL for OpenAI-compatible providers
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = Some(base_url.into());
         self
     }
 

@@ -1,7 +1,32 @@
 use crate::client::error::LlmError;
 use crate::client::models::{Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse};
+use crate::client::providers::common::escape_json_string;
 
-const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
+/// Default OpenAI API endpoint.
+pub const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
+
+/// Chat completions path (appended to base URL for compatible providers).
+const CHAT_COMPLETIONS_PATH: &str = "/chat/completions";
+
+/// Returns the API endpoint URL.
+/// If base_url is provided, appends /chat/completions to it.
+/// Otherwise returns the default OpenAI endpoint.
+pub fn get_api_url_with_base(base_url: Option<&str>) -> String {
+    match base_url {
+        Some(base) => {
+            let base = base.trim_end_matches('/');
+            // If base already ends with /chat/completions, use as-is
+            if base.ends_with("/chat/completions") {
+                base.to_string()
+            } else if base.ends_with("/v1") {
+                format!("{}{}", base, CHAT_COMPLETIONS_PATH)
+            } else {
+                format!("{}/v1{}", base, CHAT_COMPLETIONS_PATH)
+            }
+        }
+        None => OPENAI_API_URL.to_string(),
+    }
+}
 
 /// Builds the JSON request body for the OpenAI Chat API.
 ///
@@ -126,22 +151,22 @@ pub fn get_request_headers(api_key: &str) -> Vec<(&'static str, String)> {
     ]
 }
 
-/// Returns the OpenAI API endpoint URL.
-pub fn get_api_url() -> &'static str {
-    OPENAI_API_URL
-}
 
 /// Builds the JSON request body for streaming OpenAI Chat API.
 ///
-/// This is identical to `build_request_body` but adds `"stream": true`.
+/// This is identical to `build_request_body` but adds `"stream": true` and
+/// `"stream_options": {"include_usage": true}` to ensure token usage is reported.
+/// Without `include_usage`, OpenAI streaming does not report token counts,
+/// which breaks compaction logic that relies on context utilization.
 pub fn build_streaming_request_body(
     messages: &[Message],
     options: &MessageOptions,
     default_model: &str,
 ) -> Result<String, LlmError> {
     let mut body = build_request_body(messages, options, default_model)?;
-    // Insert "stream":true after the opening brace
-    body.insert_str(1, r#""stream":true,"#);
+    // Insert stream options after the opening brace
+    // include_usage ensures token counts are sent in a final chunk
+    body.insert_str(1, r#""stream":true,"stream_options":{"include_usage":true},"#);
     Ok(body)
 }
 
@@ -273,24 +298,6 @@ fn format_content_block(content: &Content) -> String {
     }
 }
 
-/// Escapes special characters for JSON string values.
-fn escape_json_string(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '"' => result.push_str(r#"\""#),
-            '\\' => result.push_str(r#"\\"#),
-            '\n' => result.push_str(r#"\n"#),
-            '\r' => result.push_str(r#"\r"#),
-            '\t' => result.push_str(r#"\t"#),
-            c if c.is_control() => {
-                result.push_str(&format!(r#"\u{:04x}"#, c as u32));
-            }
-            c => result.push(c),
-        }
-    }
-    result
-}
 
 /// Parses the OpenAI API response and extracts the assistant message.
 pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
@@ -499,5 +506,50 @@ mod tests {
 
         let err = parse_response(response).unwrap_err();
         assert_eq!(err.error_code, "invalid_request_error");
+    }
+
+    #[test]
+    fn test_get_api_url_with_base_none() {
+        // None - uses default OpenAI URL
+        assert_eq!(
+            get_api_url_with_base(None),
+            "https://api.openai.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_get_api_url_with_base_full_path() {
+        // Already ends with /chat/completions - use as-is
+        assert_eq!(
+            get_api_url_with_base(Some("https://api.perplexity.ai/chat/completions")),
+            "https://api.perplexity.ai/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_get_api_url_with_base_v1() {
+        // Ends with /v1 - append /chat/completions
+        assert_eq!(
+            get_api_url_with_base(Some("https://api.groq.com/openai/v1")),
+            "https://api.groq.com/openai/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_get_api_url_with_base_bare() {
+        // Other - append /v1/chat/completions
+        assert_eq!(
+            get_api_url_with_base(Some("https://api.deepseek.com")),
+            "https://api.deepseek.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_get_api_url_with_base_trailing_slash() {
+        // Trailing slash handling
+        assert_eq!(
+            get_api_url_with_base(Some("https://api.groq.com/openai/v1/")),
+            "https://api.groq.com/openai/v1/chat/completions"
+        );
     }
 }

@@ -2,7 +2,6 @@
 
 use crate::client::error::LlmError;
 use crate::client::models::{ContentBlockType, StreamEvent, Usage};
-use crate::client::providers::common::generate_unique_id;
 
 // =============================================================================
 // Constants
@@ -17,8 +16,6 @@ const ERROR_SSE_PARSE: &str = "SSE_PARSE_ERROR";
 /// Prefix for Gemini API error codes.
 const ERROR_PREFIX_GEMINI: &str = "GEMINI_ERROR_";
 
-/// Prefix for generated tool call IDs.
-const TOOL_CALL_ID_PREFIX: &str = "gemini_call_";
 
 /// Default error message when error details are unavailable.
 const MSG_UNKNOWN_ERROR: &str = "Unknown error";
@@ -238,7 +235,9 @@ pub fn parse_stream_event(
                         }
 
                         // Start a new function call
-                        let id = generate_unique_id(TOOL_CALL_ID_PREFIX);
+                        // NOTE: Gemini matches function responses by NAME, not by unique ID.
+                        // We use the function name as the ID so tool results flow back correctly.
+                        let id = name.to_string();
                         let args_str = args_json.to_string();
 
                         events.push(StreamEvent::ContentBlockStart {

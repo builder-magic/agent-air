@@ -35,7 +35,14 @@ impl StatelessExecutor {
                 })?
             }
             LLMProvider::OpenAI => {
-                let provider = OpenAIProvider::new(config.api_key.clone(), config.model.clone());
+                let provider = match &config.base_url {
+                    Some(base_url) => OpenAIProvider::with_base_url(
+                        config.api_key.clone(),
+                        config.model.clone(),
+                        base_url.clone(),
+                    ),
+                    None => OpenAIProvider::new(config.api_key.clone(), config.model.clone()),
+                };
                 LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
                     op: "init_client".to_string(),
                     message: format!("failed to initialize LLM client: {}", e),
@@ -250,6 +257,7 @@ mod tests {
             provider: LLMProvider::Anthropic,
             api_key: "".to_string(),
             model: "claude-3".to_string(),
+            base_url: None,
             max_tokens: 4096,
             system_prompt: None,
             temperature: None,
@@ -261,6 +269,7 @@ mod tests {
             provider: LLMProvider::Anthropic,
             api_key: "test-key".to_string(),
             model: "".to_string(),
+            base_url: None,
             max_tokens: 4096,
             system_prompt: None,
             temperature: None,

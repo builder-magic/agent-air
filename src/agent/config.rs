@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::controller::{CompactionConfig, LLMProvider, LLMSessionConfig, ToolCompaction};
+use crate::controller::{CompactionConfig, LLMSessionConfig, ToolCompaction};
 use serde::Deserialize;
 
 /// Trait for agent-specific configuration.
@@ -31,13 +31,32 @@ pub trait AgentConfig {
 }
 
 /// Provider configuration from YAML
+///
+/// Supported providers:
+/// - `anthropic` - Anthropic Claude models
+/// - `openai` - OpenAI GPT models
+/// - `google` - Google Gemini models
+/// - `groq` - Groq (Llama, Mixtral)
+/// - `together` - Together AI
+/// - `fireworks` - Fireworks AI
+/// - `mistral` - Mistral AI
+/// - `perplexity` - Perplexity
+/// - `deepseek` - DeepSeek
+/// - `openrouter` - OpenRouter (access to multiple providers)
+/// - `ollama` - Local Ollama server
+/// - `lmstudio` - Local LM Studio server
+/// - `anyscale` - Anyscale Endpoints
+/// - `cerebras` - Cerebras
+/// - `sambanova` - SambaNova
+/// - `xai` - xAI (Grok)
 #[derive(Debug, Deserialize)]
 pub struct ProviderConfig {
-    /// Provider name: "anthropic" or "openai"
+    /// Provider name (see above for supported values)
     pub provider: String,
     /// API token/key
     pub api_key: String,
-    /// Model identifier
+    /// Model identifier (optional - uses provider default if not specified)
+    #[serde(default)]
     pub model: String,
     /// Optional system prompt override
     pub system_prompt: Option<String>,
@@ -102,26 +121,57 @@ impl LLMRegistry {
 
     /// Create session config from provider config
     fn create_session_config(config: &ProviderConfig, default_system_prompt: &str) -> Result<LLMSessionConfig, ConfigError> {
-        let provider = match config.provider.as_str() {
-            "anthropic" => LLMProvider::Anthropic,
-            "openai" => LLMProvider::OpenAI,
-            "google" => LLMProvider::Google,
-            other => {
-                return Err(ConfigError::UnknownProvider {
-                    provider: other.to_string(),
-                })
-            }
-        };
+        use super::providers::get_provider_info;
 
-        let mut session_config = match provider {
-            LLMProvider::Anthropic => {
-                LLMSessionConfig::anthropic(&config.api_key, &config.model)
-            }
-            LLMProvider::OpenAI => {
-                LLMSessionConfig::openai(&config.api_key, &config.model)
-            }
-            LLMProvider::Google => {
-                LLMSessionConfig::google(&config.api_key, &config.model)
+        let provider_name = config.provider.to_lowercase();
+
+        // Check if it's a known OpenAI-compatible provider
+        let mut session_config = if let Some(info) = get_provider_info(&provider_name) {
+            // Use model from config, or fall back to provider default
+            let model = if config.model.is_empty() {
+                info.default_model.to_string()
+            } else {
+                config.model.clone()
+            };
+
+            LLMSessionConfig::openai_compatible(
+                &config.api_key,
+                &model,
+                info.base_url,
+                info.context_limit,
+            )
+        } else {
+            // Handle built-in providers
+            match provider_name.as_str() {
+                "anthropic" => {
+                    let model = if config.model.is_empty() {
+                        "claude-sonnet-4-20250514".to_string()
+                    } else {
+                        config.model.clone()
+                    };
+                    LLMSessionConfig::anthropic(&config.api_key, &model)
+                }
+                "openai" => {
+                    let model = if config.model.is_empty() {
+                        "gpt-4-turbo-preview".to_string()
+                    } else {
+                        config.model.clone()
+                    };
+                    LLMSessionConfig::openai(&config.api_key, &model)
+                }
+                "google" => {
+                    let model = if config.model.is_empty() {
+                        "gemini-2.5-flash".to_string()
+                    } else {
+                        config.model.clone()
+                    };
+                    LLMSessionConfig::google(&config.api_key, &model)
+                }
+                other => {
+                    return Err(ConfigError::UnknownProvider {
+                        provider: other.to_string(),
+                    })
+                }
             }
         };
 
@@ -293,7 +343,7 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
 
         let config = LLMSessionConfig::google(&api_key, &model)
             .with_system_prompt(default_prompt)
-            .with_threshold_compaction(compaction);
+            .with_threshold_compaction(compaction.clone());
 
         registry.configs.insert("google".to_string(), config);
         if registry.default_provider.is_none() {
@@ -301,6 +351,38 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
         }
 
         tracing::info!("Loaded Google (Gemini) configuration from environment");
+    }
+
+    // Check for known OpenAI-compatible providers via environment variables
+    for (name, info) in super::providers::KNOWN_PROVIDERS {
+        // For providers that require API keys, the env var must contain the key
+        // For local providers (Ollama, LM Studio), the env var just signals enablement
+        let api_key = if info.requires_api_key {
+            match std::env::var(info.env_var) {
+                Ok(key) if !key.is_empty() => key,
+                _ => continue, // Skip if no API key provided
+            }
+        } else {
+            // Local provider - check if env var is set (any value enables it)
+            if std::env::var(info.env_var).is_err() {
+                continue;
+            }
+            String::new() // Empty API key for local providers
+        };
+
+        let model =
+            std::env::var(info.model_env_var).unwrap_or_else(|_| info.default_model.to_string());
+
+        let config = LLMSessionConfig::openai_compatible(&api_key, &model, info.base_url, info.context_limit)
+            .with_system_prompt(default_prompt)
+            .with_threshold_compaction(compaction.clone());
+
+        registry.configs.insert(name.to_string(), config);
+        if registry.default_provider.is_none() {
+            registry.default_provider = Some(name.to_string());
+        }
+
+        tracing::info!("Loaded {} configuration from environment", info.name);
     }
 
     registry
@@ -323,6 +405,37 @@ default_provider: anthropic
         assert_eq!(config.providers.len(), 1);
         assert_eq!(config.providers[0].provider, "anthropic");
         assert_eq!(config.default_provider, Some("anthropic".to_string()));
+    }
+
+    #[test]
+    fn test_parse_known_provider() {
+        let yaml = r#"
+providers:
+  - provider: groq
+    api_key: gsk_test_key
+    model: llama-3.3-70b-versatile
+"#;
+        let config: ConfigFile = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.providers.len(), 1);
+        assert_eq!(config.providers[0].provider, "groq");
+    }
+
+    #[test]
+    fn test_known_provider_default_model() {
+        // When model is not specified, it should use the provider's default
+        let provider_config = ProviderConfig {
+            provider: "groq".to_string(),
+            api_key: "test-key".to_string(),
+            model: String::new(), // Empty model
+            system_prompt: None,
+        };
+
+        let session_config = LLMRegistry::create_session_config(&provider_config, "test prompt").unwrap();
+        // Should use groq's default model
+        assert_eq!(session_config.model, "llama-3.3-70b-versatile");
+        // Should have groq's base_url set
+        assert!(session_config.base_url.is_some());
+        assert!(session_config.base_url.as_ref().unwrap().contains("groq.com"));
     }
 
     #[test]

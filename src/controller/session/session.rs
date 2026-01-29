@@ -26,7 +26,14 @@ fn create_llm_client(config: &LLMSessionConfig) -> Result<LLMClient, LlmError> {
             LLMClient::new(Box::new(provider))
         }
         LLMProvider::OpenAI => {
-            let provider = OpenAIProvider::new(config.api_key.clone(), config.model.clone());
+            let provider = match &config.base_url {
+                Some(base_url) => OpenAIProvider::with_base_url(
+                    config.api_key.clone(),
+                    config.model.clone(),
+                    base_url.clone(),
+                ),
+                None => OpenAIProvider::new(config.api_key.clone(), config.model.clone()),
+            };
             LLMClient::new(Box::new(provider))
         }
         LLMProvider::Google => {

@@ -5,9 +5,7 @@ use crate::client::models::{
     Content, GroundingChunk, GroundingMetadata, GroundingSupport, Message, MessageOptions,
     ResponseMetadata, Role, SafetyRating, ToolChoice, ToolUse,
 };
-use crate::client::providers::common::{
-    escape_json_string, extract_text_content, generate_unique_id,
-};
+use crate::client::providers::common::{escape_json_string, extract_text_content};
 
 // =============================================================================
 // Constants
@@ -55,8 +53,6 @@ const ERROR_PARSE: &str = "PARSE_ERROR";
 /// Prefix for Gemini API error codes.
 const ERROR_PREFIX_GEMINI: &str = "GEMINI_ERROR_";
 
-/// Prefix for generated tool call IDs.
-const TOOL_CALL_ID_PREFIX: &str = "gemini_call_";
 
 /// Default error message when error details are unavailable.
 const MSG_UNKNOWN_ERROR: &str = "Unknown error";
@@ -302,12 +298,14 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
                 content_blocks.push(Content::Text(text.to_string()));
             }
             // Function call part
+            // NOTE: Gemini matches function responses by NAME, not by unique ID.
+            // We use the function name as the ID so that when tool results flow back,
+            // they contain the correct function name for Gemini's functionResponse.
             else if let Some(function_call) = part.get("functionCall") {
                 let name = function_call["name"].as_str().unwrap_or("").to_string();
                 let args = function_call["args"].to_string();
-                let id = generate_unique_id(TOOL_CALL_ID_PREFIX);
                 content_blocks.push(Content::ToolUse(ToolUse {
-                    id,
+                    id: name.clone(),  // Use function name as ID for Gemini
                     name,
                     input: args,
                 }));
@@ -577,12 +575,9 @@ fn format_part(content: &Content) -> Result<String, LlmError> {
             tool_use.input
         )),
         Content::ToolResult(tool_result) => {
-            // IMPORTANT: Gemini's functionResponse requires the function NAME, not a unique ID.
-            // Unlike Anthropic where tool_use_id is a unique identifier (e.g., "toolu_123"),
-            // Gemini matches responses to calls by function name.
-            //
-            // When using this provider, callers should set tool_result.tool_use_id to the
-            // function name (e.g., "get_weather") rather than a unique call ID.
+            // Gemini's functionResponse requires the function NAME, not a unique ID.
+            // Our parse_response uses the function name as the ToolUse.id, so
+            // tool_result.tool_use_id will contain the function name (e.g., "get_weather").
             Ok(format!(
                 r#"{{"functionResponse":{{"name":"{}","response":{{"result":"{}"}}}}}}"#,
                 escape_json_string(&tool_result.tool_use_id),
@@ -815,7 +810,8 @@ mod tests {
         match &msg.content[1] {
             Content::ToolUse(tu) => {
                 assert_eq!(tu.name, "get_weather");
-                assert!(tu.id.starts_with(TOOL_CALL_ID_PREFIX));
+                // Gemini uses function name as ID for matching responses
+                assert_eq!(tu.id, "get_weather");
             }
             _ => panic!("Expected tool use content"),
         }

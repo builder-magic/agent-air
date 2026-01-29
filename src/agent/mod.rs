@@ -35,9 +35,11 @@ mod core;
 mod error;
 mod logger;
 mod messages;
+mod providers;
 mod router;
 
 pub use config::{load_config, AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig};
+pub use providers::{get_provider_info, is_known_provider, list_providers, ProviderInfo};
 pub use error::AgentError;
 pub use core::{
     convert_controller_event_to_ui_message, AgentCore, FromControllerRx, FromControllerTx,

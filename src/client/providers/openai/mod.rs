@@ -26,22 +26,49 @@ const MSG_INVALID_UTF8: &str = "Invalid UTF-8 in stream";
 // =============================================================================
 
 /// OpenAI API provider.
+///
+/// Also supports OpenAI-compatible APIs (Groq, Together, Fireworks, etc.)
+/// by specifying a custom base_url.
 pub struct OpenAIProvider {
     /// OpenAI API key.
     api_key: String,
     /// Model identifier (e.g., "gpt-4").
     model: String,
+    /// Custom base URL for OpenAI-compatible providers.
+    /// If None, uses the default OpenAI endpoint.
+    base_url: Option<String>,
 }
 
 impl OpenAIProvider {
     /// Create a new OpenAI provider with API key and model.
     pub fn new(api_key: String, model: String) -> Self {
-        Self { api_key, model }
+        Self {
+            api_key,
+            model,
+            base_url: None,
+        }
+    }
+
+    /// Create a new OpenAI-compatible provider with a custom base URL.
+    ///
+    /// Use this for providers like Groq, Together, Fireworks, etc.
+    /// The base_url should be the API base (e.g., "https://api.groq.com/openai/v1").
+    pub fn with_base_url(api_key: String, model: String, base_url: String) -> Self {
+        Self {
+            api_key,
+            model,
+            base_url: Some(base_url),
+        }
     }
 
     /// Returns the model identifier.
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    /// Returns the API endpoint URL (with base_url if configured).
+    fn api_url(&self) -> String {
+        types::get_api_url_with_base(self.base_url.as_deref())
     }
 }
 
@@ -56,6 +83,7 @@ impl LlmProvider for OpenAIProvider {
         let client = client.clone();
         let api_key = self.api_key.clone();
         let model = self.model.clone();
+        let api_url = self.api_url();
         let messages = messages.to_vec();
         let options = options.clone();
 
@@ -71,9 +99,7 @@ impl LlmProvider for OpenAIProvider {
                 .collect();
 
             // Make the API call
-            let response = client
-                .post(types::get_api_url(), &headers_ref, &body)
-                .await?;
+            let response = client.post(&api_url, &headers_ref, &body).await?;
 
             // Parse and return the response
             types::parse_response(&response)
@@ -90,6 +116,7 @@ impl LlmProvider for OpenAIProvider {
         let client = client.clone();
         let api_key = self.api_key.clone();
         let model = self.model.clone();
+        let api_url = self.api_url();
         let messages = messages.to_vec();
         let options = options.clone();
 
@@ -105,9 +132,7 @@ impl LlmProvider for OpenAIProvider {
                 .collect();
 
             // Make the streaming API call
-            let byte_stream = client
-                .post_stream(types::get_api_url(), &headers_ref, &body)
-                .await?;
+            let byte_stream = client.post_stream(&api_url, &headers_ref, &body).await?;
 
             // Convert byte stream to SSE events stream
             use futures::StreamExt;
