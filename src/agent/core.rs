@@ -132,6 +132,9 @@ pub struct AgentCore {
 
     /// Whether to hide the default status bar
     hide_status_bar: bool,
+
+    /// Error message shown when user submits but no session exists
+    error_no_session: Option<String>,
 }
 
 impl AgentCore {
@@ -251,7 +254,22 @@ impl AgentCore {
             command_extension: None,
             custom_status_bar: None,
             hide_status_bar: false,
+            error_no_session: None,
         })
+    }
+
+    /// Set the error message shown when user submits but no session exists.
+    ///
+    /// This overrides the default message "No active session. Use /new-session to create one."
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// agent.set_error_no_session("No configuration found in ~/.myagent/config.yaml");
+    /// ```
+    pub fn set_error_no_session(&mut self, message: impl Into<String>) -> &mut Self {
+        self.error_no_session = Some(message.into());
+        self
     }
 
     /// Set the agent version for display.
@@ -673,6 +691,7 @@ impl AgentCore {
             version: self.version.clone(),
             commands: self.commands.take(),
             command_extension: self.command_extension.take(),
+            error_no_session: self.error_no_session.take(),
             ..Default::default()
         };
         let mut app = App::with_config(app_config);

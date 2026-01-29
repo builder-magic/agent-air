@@ -12,10 +12,8 @@ pub const DEFAULT_EXIT_TIMEOUT_SECS: u64 = 2;
 /// Specifies which key combinations trigger which actions.
 /// Multiple key combinations can be assigned to the same action.
 ///
-/// The default is [`bare_minimum()`](Self::bare_minimum) which only provides
-/// basic functionality. Apps should explicitly choose their bindings:
-/// - [`emacs()`](Self::emacs) for full Emacs-style bindings
-/// - [`minimal()`](Self::minimal) for simple arrow-key navigation
+/// The default is [`minimal()`](Self::minimal) which provides simple arrow-key
+/// navigation. For power users, use [`emacs()`](Self::emacs) for full Emacs-style bindings.
 #[derive(Debug, Clone)]
 pub struct KeyBindings {
     // Navigation
@@ -65,48 +63,11 @@ pub struct KeyBindings {
 
 impl Default for KeyBindings {
     fn default() -> Self {
-        Self::bare_minimum()
+        Self::minimal()
     }
 }
 
 impl KeyBindings {
-    /// Bare minimum bindings - only Esc to quit.
-    ///
-    /// This is the default when no bindings are specified.
-    /// Apps should explicitly choose their bindings (e.g., `emacs()` or `minimal()`).
-    ///
-    /// Only provides:
-    /// - Esc to quit (when input is empty)
-    /// - Ctrl+Q force quit (always works)
-    /// - Enter to submit
-    /// - Backspace/Delete for basic editing
-    /// - Arrow keys for navigation
-    pub fn bare_minimum() -> Self {
-        Self {
-            move_up: vec![KeyCombo::key(KeyCode::Up)],
-            move_down: vec![KeyCombo::key(KeyCode::Down)],
-            move_left: vec![KeyCombo::key(KeyCode::Left)],
-            move_right: vec![KeyCombo::key(KeyCode::Right)],
-            move_line_start: vec![KeyCombo::key(KeyCode::Home)],
-            move_line_end: vec![KeyCombo::key(KeyCode::End)],
-
-            delete_char_before: vec![KeyCombo::key(KeyCode::Backspace)],
-            delete_char_at: vec![KeyCombo::key(KeyCode::Delete)],
-            kill_line: vec![],
-            insert_newline: vec![],
-
-            submit: vec![KeyCombo::key(KeyCode::Enter)],
-            interrupt: vec![],
-            quit: vec![KeyCombo::key(KeyCode::Esc)], // Esc quits when input empty
-            force_quit: vec![KeyCombo::ctrl('q')],
-            enter_exit_mode: vec![],
-            exit_timeout_secs: DEFAULT_EXIT_TIMEOUT_SECS,
-
-            select: vec![KeyCombo::key(KeyCode::Enter), KeyCombo::key(KeyCode::Char(' '))],
-            cancel: vec![KeyCombo::key(KeyCode::Esc)],
-        }
-    }
-
     /// Emacs-style bindings.
     ///
     /// Full-featured bindings for power users:
@@ -435,23 +396,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bare_minimum_bindings() {
-        let bindings = KeyBindings::bare_minimum();
-
-        // Esc should quit (not interrupt)
-        let esc = KeyCombo::key(KeyCode::Esc);
-        assert!(bindings.quit.contains(&esc));
-        assert!(bindings.interrupt.is_empty());
-
-        // No Emacs bindings
-        let ctrl_p = KeyCombo::ctrl('p');
-        assert!(!bindings.move_up.contains(&ctrl_p));
-
-        // No exit mode
-        assert!(bindings.enter_exit_mode.is_empty());
-    }
-
-    #[test]
     fn test_builder_with_methods() {
         // Start with minimal and override some bindings
         let bindings = KeyBindings::minimal()
@@ -505,7 +449,7 @@ mod tests {
     #[test]
     fn test_builder_chaining() {
         // Test a complex chain of builder methods
-        let bindings = KeyBindings::bare_minimum()
+        let bindings = KeyBindings::minimal()
             .with_move_up(vec![KeyCombo::key(KeyCode::Up), KeyCombo::ctrl('p')])
             .with_move_down(vec![KeyCombo::key(KeyCode::Down), KeyCombo::ctrl('n')])
             .without_quit()

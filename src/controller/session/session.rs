@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use crate::client::error::LlmError;
 use crate::client::models::Tool as LLMTool;
 use crate::client::providers::anthropic::AnthropicProvider;
+use crate::client::providers::gemini::GeminiProvider;
 use crate::client::providers::openai::OpenAIProvider;
 use crate::client::LLMClient;
 
@@ -26,6 +27,10 @@ fn create_llm_client(config: &LLMSessionConfig) -> Result<LLMClient, LlmError> {
         }
         LLMProvider::OpenAI => {
             let provider = OpenAIProvider::new(config.api_key.clone(), config.model.clone());
+            LLMClient::new(Box::new(provider))
+        }
+        LLMProvider::Google => {
+            let provider = GeminiProvider::new(config.api_key.clone(), config.model.clone());
             LLMClient::new(Box::new(provider))
         }
     }

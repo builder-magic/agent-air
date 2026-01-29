@@ -67,6 +67,12 @@ pub struct StatusBarConfig {
     pub show_hints: bool,
     /// Custom content renderer (overrides all flags)
     pub content_renderer: Option<StatusBarRenderer>,
+    /// Custom hint for unconfigured/no session state
+    pub hint_unconfigured: Option<String>,
+    /// Custom hint when input is empty and ready
+    pub hint_ready: Option<String>,
+    /// Custom hint when user is typing
+    pub hint_typing: Option<String>,
 }
 
 impl StatusBarConfig {
@@ -79,6 +85,9 @@ impl StatusBarConfig {
             show_context: true,
             show_hints: true,
             content_renderer: None,
+            hint_unconfigured: None,
+            hint_ready: None,
+            hint_typing: None,
         }
     }
 }
@@ -145,6 +154,30 @@ impl StatusBar {
         self
     }
 
+    /// Set the hint shown when no session/API key is configured
+    ///
+    /// Default: " No session - type /new-session to start"
+    pub fn with_hint_unconfigured(mut self, hint: impl Into<String>) -> Self {
+        self.config.hint_unconfigured = Some(hint.into());
+        self
+    }
+
+    /// Set the hint shown when input is empty and ready
+    ///
+    /// Default: " Ctrl-D to exit"
+    pub fn with_hint_ready(mut self, hint: impl Into<String>) -> Self {
+        self.config.hint_ready = Some(hint.into());
+        self
+    }
+
+    /// Set the hint shown when user is typing
+    ///
+    /// Default: " Shift-Enter to add a new line"
+    pub fn with_hint_typing(mut self, hint: impl Into<String>) -> Self {
+        self.config.hint_typing = Some(hint.into());
+        self
+    }
+
     /// Update the status bar data before rendering
     ///
     /// This should be called by App before layout computation.
@@ -201,7 +234,7 @@ impl StatusBar {
             ])
         };
 
-        // Line 2: Help text
+        // Line 2: Help text (hint line)
         let help_text = if !config.show_hints {
             String::new()
         } else if data.panels_active {
@@ -215,11 +248,14 @@ impl StatusBar {
                 .unwrap_or_else(|| "0s".to_string());
             format!(" escape to interrupt ({})", elapsed_str)
         } else if data.session_id == 0 {
-            " No session - type /new-session to start".to_string()
+            config.hint_unconfigured.clone()
+                .unwrap_or_else(|| " No session - type /new-session to start".to_string())
         } else if data.input_empty {
-            " Ctrl-D to exit".to_string()
+            config.hint_ready.clone()
+                .unwrap_or_else(|| " esc to exit".to_string())
         } else {
-            " Shift-Enter to add a new line".to_string()
+            config.hint_typing.clone()
+                .unwrap_or_else(|| " enter to send · shift-enter for new line".to_string())
         };
 
         let line2 = Line::from(vec![Span::styled(help_text, theme.status_help)]);

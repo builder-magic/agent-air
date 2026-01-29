@@ -46,7 +46,7 @@ pub trait KeyHandler: Send + 'static {
     /// Get a reference to the key bindings.
     ///
     /// This is used by widgets to check navigation keys against configured bindings.
-    /// The default implementation returns `bare_minimum` bindings.
+    /// The default implementation returns `minimal` bindings.
     fn bindings(&self) -> &KeyBindings;
 }
 
@@ -463,15 +463,15 @@ mod tests {
     }
 
     #[test]
-    fn test_bare_minimum_handler_quit() {
-        let mut handler = DefaultKeyHandler::default(); // Uses bare_minimum
+    fn test_minimal_handler_quit() {
+        let mut handler = DefaultKeyHandler::default(); // Uses minimal
         let context = KeyContext {
             input_empty: true,
             is_processing: false,
             widget_blocking: false,
         };
 
-        // Esc should quit when input is empty (bare_minimum has no exit mode)
+        // Esc should quit when input is empty (minimal has no exit mode)
         let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
         let result = handler.handle_key(esc, &context);
         assert_eq!(result, AppKeyResult::Action(AppKeyAction::Quit));

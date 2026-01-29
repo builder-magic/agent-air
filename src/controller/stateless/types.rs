@@ -47,6 +47,18 @@ impl StatelessConfig {
         }
     }
 
+    /// Creates a new Google (Gemini) config with required fields.
+    pub fn google(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            provider: LLMProvider::Google,
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens: DEFAULT_MAX_TOKENS,
+            system_prompt: None,
+            temperature: None,
+        }
+    }
+
     /// Sets the max tokens.
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;

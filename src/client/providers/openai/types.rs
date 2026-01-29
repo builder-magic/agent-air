@@ -4,6 +4,8 @@ use crate::client::models::{Content, ImageSource, Message, MessageOptions, Role,
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
 
 /// Builds the JSON request body for the OpenAI Chat API.
+///
+/// Set `stream` to true for streaming responses.
 pub fn build_request_body(
     messages: &[Message],
     options: &MessageOptions,
@@ -127,6 +129,20 @@ pub fn get_request_headers(api_key: &str) -> Vec<(&'static str, String)> {
 /// Returns the OpenAI API endpoint URL.
 pub fn get_api_url() -> &'static str {
     OPENAI_API_URL
+}
+
+/// Builds the JSON request body for streaming OpenAI Chat API.
+///
+/// This is identical to `build_request_body` but adds `"stream": true`.
+pub fn build_streaming_request_body(
+    messages: &[Message],
+    options: &MessageOptions,
+    default_model: &str,
+) -> Result<String, LlmError> {
+    let mut body = build_request_body(messages, options, default_model)?;
+    // Insert "stream":true after the opening brace
+    body.insert_str(1, r#""stream":true,"#);
+    Ok(body)
 }
 
 fn format_message(msg: &Message) -> Result<String, LlmError> {

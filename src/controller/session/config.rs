@@ -7,6 +7,7 @@ use super::compactor::{LLMCompactorConfig, ToolCompaction};
 pub enum LLMProvider {
     Anthropic,
     OpenAI,
+    Google,
 }
 
 /// Configuration for conversation compaction
@@ -94,8 +95,23 @@ impl LLMSessionConfig {
             max_tokens: Some(4096),
             system_prompt: None,
             temperature: None,
-            streaming: false, // OpenAI streaming not yet implemented
+            streaming: true,
             context_limit: 128_000, // GPT-4 default
+            compaction: Some(CompactorType::default()),
+        }
+    }
+
+    /// Creates a new Google (Gemini) session config
+    pub fn google(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            provider: LLMProvider::Google,
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens: Some(4096),
+            system_prompt: None,
+            temperature: None,
+            streaming: true,
+            context_limit: 1_000_000, // Gemini 2.5 default
             compaction: Some(CompactorType::default()),
         }
     }

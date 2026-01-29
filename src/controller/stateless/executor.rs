@@ -2,6 +2,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::models::{Message as LLMMessage, MessageOptions, StreamEvent};
 use crate::client::providers::anthropic::AnthropicProvider;
+use crate::client::providers::gemini::GeminiProvider;
 use crate::client::providers::openai::OpenAIProvider;
 use crate::client::LLMClient;
 
@@ -35,6 +36,13 @@ impl StatelessExecutor {
             }
             LLMProvider::OpenAI => {
                 let provider = OpenAIProvider::new(config.api_key.clone(), config.model.clone());
+                LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
+                    op: "init_client".to_string(),
+                    message: format!("failed to initialize LLM client: {}", e),
+                })?
+            }
+            LLMProvider::Google => {
+                let provider = GeminiProvider::new(config.api_key.clone(), config.model.clone());
                 LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
                     op: "init_client".to_string(),
                     message: format!("failed to initialize LLM client: {}", e),

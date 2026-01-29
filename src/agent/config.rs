@@ -14,7 +14,10 @@ use serde::Deserialize;
 /// Implement this trait to provide custom config paths and system prompts
 /// for your agent.
 pub trait AgentConfig {
-    /// The config file path relative to home directory (e.g., ".multi_code/config.yaml")
+    /// The config file path.
+    ///
+    /// Paths starting with `~/` are expanded to the home directory.
+    /// All other paths (absolute or relative) are used as-is.
     fn config_path(&self) -> &str;
 
     /// The default system prompt for this agent
@@ -102,6 +105,7 @@ impl LLMRegistry {
         let provider = match config.provider.as_str() {
             "anthropic" => LLMProvider::Anthropic,
             "openai" => LLMProvider::OpenAI,
+            "google" => LLMProvider::Google,
             other => {
                 return Err(ConfigError::UnknownProvider {
                     provider: other.to_string(),
@@ -115,6 +119,9 @@ impl LLMRegistry {
             }
             LLMProvider::OpenAI => {
                 LLMSessionConfig::openai(&config.api_key, &config.model)
+            }
+            LLMProvider::Google => {
+                LLMSessionConfig::google(&config.api_key, &config.model)
             }
         };
 
@@ -208,36 +215,55 @@ impl std::error::Error for ConfigError {}
 /// Load config for an agent using its AgentConfig trait implementation.
 ///
 /// Tries to load from the config file first, then falls back to environment variables.
+/// Supports both absolute paths and paths relative to home directory.
 pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
     let config_path = agent_config.config_path();
     let default_prompt = agent_config.default_system_prompt();
 
+    // Resolve config path - expand ~/ to home directory, otherwise use as-is
+    let path = if let Some(rest) = config_path.strip_prefix("~/") {
+        match dirs::home_dir() {
+            Some(home) => home.join(rest),
+            None => {
+                tracing::debug!("Could not determine home directory");
+                PathBuf::from(config_path)
+            }
+        }
+    } else {
+        PathBuf::from(config_path)
+    };
+
     // Try loading from config file first
-    if let Some(home) = dirs::home_dir() {
-        let path = home.join(config_path);
-        match LLMRegistry::load_from_file(&path, default_prompt) {
-            Ok(registry) if !registry.is_empty() => {
-                tracing::info!("Loaded configuration from ~/{}", config_path);
-                return registry;
-            }
-            Ok(_) => {
-                tracing::debug!("Config file empty, trying environment variables");
-            }
-            Err(e) => {
-                tracing::debug!("Could not load config file: {}", e);
-            }
+    match LLMRegistry::load_from_file(&path, default_prompt) {
+        Ok(registry) if !registry.is_empty() => {
+            tracing::info!("Loaded configuration from {}", path.display());
+            return registry;
+        }
+        Ok(_) => {
+            tracing::debug!("Config file empty, trying environment variables");
+        }
+        Err(e) => {
+            tracing::debug!("Could not load config file: {}", e);
         }
     }
 
     // Fall back to environment variables
     let mut registry = LLMRegistry::new();
 
+    // Default compaction config for environment-based configuration
+    let compaction = CompactionConfig {
+        threshold: 0.05,
+        keep_recent_turns: 1,
+        tool_compaction: ToolCompaction::Summarize,
+    };
+
     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
         let model = std::env::var("ANTHROPIC_MODEL")
             .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
 
         let config = LLMSessionConfig::anthropic(&api_key, &model)
-            .with_system_prompt(default_prompt);
+            .with_system_prompt(default_prompt)
+            .with_threshold_compaction(compaction.clone());
 
         registry.configs.insert("anthropic".to_string(), config);
         registry.default_provider = Some("anthropic".to_string());
@@ -249,8 +275,9 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
         let model =
             std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4-turbo-preview".to_string());
 
-        let config =
-            LLMSessionConfig::openai(&api_key, &model).with_system_prompt(default_prompt);
+        let config = LLMSessionConfig::openai(&api_key, &model)
+            .with_system_prompt(default_prompt)
+            .with_threshold_compaction(compaction.clone());
 
         registry.configs.insert("openai".to_string(), config);
         if registry.default_provider.is_none() {
@@ -258,6 +285,22 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
         }
 
         tracing::info!("Loaded OpenAI configuration from environment");
+    }
+
+    if let Ok(api_key) = std::env::var("GOOGLE_API_KEY") {
+        let model =
+            std::env::var("GOOGLE_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".to_string());
+
+        let config = LLMSessionConfig::google(&api_key, &model)
+            .with_system_prompt(default_prompt)
+            .with_threshold_compaction(compaction);
+
+        registry.configs.insert("google".to_string(), config);
+        if registry.default_provider.is_none() {
+            registry.default_provider = Some("google".to_string());
+        }
+
+        tracing::info!("Loaded Google (Gemini) configuration from environment");
     }
 
     registry

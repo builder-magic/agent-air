@@ -78,6 +78,8 @@ pub struct AppConfig {
     /// Optional callback for dynamic messages. When set, overrides processing_message.
     /// Use this for rotating messages or context-aware status.
     pub processing_message_fn: Option<ProcessingMessageFn>,
+    /// Error message shown when user submits but no session exists
+    pub error_no_session: Option<String>,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -89,6 +91,7 @@ impl std::fmt::Debug for AppConfig {
             .field("command_extension", &self.command_extension.as_ref().map(|_| "<extension>"))
             .field("processing_message", &self.processing_message)
             .field("processing_message_fn", &self.processing_message_fn.as_ref().map(|_| "<fn>"))
+            .field("error_no_session", &self.error_no_session)
             .finish()
     }
 }
@@ -102,6 +105,7 @@ impl Default for AppConfig {
             command_extension: None,
             processing_message: "Processing request...".to_string(),
             processing_message_fn: None,
+            error_no_session: None,
         }
     }
 }
@@ -127,6 +131,9 @@ pub struct App {
 
     /// Optional callback for dynamic processing messages
     processing_message_fn: Option<ProcessingMessageFn>,
+
+    /// Error message shown when user submits but no session exists
+    error_no_session: Option<String>,
 
     /// Whether the application should quit.
     pub should_quit: bool,
@@ -250,6 +257,7 @@ impl App {
             command_extension: config.command_extension,
             processing_message: config.processing_message,
             processing_message_fn: config.processing_message_fn,
+            error_no_session: config.error_no_session,
             should_quit: false,
             to_controller: None,
             from_controller: None,
@@ -284,6 +292,7 @@ impl App {
 
         // Register default widgets
         app.register_widget(StatusBar::new());
+        app.register_widget(TextInput::new());
 
         app
     }
@@ -535,9 +544,9 @@ impl App {
 
         // Check if we have an active session
         if self.session_id == 0 {
-            self.conversation_view.add_system_message(
-                "No active session. Use /new-session to create one.".to_string(),
-            );
+            let msg = self.error_no_session.clone()
+                .unwrap_or_else(|| "No active session. Use /new-session to create one.".to_string());
+            self.conversation_view.add_system_message(msg);
             return;
         }
 
