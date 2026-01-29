@@ -183,6 +183,18 @@ pub const KNOWN_PROVIDERS: &[(&str, ProviderInfo)] = &[
             requires_api_key: true,
         },
     ),
+    (
+        "ai21",
+        ProviderInfo {
+            name: "AI21 Labs",
+            base_url: "https://api.ai21.com/studio/v1",
+            context_limit: 256_000,
+            default_model: "jamba-1.5-large",
+            env_var: "AI21_API_KEY",
+            model_env_var: "AI21_MODEL",
+            requires_api_key: true,
+        },
+    ),
 ];
 
 /// Returns provider info for a known provider name.

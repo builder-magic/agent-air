@@ -8,6 +8,10 @@ pub const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
 /// Chat completions path (appended to base URL for compatible providers).
 const CHAT_COMPLETIONS_PATH: &str = "/chat/completions";
 
+/// Azure OpenAI API URL template.
+/// Format: https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version={version}
+const AZURE_API_URL_TEMPLATE: &str = "https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version={version}";
+
 /// Returns the API endpoint URL.
 /// If base_url is provided, appends /chat/completions to it.
 /// Otherwise returns the default OpenAI endpoint.
@@ -148,6 +152,26 @@ pub fn get_request_headers(api_key: &str) -> Vec<(&'static str, String)> {
     vec![
         ("Content-Type", "application/json".to_string()),
         ("Authorization", format!("Bearer {}", api_key)),
+    ]
+}
+
+/// Returns the Azure OpenAI API endpoint URL.
+///
+/// Format: https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version={version}
+pub fn get_azure_api_url(resource: &str, deployment: &str, api_version: &str) -> String {
+    AZURE_API_URL_TEMPLATE
+        .replace("{resource}", resource)
+        .replace("{deployment}", deployment)
+        .replace("{version}", api_version)
+}
+
+/// Returns the HTTP headers required for Azure OpenAI API.
+///
+/// Azure uses `api-key` header instead of `Authorization: Bearer`.
+pub fn get_azure_request_headers(api_key: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("Content-Type", "application/json".to_string()),
+        ("api-key", api_key.to_string()),
     ]
 }
 
@@ -551,5 +575,21 @@ mod tests {
             get_api_url_with_base(Some("https://api.groq.com/openai/v1/")),
             "https://api.groq.com/openai/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn test_get_azure_api_url() {
+        assert_eq!(
+            get_azure_api_url("my-resource", "gpt-4-deployment", "2024-10-21"),
+            "https://my-resource.openai.azure.com/openai/deployments/gpt-4-deployment/chat/completions?api-version=2024-10-21"
+        );
+    }
+
+    #[test]
+    fn test_get_azure_request_headers() {
+        let headers = get_azure_request_headers("test-key");
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0], ("Content-Type", "application/json".to_string()));
+        assert_eq!(headers[1], ("api-key", "test-key".to_string()));
     }
 }

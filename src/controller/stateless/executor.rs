@@ -2,6 +2,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::models::{Message as LLMMessage, MessageOptions, StreamEvent};
 use crate::client::providers::anthropic::AnthropicProvider;
+use crate::client::providers::bedrock::{BedrockCredentials, BedrockProvider};
+use crate::client::providers::cohere::CohereProvider;
 use crate::client::providers::gemini::GeminiProvider;
 use crate::client::providers::openai::OpenAIProvider;
 use crate::client::LLMClient;
@@ -35,13 +37,28 @@ impl StatelessExecutor {
                 })?
             }
             LLMProvider::OpenAI => {
-                let provider = match &config.base_url {
-                    Some(base_url) => OpenAIProvider::with_base_url(
+                // Check for Azure configuration first
+                let provider = if let (Some(resource), Some(deployment)) =
+                    (&config.azure_resource, &config.azure_deployment)
+                {
+                    let api_version = config
+                        .azure_api_version
+                        .clone()
+                        .unwrap_or_else(|| "2024-10-21".to_string());
+                    OpenAIProvider::azure(
+                        config.api_key.clone(),
+                        resource.clone(),
+                        deployment.clone(),
+                        api_version,
+                    )
+                } else if let Some(base_url) = &config.base_url {
+                    OpenAIProvider::with_base_url(
                         config.api_key.clone(),
                         config.model.clone(),
                         base_url.clone(),
-                    ),
-                    None => OpenAIProvider::new(config.api_key.clone(), config.model.clone()),
+                    )
+                } else {
+                    OpenAIProvider::new(config.api_key.clone(), config.model.clone())
                 };
                 LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
                     op: "init_client".to_string(),
@@ -50,6 +67,46 @@ impl StatelessExecutor {
             }
             LLMProvider::Google => {
                 let provider = GeminiProvider::new(config.api_key.clone(), config.model.clone());
+                LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
+                    op: "init_client".to_string(),
+                    message: format!("failed to initialize LLM client: {}", e),
+                })?
+            }
+            LLMProvider::Cohere => {
+                let provider = CohereProvider::new(config.api_key.clone(), config.model.clone());
+                LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
+                    op: "init_client".to_string(),
+                    message: format!("failed to initialize LLM client: {}", e),
+                })?
+            }
+            LLMProvider::Bedrock => {
+                let region = config.bedrock_region.clone().ok_or_else(|| {
+                    StatelessError::ExecutionFailed {
+                        op: "init_client".to_string(),
+                        message: "Bedrock requires bedrock_region".to_string(),
+                    }
+                })?;
+                let access_key_id = config.bedrock_access_key_id.clone().ok_or_else(|| {
+                    StatelessError::ExecutionFailed {
+                        op: "init_client".to_string(),
+                        message: "Bedrock requires bedrock_access_key_id".to_string(),
+                    }
+                })?;
+                let secret_access_key = config.bedrock_secret_access_key.clone().ok_or_else(|| {
+                    StatelessError::ExecutionFailed {
+                        op: "init_client".to_string(),
+                        message: "Bedrock requires bedrock_secret_access_key".to_string(),
+                    }
+                })?;
+
+                let credentials = match &config.bedrock_session_token {
+                    Some(token) => {
+                        BedrockCredentials::with_session_token(access_key_id, secret_access_key, token.clone())
+                    }
+                    None => BedrockCredentials::new(access_key_id, secret_access_key),
+                };
+
+                let provider = BedrockProvider::new(credentials, region, config.model.clone());
                 LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
                     op: "init_client".to_string(),
                     message: format!("failed to initialize LLM client: {}", e),
@@ -261,6 +318,13 @@ mod tests {
             max_tokens: 4096,
             system_prompt: None,
             temperature: None,
+            azure_resource: None,
+            azure_deployment: None,
+            azure_api_version: None,
+            bedrock_region: None,
+            bedrock_access_key_id: None,
+            bedrock_secret_access_key: None,
+            bedrock_session_token: None,
         };
         assert!(config.validate().is_err());
 
@@ -273,6 +337,13 @@ mod tests {
             max_tokens: 4096,
             system_prompt: None,
             temperature: None,
+            azure_resource: None,
+            azure_deployment: None,
+            azure_api_version: None,
+            bedrock_region: None,
+            bedrock_access_key_id: None,
+            bedrock_secret_access_key: None,
+            bedrock_session_token: None,
         };
         assert!(config.validate().is_err());
 
