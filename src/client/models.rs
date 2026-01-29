@@ -63,6 +63,63 @@ pub struct Message {
     pub role: Role,
     /// Content blocks (text, images, tool use, tool results).
     pub content: Vec<Content>,
+    /// Provider-specific response metadata (safety ratings, grounding, citations).
+    pub response_metadata: Option<ResponseMetadata>,
+}
+
+/// Provider-specific metadata returned with responses.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ResponseMetadata {
+    /// Content safety ratings (Gemini).
+    pub safety_ratings: Option<Vec<SafetyRating>>,
+    /// Grounding/citation metadata (Gemini).
+    pub grounding: Option<GroundingMetadata>,
+}
+
+/// Content safety rating from the model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SafetyRating {
+    /// Harm category (e.g., "HARM_CATEGORY_HARASSMENT").
+    pub category: String,
+    /// Probability level (e.g., "NEGLIGIBLE", "LOW", "MEDIUM", "HIGH").
+    pub probability: String,
+    /// Whether this category was blocked.
+    pub blocked: bool,
+}
+
+/// Grounding and citation metadata.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GroundingMetadata {
+    /// Web search queries used for grounding.
+    pub web_search_queries: Vec<String>,
+    /// Grounding chunks with source information.
+    pub grounding_chunks: Vec<GroundingChunk>,
+    /// Grounding supports linking content to sources.
+    pub grounding_supports: Vec<GroundingSupport>,
+}
+
+/// A source chunk used for grounding.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroundingChunk {
+    /// Source type (e.g., "web").
+    pub source_type: String,
+    /// URI of the source.
+    pub uri: Option<String>,
+    /// Title of the source.
+    pub title: Option<String>,
+}
+
+/// Links a segment of generated content to grounding sources.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroundingSupport {
+    /// Start index in the generated text.
+    pub start_index: usize,
+    /// End index in the generated text.
+    pub end_index: usize,
+    /// Indices into grounding_chunks that support this segment.
+    pub chunk_indices: Vec<usize>,
+    /// Confidence scores for each supporting chunk.
+    pub confidence_scores: Vec<f32>,
 }
 
 impl Message {
@@ -71,12 +128,26 @@ impl Message {
         Self {
             role,
             content: vec![Content::Text(text.into())],
+            response_metadata: None,
         }
     }
 
     /// Create a message with multiple content blocks.
     pub fn with_content(role: Role, content: Vec<Content>) -> Self {
-        Self { role, content }
+        Self {
+            role,
+            content,
+            response_metadata: None,
+        }
+    }
+
+    /// Create a message with content and metadata.
+    pub fn with_metadata(role: Role, content: Vec<Content>, metadata: ResponseMetadata) -> Self {
+        Self {
+            role,
+            content,
+            response_metadata: Some(metadata),
+        }
     }
 
     /// Create a system message with text content.
@@ -103,6 +174,7 @@ impl Message {
                 content: content.into(),
                 is_error,
             })],
+            response_metadata: None,
         }
     }
 }

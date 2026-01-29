@@ -282,7 +282,7 @@ impl Message {
             }
             MessageRole::Tool => {
                 if let Some(ref data) = self.tool_data {
-                    lines.extend(render_tool_message(data, config));
+                    lines.extend(render_tool_message(data, config, available_width));
                 }
             }
         }
@@ -657,8 +657,13 @@ impl ChatView {
 }
 
 /// Render a tool execution message
-fn render_tool_message(data: &ToolMessageData, config: &ChatViewConfig) -> Vec<Line<'static>> {
+fn render_tool_message(
+    data: &ToolMessageData,
+    config: &ChatViewConfig,
+    available_width: usize,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
+    let theme = app_theme();
 
     // Line 1: tool icon + DisplayName(DisplayTitle)
     let header = if data.display_title.is_empty() {
@@ -666,28 +671,43 @@ fn render_tool_message(data: &ToolMessageData, config: &ChatViewConfig) -> Vec<L
     } else {
         format!("{} {}({})", config.tool_icon, data.display_name, data.display_title)
     };
-    lines.push(Line::from(Span::styled(header, app_theme().tool_header)));
+    lines.push(Line::from(Span::styled(header, theme.tool_header)));
 
-    // Line 2: Status with appropriate icon and color
-    let status_line = match &data.status {
-        ToolStatus::Executing => Line::from(Span::styled(
-            format!("   {} executing...", config.tool_executing_arrow),
-            app_theme().tool_executing,
-        )),
-        ToolStatus::WaitingForUser => Line::from(Span::styled(
-            format!("   {} waiting for user...", config.tool_executing_arrow),
-            app_theme().tool_executing,
-        )),
-        ToolStatus::Completed => Line::from(Span::styled(
-            format!("   {} Completed", config.tool_completed_checkmark),
-            app_theme().tool_completed,
-        )),
-        ToolStatus::Failed(err) => Line::from(Span::styled(
-            format!("   {} {}", config.tool_failed_icon, err),
-            app_theme().tool_failed,
-        )),
-    };
-    lines.push(status_line);
+    // Line 2+: Status with appropriate icon and color
+    match &data.status {
+        ToolStatus::Executing => {
+            lines.push(Line::from(Span::styled(
+                format!("   {} executing...", config.tool_executing_arrow),
+                theme.tool_executing,
+            )));
+        }
+        ToolStatus::WaitingForUser => {
+            lines.push(Line::from(Span::styled(
+                format!("   {} waiting for user...", config.tool_executing_arrow),
+                theme.tool_executing,
+            )));
+        }
+        ToolStatus::Completed => {
+            lines.push(Line::from(Span::styled(
+                format!("   {} Completed", config.tool_completed_checkmark),
+                theme.tool_completed,
+            )));
+        }
+        ToolStatus::Failed(err) => {
+            // Wrap long error messages with proper indentation
+            let prefix = format!("   {} ", config.tool_failed_icon);
+            let cont_prefix = "     "; // Align continuation with error text
+            let wrapped = wrap_with_prefix(
+                err,
+                &prefix,
+                theme.tool_failed,
+                cont_prefix,
+                available_width,
+                &theme,
+            );
+            lines.extend(wrapped);
+        }
+    }
 
     lines
 }
