@@ -174,39 +174,41 @@ impl AgentCore {
             )
         })?;
 
+        // Get channel buffer size from config (or use default)
+        let channel_size = config.channel_buffer_size().unwrap_or(DEFAULT_CHANNEL_SIZE);
+        tracing::debug!("Using channel buffer size: {}", channel_size);
+
         // Create communication channels
         let (to_controller_tx, to_controller_rx) =
-            mpsc::channel::<ControllerInputPayload>(DEFAULT_CHANNEL_SIZE);
+            mpsc::channel::<ControllerInputPayload>(channel_size);
         let (from_controller_tx, from_controller_rx) =
-            mpsc::channel::<UiMessage>(DEFAULT_CHANNEL_SIZE);
+            mpsc::channel::<UiMessage>(channel_size);
 
-        // Create the controller with an event handler that forwards to the UI channel
-        let ui_tx = from_controller_tx.clone();
-        let event_handler = Box::new(move |event: ControllerEvent| {
-            let msg = convert_controller_event_to_ui_message(event);
-            // Try to send, log if channel is full (non-blocking to avoid deadlock)
-            if let Err(e) = ui_tx.try_send(msg) {
-                tracing::warn!("Failed to send controller event to UI: {}", e);
-            }
-        });
-
-        let controller = Arc::new(LLMController::new(Some(event_handler)));
+        // Create the controller with UI channel for direct event forwarding
+        // The controller will use backpressure: when UI channel is full, it stops
+        // reading from LLM, which backs up the from_llm channel, which blocks the
+        // session, which slows down network consumption.
+        let controller = Arc::new(LLMController::new(
+            Some(from_controller_tx.clone()),
+            Some(channel_size),
+        ));
         let cancel_token = CancellationToken::new();
 
         // Create channel for user interaction events
         let (interaction_event_tx, mut interaction_event_rx) =
-            mpsc::channel::<ControllerEvent>(DEFAULT_CHANNEL_SIZE);
+            mpsc::channel::<ControllerEvent>(channel_size);
 
         // Create the user interaction registry
         let user_interaction_registry =
             Arc::new(UserInteractionRegistry::new(interaction_event_tx));
 
         // Spawn a task to forward user interaction events to the UI channel
+        // Uses blocking send for backpressure
         let ui_tx_for_interactions = from_controller_tx.clone();
         runtime.spawn(async move {
             while let Some(event) = interaction_event_rx.recv().await {
                 let msg = convert_controller_event_to_ui_message(event);
-                if let Err(e) = ui_tx_for_interactions.try_send(msg) {
+                if let Err(e) = ui_tx_for_interactions.send(msg).await {
                     tracing::warn!("Failed to send user interaction event to UI: {}", e);
                 }
             }
@@ -214,17 +216,18 @@ impl AgentCore {
 
         // Create channel for permission events
         let (permission_event_tx, mut permission_event_rx) =
-            mpsc::channel::<ControllerEvent>(DEFAULT_CHANNEL_SIZE);
+            mpsc::channel::<ControllerEvent>(channel_size);
 
         // Create the permission registry
         let permission_registry = Arc::new(PermissionRegistry::new(permission_event_tx));
 
         // Spawn a task to forward permission events to the UI channel
+        // Uses blocking send for backpressure
         let ui_tx_for_permissions = from_controller_tx.clone();
         runtime.spawn(async move {
             while let Some(event) = permission_event_rx.recv().await {
                 let msg = convert_controller_event_to_ui_message(event);
-                if let Err(e) = ui_tx_for_permissions.try_send(msg) {
+                if let Err(e) = ui_tx_for_permissions.send(msg).await {
                     tracing::warn!("Failed to send permission event to UI: {}", e);
                 }
             }

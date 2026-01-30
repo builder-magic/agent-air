@@ -118,10 +118,15 @@ pub mod channels {
     pub type FromControllerRx = mpsc::Receiver<UiMessage>;
 
     /// Creates a pair of channels for TUI-Controller communication
-    pub fn create_channels() -> (ToControllerTx, ToControllerRx, FromControllerTx, FromControllerRx)
-    {
-        let (to_ctrl_tx, to_ctrl_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (from_ctrl_tx, from_ctrl_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+    ///
+    /// # Arguments
+    /// * `channel_size` - Optional buffer size for channels. Uses DEFAULT_CHANNEL_SIZE if None.
+    pub fn create_channels(
+        channel_size: Option<usize>,
+    ) -> (ToControllerTx, ToControllerRx, FromControllerTx, FromControllerRx) {
+        let size = channel_size.unwrap_or(DEFAULT_CHANNEL_SIZE);
+        let (to_ctrl_tx, to_ctrl_rx) = mpsc::channel(size);
+        let (from_ctrl_tx, from_ctrl_rx) = mpsc::channel(size);
         (to_ctrl_tx, to_ctrl_rx, from_ctrl_tx, from_ctrl_rx)
     }
 }

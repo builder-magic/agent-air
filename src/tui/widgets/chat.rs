@@ -320,6 +320,12 @@ pub struct ChatView {
     scroll_offset: u16,
     /// Buffer for streaming assistant response
     streaming_buffer: Option<String>,
+    /// Cached rendered lines for streaming buffer
+    streaming_cache: Option<Vec<Line<'static>>>,
+    /// Length of streaming_buffer when cache was created
+    streaming_cache_len: usize,
+    /// Width at which streaming cache was created
+    streaming_cache_width: usize,
     /// Cached max scroll value from last render
     last_max_scroll: u16,
     /// Whether auto-scroll is enabled (disabled when user manually scrolls)
@@ -351,6 +357,9 @@ impl ChatView {
             messages: Vec::new(),
             scroll_offset: 0,
             streaming_buffer: None,
+            streaming_cache: None,
+            streaming_cache_len: 0,
+            streaming_cache_width: 0,
             last_max_scroll: 0,
             auto_scroll_enabled: true,
             tool_index: HashMap::new(),
@@ -504,6 +513,10 @@ impl ChatView {
             Some(buffer) => buffer.push_str(text),
             None => self.streaming_buffer = Some(text.to_string()),
         }
+        // Invalidate streaming cache (buffer content changed)
+        self.streaming_cache = None;
+        self.streaming_cache_len = 0;
+        self.streaming_cache_width = 0;
         // Only auto-scroll if enabled (user hasn't manually scrolled)
         if self.auto_scroll_enabled {
             self.scroll_offset = u16::MAX;
@@ -518,11 +531,19 @@ impl ChatView {
                     .push(Message::new(MessageRole::Assistant, content));
             }
         }
+        // Clear streaming cache
+        self.streaming_cache = None;
+        self.streaming_cache_len = 0;
+        self.streaming_cache_width = 0;
     }
 
     /// Discard the streaming buffer without saving (used on cancel)
     pub fn discard_streaming(&mut self) {
         self.streaming_buffer = None;
+        // Clear streaming cache
+        self.streaming_cache = None;
+        self.streaming_cache_len = 0;
+        self.streaming_cache_width = 0;
     }
 
     /// Check if currently streaming
@@ -607,10 +628,28 @@ impl ChatView {
             message_lines.extend(cached.iter().cloned());
         }
 
-        // Add streaming buffer if present
+        // Add streaming buffer if present (with caching)
         if let Some(ref buffer) = self.streaming_buffer {
-            let rendered = render_markdown_with_prefix(buffer, available_width, &theme);
-            message_lines.extend(rendered);
+            let buffer_len = buffer.len();
+
+            // Check if cache is valid (same content length and width)
+            let cache_valid = self.streaming_cache.is_some()
+                && self.streaming_cache_len == buffer_len
+                && self.streaming_cache_width == available_width;
+
+            if !cache_valid {
+                // Re-render and update cache
+                let rendered = render_markdown_with_prefix(buffer, available_width, &theme);
+                self.streaming_cache = Some(rendered);
+                self.streaming_cache_len = buffer_len;
+                self.streaming_cache_width = available_width;
+            }
+
+            // Use cached lines
+            if let Some(ref cached) = self.streaming_cache {
+                message_lines.extend(cached.iter().cloned());
+            }
+
             // Add cursor on last line
             if let Some(last) = message_lines.last_mut() {
                 last.spans
@@ -842,6 +881,10 @@ impl ConversationView for ChatView {
             self.messages = chat_state.messages.into_iter().map(Message::from).collect();
             self.scroll_offset = chat_state.scroll_offset;
             self.streaming_buffer = chat_state.streaming_buffer;
+            // Clear streaming cache (will be regenerated on next render)
+            self.streaming_cache = None;
+            self.streaming_cache_len = 0;
+            self.streaming_cache_width = 0;
             self.last_max_scroll = chat_state.last_max_scroll;
             self.auto_scroll_enabled = chat_state.auto_scroll_enabled;
             self.tool_index = chat_state.tool_index;
@@ -852,6 +895,9 @@ impl ConversationView for ChatView {
     fn clear(&mut self) {
         self.messages.clear();
         self.streaming_buffer = None;
+        self.streaming_cache = None;
+        self.streaming_cache_len = 0;
+        self.streaming_cache_width = 0;
         self.tool_index.clear();
         self.scroll_offset = 0;
         self.last_max_scroll = 0;

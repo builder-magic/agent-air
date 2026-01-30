@@ -30,6 +30,7 @@ impl LLMSessionManager {
     /// # Arguments
     /// * `config` - Session configuration (includes model, API key, etc.)
     /// * `from_llm` - Channel sender for responses from the LLM
+    /// * `channel_size` - Buffer size for the session's input channel
     ///
     /// # Returns
     /// The session ID of the newly created session
@@ -40,9 +41,10 @@ impl LLMSessionManager {
         &self,
         config: LLMSessionConfig,
         from_llm: mpsc::Sender<FromLLMPayload>,
+        channel_size: usize,
     ) -> Result<i64, LlmError> {
         let cancel_token = CancellationToken::new();
-        let session = Arc::new(LLMSession::new(config, from_llm, cancel_token)?);
+        let session = Arc::new(LLMSession::new(config, from_llm, cancel_token, channel_size)?);
         let session_id = session.id();
 
         // Store the session

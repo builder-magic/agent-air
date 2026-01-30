@@ -12,9 +12,7 @@ use std::sync::Arc;
 use crate::client::error::LlmError;
 use crate::controller::session::{LLMSession, LLMSessionConfig, LLMSessionManager};
 use crate::controller::tools::{
-    AskUserQuestionsResponse, PendingPermissionInfo, PendingQuestionInfo, PermissionError,
-    PermissionRegistry, PermissionResponse, ToolBatchResult, ToolExecutor, ToolRegistry,
-    ToolRequest, ToolResult, UserInteractionError, UserInteractionRegistry,
+    ToolBatchResult, ToolExecutor, ToolRegistry, ToolRequest, ToolResult,
 };
 use crate::controller::error::ControllerError;
 use crate::controller::types::{
@@ -22,12 +20,12 @@ use crate::controller::types::{
     LLMRequestType, LLMResponseType, ToLLMPayload, TurnId,
 };
 use crate::controller::usage::TokenUsageTracker;
+use crate::agent::{convert_controller_event_to_ui_message, UiMessage};
 
-/// Callback function type for controller events
-pub type EventFunc = Box<dyn Fn(ControllerEvent) + Send + Sync>;
-
-/// Default channel buffer size for internal communication
-pub const DEFAULT_CHANNEL_SIZE: usize = 100;
+/// Default channel buffer size for internal communication.
+/// This applies to all async channels: LLM responses, tool results, UI events, etc.
+/// Can be overridden via AgentConfig::channel_buffer_size().
+pub const DEFAULT_CHANNEL_SIZE: usize = 500;
 
 /// Timeout for sending input to the controller
 const SEND_INPUT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -61,8 +59,10 @@ pub struct LLMController {
     /// Cancellation token for graceful shutdown
     cancel_token: CancellationToken,
 
-    /// Optional callback for external event consumers
-    event_func: Option<EventFunc>,
+    /// UI channel sender for forwarding events to the UI
+    /// When this channel is full, the controller will stop reading from LLM
+    /// to provide backpressure through the entire pipeline
+    ui_tx: Option<mpsc::Sender<UiMessage>>,
 
     /// Tool registry for managing available tools
     tool_registry: Arc<ToolRegistry>,
@@ -76,39 +76,25 @@ pub struct LLMController {
     /// Receiver for batch tool results (for sending to LLM)
     batch_result_rx: Mutex<mpsc::Receiver<ToolBatchResult>>,
 
-    /// Registry for user interaction tools
-    user_interaction_registry: Arc<UserInteractionRegistry>,
-
-    /// Receiver for user interaction events
-    user_interaction_rx: Mutex<mpsc::Receiver<ControllerEvent>>,
-
-    /// Registry for permission requests
-    permission_registry: Arc<PermissionRegistry>,
-
-    /// Receiver for permission events
-    permission_rx: Mutex<mpsc::Receiver<ControllerEvent>>,
+    /// Channel buffer size for session channels
+    channel_size: usize,
 }
 
 impl LLMController {
     /// Creates a new LLM controller
     ///
     /// # Arguments
-    /// * `event_func` - Optional callback for controller events
-    pub fn new(event_func: Option<EventFunc>) -> Self {
-        let (from_llm_tx, from_llm_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (input_tx, input_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+    /// * `ui_tx` - Optional UI channel sender for forwarding events
+    /// * `channel_size` - Optional channel buffer size (defaults to DEFAULT_CHANNEL_SIZE)
+    pub fn new(ui_tx: Option<mpsc::Sender<UiMessage>>, channel_size: Option<usize>) -> Self {
+        let size = channel_size.unwrap_or(DEFAULT_CHANNEL_SIZE);
+
+        let (from_llm_tx, from_llm_rx) = mpsc::channel(size);
+        let (input_tx, input_rx) = mpsc::channel(size);
 
         // Create tool execution channels
-        let (tool_result_tx, tool_result_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (batch_result_tx, batch_result_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-
-        // Create user interaction registry with event channel
-        let (user_interaction_tx, user_interaction_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let user_interaction_registry = Arc::new(UserInteractionRegistry::new(user_interaction_tx));
-
-        // Create permission registry with event channel
-        let (permission_tx, permission_rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let permission_registry = Arc::new(PermissionRegistry::new(permission_tx));
+        let (tool_result_tx, tool_result_rx) = mpsc::channel(size);
+        let (batch_result_tx, batch_result_rx) = mpsc::channel(size);
 
         let tool_registry = Arc::new(ToolRegistry::new());
         let tool_executor = ToolExecutor::new(
@@ -127,15 +113,32 @@ impl LLMController {
             started: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
             cancel_token: CancellationToken::new(),
-            event_func,
+            ui_tx,
             tool_registry,
             tool_executor,
             tool_result_rx: Mutex::new(tool_result_rx),
             batch_result_rx: Mutex::new(batch_result_rx),
-            user_interaction_registry,
-            user_interaction_rx: Mutex::new(user_interaction_rx),
-            permission_registry,
-            permission_rx: Mutex::new(permission_rx),
+            channel_size: size,
+        }
+    }
+
+    /// Check if the UI channel has capacity for more events.
+    /// Returns true if there's no UI channel (events are discarded) or if channel has room.
+    fn ui_has_capacity(&self) -> bool {
+        match &self.ui_tx {
+            Some(tx) => tx.capacity() > 0,
+            None => true, // No UI channel means we can "send" (discard) freely
+        }
+    }
+
+    /// Send an event to the UI channel.
+    /// This will wait if the channel is full, providing backpressure.
+    async fn send_to_ui(&self, event: ControllerEvent) {
+        if let Some(ref tx) = self.ui_tx {
+            let msg = convert_controller_event_to_ui_message(event);
+            if let Err(e) = tx.send(msg).await {
+                tracing::warn!("Failed to send event to UI: {}", e);
+            }
         }
     }
 
@@ -155,11 +158,11 @@ impl LLMController {
 
         tracing::info!("Controller starting");
 
-        // Main event loop - processes events from 6 channels using tokio::select!
+        // Main event loop - processes events from 4 channels using tokio::select!
         //
         // DESIGN NOTE: Mutex Pattern for Multiple Receivers
         // -------------------------------------------------
-        // This loop acquires all 6 receiver locks at the start of each iteration,
+        // This loop acquires all 4 receiver locks at the start of each iteration,
         // then immediately drops them in each select! branch. This pattern is:
         //
         // 1. SAFE: No deadlock risk - locks acquired in consistent order, released immediately
@@ -177,28 +180,30 @@ impl LLMController {
         // - input_tx: UI thread (user input with timeout)
         // - batch_result_tx: Tool executor (completed batches)
         // - tool_result_tx: Individual tool tasks (UI feedback)
-        // - user_interaction_tx: UserInteractionRegistry (tool questions)
-        // - permission_tx: PermissionRegistry (permission requests)
+        //
+        // NOTE: User interaction and permission events are handled by AgentCore's
+        // forwarding tasks, not by this controller. AgentCore creates its own
+        // registries and forwards events directly to the UI channel.
         loop {
             let mut from_llm_guard = self.from_llm_rx.lock().await;
             let mut input_guard = self.input_rx.lock().await;
             let mut batch_result_guard = self.batch_result_rx.lock().await;
             let mut tool_result_guard = self.tool_result_rx.lock().await;
-            let mut user_interaction_guard = self.user_interaction_rx.lock().await;
-            let mut permission_guard = self.permission_rx.lock().await;
+
+            // Check UI capacity once before select to use in conditions
+            let ui_ready = self.ui_has_capacity();
 
             tokio::select! {
                 _ = self.cancel_token.cancelled() => {
                     tracing::info!("Controller cancelled");
                     break;
                 }
-                msg = from_llm_guard.recv() => {
+                // LLM responses - only read if UI has capacity (backpressure)
+                msg = from_llm_guard.recv(), if ui_ready => {
                     drop(from_llm_guard);
                     drop(input_guard);
                     drop(batch_result_guard);
                     drop(tool_result_guard);
-                    drop(user_interaction_guard);
-                    drop(permission_guard);
                     if let Some(payload) = msg {
                         self.handle_llm_response(payload).await;
                     } else {
@@ -206,13 +211,12 @@ impl LLMController {
                         break;
                     }
                 }
+                // User input - always process (user can cancel, etc.)
                 msg = input_guard.recv() => {
                     drop(from_llm_guard);
                     drop(input_guard);
                     drop(batch_result_guard);
                     drop(tool_result_guard);
-                    drop(user_interaction_guard);
-                    drop(permission_guard);
                     if let Some(payload) = msg {
                         self.handle_input(payload).await;
                     } else {
@@ -220,66 +224,34 @@ impl LLMController {
                         break;
                     }
                 }
+                // Tool batch results - always process (sends results to LLM)
                 batch_result = batch_result_guard.recv() => {
                     drop(from_llm_guard);
                     drop(input_guard);
                     drop(batch_result_guard);
                     drop(tool_result_guard);
-                    drop(user_interaction_guard);
-                    drop(permission_guard);
                     if let Some(result) = batch_result {
                         self.handle_tool_batch_result(result).await;
                     }
                 }
-                tool_result = tool_result_guard.recv() => {
+                // Individual tool results - only read if UI has capacity
+                tool_result = tool_result_guard.recv(), if ui_ready => {
                     drop(from_llm_guard);
                     drop(input_guard);
                     drop(batch_result_guard);
                     drop(tool_result_guard);
-                    drop(user_interaction_guard);
-                    drop(permission_guard);
                     if let Some(result) = tool_result {
-                        // Emit individual tool result for UI feedback
-                        if let Some(ref func) = self.event_func {
-                            func(ControllerEvent::ToolResult {
-                                session_id: result.session_id,
-                                tool_use_id: result.tool_use_id,
-                                tool_name: result.tool_name,
-                                display_name: result.display_name,
-                                status: result.status,
-                                content: result.content,
-                                error: result.error,
-                                turn_id: result.turn_id,
-                            });
-                        }
-                    }
-                }
-                user_interaction_event = user_interaction_guard.recv() => {
-                    drop(from_llm_guard);
-                    drop(input_guard);
-                    drop(batch_result_guard);
-                    drop(tool_result_guard);
-                    drop(user_interaction_guard);
-                    drop(permission_guard);
-                    if let Some(event) = user_interaction_event {
-                        // Forward user interaction events to the event callback
-                        if let Some(ref func) = self.event_func {
-                            func(event);
-                        }
-                    }
-                }
-                permission_event = permission_guard.recv() => {
-                    drop(from_llm_guard);
-                    drop(input_guard);
-                    drop(batch_result_guard);
-                    drop(tool_result_guard);
-                    drop(user_interaction_guard);
-                    drop(permission_guard);
-                    if let Some(event) = permission_event {
-                        // Forward permission events to the event callback
-                        if let Some(ref func) = self.event_func {
-                            func(event);
-                        }
+                        // Send tool result to UI
+                        self.send_to_ui(ControllerEvent::ToolResult {
+                            session_id: result.session_id,
+                            tool_use_id: result.tool_use_id,
+                            tool_name: result.tool_name,
+                            display_name: result.display_name,
+                            status: result.status,
+                            content: result.content,
+                            error: result.error,
+                            turn_id: result.turn_id,
+                        }).await;
                     }
                 }
             }
@@ -421,16 +393,14 @@ impl LLMController {
                             (None, None)
                         };
 
-                    // Emit ToolUse event for UI
-                    if let Some(ref func) = self.event_func {
-                        func(ControllerEvent::ToolUse {
-                            session_id: payload.session_id,
-                            tool: tool_info.clone(),
-                            display_name,
-                            display_title,
-                            turn_id: payload.turn_id.clone(),
-                        });
-                    }
+                    // Send ToolUse event to UI
+                    self.send_to_ui(ControllerEvent::ToolUse {
+                        session_id: payload.session_id,
+                        tool: tool_info.clone(),
+                        display_name,
+                        display_title,
+                        turn_id: payload.turn_id.clone(),
+                    }).await;
                 }
 
                 // Execute batch - tools run concurrently, results sent when all complete
@@ -473,9 +443,9 @@ impl LLMController {
             }
         };
 
-        // Emit event if we have one and a callback is registered
-        if let (Some(event), Some(func)) = (event, &self.event_func) {
-            func(event);
+        // Send event to UI if we have one
+        if let Some(event) = event {
+            self.send_to_ui(event).await;
         }
     }
 
@@ -498,7 +468,7 @@ impl LLMController {
         // Get the session
         let Some(session) = self.session_mgr.get_session_by_id(session_id).await else {
             tracing::error!(session_id, "Session not found for data input");
-            self.emit_error(session_id, "Session not found".to_string(), payload.turn_id);
+            self.emit_error(session_id, "Session not found".to_string(), payload.turn_id).await;
             return;
         };
 
@@ -520,7 +490,7 @@ impl LLMController {
                 session_id,
                 "Failed to send message to session".to_string(),
                 None,
-            );
+            ).await;
         }
     }
 
@@ -553,7 +523,7 @@ impl LLMController {
                 if let Some(session) = self.session_mgr.get_session_by_id(session_id).await {
                     session.clear_conversation().await;
                     tracing::info!(session_id, "Session conversation cleared");
-                    self.emit_command_complete(session_id, cmd, true, None);
+                    self.emit_command_complete(session_id, cmd, true, None).await;
                 } else {
                     tracing::warn!(session_id, "Cannot clear: session not found");
                     self.emit_command_complete(
@@ -561,7 +531,7 @@ impl LLMController {
                         cmd,
                         false,
                         Some("Session not found".to_string()),
-                    );
+                    ).await;
                 }
             }
             ControlCmd::Compact => {
@@ -572,7 +542,7 @@ impl LLMController {
                     if let Some(error) = result.error {
                         // Compaction failed or no compactor configured
                         tracing::warn!(session_id, error = %error, "Session compaction failed");
-                        self.emit_command_complete(session_id, cmd, false, Some(error));
+                        self.emit_command_complete(session_id, cmd, false, Some(error)).await;
                     } else if !result.compacted {
                         // Nothing to compact
                         tracing::info!(session_id, "Nothing to compact");
@@ -581,7 +551,7 @@ impl LLMController {
                             cmd,
                             true,
                             Some("Nothing to compact - not enough turns in conversation".to_string()),
-                        );
+                        ).await;
                     } else {
                         // Compaction succeeded
                         let message = format!(
@@ -603,7 +573,7 @@ impl LLMController {
                             messages_after = result.messages_after,
                             "Session compaction completed"
                         );
-                        self.emit_command_complete(session_id, cmd, true, Some(message));
+                        self.emit_command_complete(session_id, cmd, true, Some(message)).await;
                     }
                 } else {
                     tracing::warn!(session_id, "Cannot compact: session not found");
@@ -612,39 +582,35 @@ impl LLMController {
                         cmd,
                         false,
                         Some("Session not found".to_string()),
-                    );
+                    ).await;
                 }
             }
         }
     }
 
     /// Emits an error event
-    fn emit_error(&self, session_id: i64, error: String, turn_id: Option<TurnId>) {
-        if let Some(ref func) = self.event_func {
-            func(ControllerEvent::Error {
-                session_id,
-                error,
-                turn_id,
-            });
-        }
+    async fn emit_error(&self, session_id: i64, error: String, turn_id: Option<TurnId>) {
+        self.send_to_ui(ControllerEvent::Error {
+            session_id,
+            error,
+            turn_id,
+        }).await;
     }
 
     /// Emits a command complete event
-    fn emit_command_complete(
+    async fn emit_command_complete(
         &self,
         session_id: i64,
         command: ControlCmd,
         success: bool,
         message: Option<String>,
     ) {
-        if let Some(ref func) = self.event_func {
-            func(ControllerEvent::CommandComplete {
-                session_id,
-                command,
-                success,
-                message,
-            });
-        }
+        self.send_to_ui(ControllerEvent::CommandComplete {
+            session_id,
+            command,
+            success,
+            message,
+        }).await;
     }
 
     /// Handles a batch of tool execution results by sending them back to the session.
@@ -765,7 +731,7 @@ impl LLMController {
     pub async fn create_session(&self, config: LLMSessionConfig) -> Result<i64, LlmError> {
         let session_id = self
             .session_mgr
-            .create_session(config, self.from_llm_tx.clone())
+            .create_session(config, self.from_llm_tx.clone(), self.channel_size)
             .await?;
 
         tracing::info!(session_id, "Session created via controller");
@@ -838,95 +804,4 @@ impl LLMController {
         &self.tool_registry
     }
 
-    // ---- User Interaction ----
-
-    /// Returns a reference to the user interaction registry.
-    pub fn user_interaction_registry(&self) -> &Arc<UserInteractionRegistry> {
-        &self.user_interaction_registry
-    }
-
-    /// Respond to a pending user interaction.
-    ///
-    /// This is called by the UI when the user has answered questions.
-    ///
-    /// # Arguments
-    /// * `tool_use_id` - ID of the tool use to respond to.
-    /// * `response` - The user's answers.
-    pub async fn respond_to_interaction(
-        &self,
-        tool_use_id: &str,
-        response: AskUserQuestionsResponse,
-    ) -> Result<(), UserInteractionError> {
-        self.user_interaction_registry
-            .respond(tool_use_id, response)
-            .await
-    }
-
-    /// Get all pending interactions for a session.
-    ///
-    /// This is called by the UI when switching sessions to display
-    /// any pending questions for that session.
-    pub async fn pending_interactions_for_session(
-        &self,
-        session_id: i64,
-    ) -> Vec<PendingQuestionInfo> {
-        self.user_interaction_registry
-            .pending_for_session(session_id)
-            .await
-    }
-
-    /// Check if a session has pending user interactions.
-    pub async fn has_pending_interactions(&self, session_id: i64) -> bool {
-        self.user_interaction_registry.has_pending(session_id).await
-    }
-
-    // ---- Permission Management ----
-
-    /// Returns a reference to the permission registry.
-    pub fn permission_registry(&self) -> &Arc<PermissionRegistry> {
-        &self.permission_registry
-    }
-
-    /// Respond to a pending permission request.
-    ///
-    /// This is called by the UI when the user has granted or denied permission.
-    ///
-    /// # Arguments
-    /// * `tool_use_id` - ID of the tool use to respond to.
-    /// * `response` - The user's response (grant/deny with scope).
-    pub async fn respond_to_permission(
-        &self,
-        tool_use_id: &str,
-        response: PermissionResponse,
-    ) -> Result<(), PermissionError> {
-        self.permission_registry
-            .respond(tool_use_id, response)
-            .await
-    }
-
-    /// Get all pending permission requests for a session.
-    ///
-    /// This is called by the UI when switching sessions to display
-    /// any pending permission requests for that session.
-    pub async fn pending_permissions_for_session(
-        &self,
-        session_id: i64,
-    ) -> Vec<PendingPermissionInfo> {
-        self.permission_registry
-            .pending_for_session(session_id)
-            .await
-    }
-
-    /// Check if a session has pending permission requests.
-    pub async fn has_pending_permissions(&self, session_id: i64) -> bool {
-        self.permission_registry.has_pending(session_id).await
-    }
-
-    /// Cancel a pending permission request.
-    ///
-    /// This is called by the UI when the user closes the permission dialog
-    /// without responding.
-    pub async fn cancel_permission(&self, tool_use_id: &str) -> Result<(), PermissionError> {
-        self.permission_registry.cancel(tool_use_id).await
-    }
 }

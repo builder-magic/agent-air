@@ -211,6 +211,7 @@ impl LLMSession {
     /// * `config` - Session configuration
     /// * `from_llm` - Sender for outgoing responses
     /// * `cancel_token` - Token for session cancellation
+    /// * `channel_size` - Buffer size for the session's input channel
     ///
     /// # Errors
     /// Returns an error if the LLM client fails to initialize (e.g., TLS setup failure)
@@ -218,9 +219,10 @@ impl LLMSession {
         config: LLMSessionConfig,
         from_llm: mpsc::Sender<FromLLMPayload>,
         cancel_token: CancellationToken,
+        channel_size: usize,
     ) -> Result<Self, LlmError> {
         let session_id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
-        let (to_llm_tx, to_llm_rx) = mpsc::channel(32);
+        let (to_llm_tx, to_llm_rx) = mpsc::channel(channel_size);
         let max_tokens = config.max_tokens.unwrap_or(4096) as i64;
         let system_prompt = config.system_prompt.clone();
 

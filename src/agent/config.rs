@@ -28,6 +28,18 @@ pub trait AgentConfig {
 
     /// Agent name for display and logging
     fn name(&self) -> &str;
+
+    /// Channel buffer size for internal communication channels.
+    ///
+    /// Returns None to use the default (500). Override to customize
+    /// the buffer size for all async channels (LLM responses, tool results,
+    /// UI events, etc.).
+    ///
+    /// Larger values reduce backpressure but use more memory.
+    /// Smaller values provide tighter flow control.
+    fn channel_buffer_size(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Provider configuration from YAML
