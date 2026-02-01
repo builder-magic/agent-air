@@ -3,11 +3,14 @@
 mod ask_for_permissions;
 mod ask_user_questions;
 mod executor;
+mod ls;
 mod permission_registry;
+mod read_file;
 mod registry;
 mod types;
 mod user_interaction;
 mod web_search;
+mod write_file;
 
 pub use ask_for_permissions::{
     AskForPermissionsTool, PermissionCategory, PermissionRequest, PermissionResponse,
@@ -20,6 +23,10 @@ pub use ask_user_questions::{
     ASK_USER_QUESTIONS_TOOL_NAME, ASK_USER_QUESTIONS_TOOL_SCHEMA,
 };
 pub use executor::ToolExecutor;
+pub use ls::{LsTool, LS_TOOL_DESCRIPTION, LS_TOOL_NAME, LS_TOOL_SCHEMA};
+pub use read_file::{
+    ReadFileTool, READ_FILE_TOOL_DESCRIPTION, READ_FILE_TOOL_NAME, READ_FILE_TOOL_SCHEMA,
+};
 pub use registry::{RegistryError, ToolRegistry};
 pub use types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolBatchResult, ToolContext,
@@ -30,4 +37,7 @@ pub use user_interaction::{PendingQuestionInfo, UserInteractionError, UserIntera
 pub use crate::client::models::Tool as LLMTool;
 pub use web_search::{
     WebSearchTool, WEB_SEARCH_TOOL_DESCRIPTION, WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_SCHEMA,
+};
+pub use write_file::{
+    WriteFileTool, WRITE_FILE_TOOL_DESCRIPTION, WRITE_FILE_TOOL_NAME, WRITE_FILE_TOOL_SCHEMA,
 };

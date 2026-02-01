@@ -35,6 +35,8 @@ pub mod defaults {
     /// Help text
     pub const HELP_TEXT: &str = " Up/Down: Navigate \u{00B7} Enter/Space: Select \u{00B7} Esc: Cancel";
     /// Category icons
+    pub const ICON_FILE_READ: &str = "\u{1F4C4}";     // Document
+    pub const ICON_DIRECTORY_READ: &str = "\u{1F4C2}"; // Open folder
     pub const ICON_FILE_WRITE: &str = "\u{270E}";
     pub const ICON_FILE_DELETE: &str = "\u{2717}";
     pub const ICON_NETWORK: &str = "\u{2194}";
@@ -58,6 +60,10 @@ pub struct PermissionPanelConfig {
     pub title: String,
     /// Help text
     pub help_text: String,
+    /// Category icon for file read
+    pub icon_file_read: String,
+    /// Category icon for directory read
+    pub icon_directory_read: String,
     /// Category icon for file write
     pub icon_file_write: String,
     /// Category icon for file delete
@@ -89,6 +95,8 @@ impl PermissionPanelConfig {
             no_indicator: defaults::NO_INDICATOR.to_string(),
             title: defaults::TITLE.to_string(),
             help_text: defaults::HELP_TEXT.to_string(),
+            icon_file_read: defaults::ICON_FILE_READ.to_string(),
+            icon_directory_read: defaults::ICON_DIRECTORY_READ.to_string(),
             icon_file_write: defaults::ICON_FILE_WRITE.to_string(),
             icon_file_delete: defaults::ICON_FILE_DELETE.to_string(),
             icon_network: defaults::ICON_NETWORK.to_string(),
@@ -126,12 +134,16 @@ impl PermissionPanelConfig {
     /// Set category icons
     pub fn with_category_icons(
         mut self,
+        file_read: impl Into<String>,
+        directory_read: impl Into<String>,
         file_write: impl Into<String>,
         file_delete: impl Into<String>,
         network: impl Into<String>,
         system: impl Into<String>,
         other: impl Into<String>,
     ) -> Self {
+        self.icon_file_read = file_read.into();
+        self.icon_directory_read = directory_read.into();
         self.icon_file_write = file_write.into();
         self.icon_file_delete = file_delete.into();
         self.icon_network = network.into();
@@ -146,8 +158,10 @@ impl PermissionPanelConfig {
 pub enum PermissionOption {
     /// Grant permission for this request only
     GrantOnce,
-    /// Grant permission for the remainder of the session
+    /// Grant permission for the remainder of the session (this specific resource)
     GrantSession,
+    /// Grant permission for ALL operations in this category for the session
+    GrantCategorySession,
     /// Deny the permission request
     Deny,
 }
@@ -158,6 +172,7 @@ impl PermissionOption {
         &[
             PermissionOption::GrantOnce,
             PermissionOption::GrantSession,
+            PermissionOption::GrantCategorySession,
             PermissionOption::Deny,
         ]
     }
@@ -167,6 +182,7 @@ impl PermissionOption {
         match self {
             PermissionOption::GrantOnce => "Grant Once",
             PermissionOption::GrantSession => "Grant for Session",
+            PermissionOption::GrantCategorySession => "Grant All in Category",
             PermissionOption::Deny => "Deny",
         }
     }
@@ -176,6 +192,7 @@ impl PermissionOption {
         match self {
             PermissionOption::GrantOnce => "Allow this action this one time",
             PermissionOption::GrantSession => "Allow this action for the rest of the session",
+            PermissionOption::GrantCategorySession => "Allow all actions in this category for the session",
             PermissionOption::Deny => "Reject this permission request",
         }
     }
@@ -191,6 +208,11 @@ impl PermissionOption {
             PermissionOption::GrantSession => PermissionResponse {
                 granted: true,
                 scope: Some(PermissionScope::Session),
+                message: None,
+            },
+            PermissionOption::GrantCategorySession => PermissionResponse {
+                granted: true,
+                scope: Some(PermissionScope::CategorySession),
                 message: None,
             },
             PermissionOption::Deny => PermissionResponse {
@@ -455,6 +477,8 @@ impl PermissionPanel {
 
         // Category with icon
         let category_icon = match self.request.category {
+            PermissionCategory::FileRead => &self.config.icon_file_read,
+            PermissionCategory::DirectoryRead => &self.config.icon_directory_read,
             PermissionCategory::FileWrite => &self.config.icon_file_write,
             PermissionCategory::FileDelete => &self.config.icon_file_delete,
             PermissionCategory::Network => &self.config.icon_network,
@@ -530,7 +554,9 @@ impl PermissionPanel {
 
             let (label_style, desc_style) = if is_selected {
                 match option {
-                    PermissionOption::GrantOnce | PermissionOption::GrantSession => {
+                    PermissionOption::GrantOnce
+                    | PermissionOption::GrantSession
+                    | PermissionOption::GrantCategorySession => {
                         (theme.button_confirm_focused(), theme.focused_text())
                     }
                     PermissionOption::Deny => {
@@ -539,7 +565,9 @@ impl PermissionPanel {
                 }
             } else {
                 match option {
-                    PermissionOption::GrantOnce | PermissionOption::GrantSession => {
+                    PermissionOption::GrantOnce
+                    | PermissionOption::GrantSession
+                    | PermissionOption::GrantCategorySession => {
                         (theme.button_confirm(), theme.muted_text())
                     }
                     PermissionOption::Deny => {
@@ -696,10 +724,11 @@ mod tests {
     #[test]
     fn test_permission_option_all() {
         let options = PermissionOption::all();
-        assert_eq!(options.len(), 3);
+        assert_eq!(options.len(), 4);
         assert_eq!(options[0], PermissionOption::GrantOnce);
         assert_eq!(options[1], PermissionOption::GrantSession);
-        assert_eq!(options[2], PermissionOption::Deny);
+        assert_eq!(options[2], PermissionOption::GrantCategorySession);
+        assert_eq!(options[3], PermissionOption::Deny);
     }
 
     #[test]
@@ -711,6 +740,10 @@ mod tests {
         let session = PermissionOption::GrantSession.to_response();
         assert!(session.granted);
         assert_eq!(session.scope, Some(PermissionScope::Session));
+
+        let category_session = PermissionOption::GrantCategorySession.to_response();
+        assert!(category_session.granted);
+        assert_eq!(category_session.scope, Some(PermissionScope::CategorySession));
 
         let deny = PermissionOption::Deny.to_response();
         assert!(!deny.granted);
@@ -755,6 +788,9 @@ mod tests {
         // Move down
         panel.select_next();
         assert_eq!(panel.selected_option(), PermissionOption::GrantSession);
+
+        panel.select_next();
+        assert_eq!(panel.selected_option(), PermissionOption::GrantCategorySession);
 
         panel.select_next();
         assert_eq!(panel.selected_option(), PermissionOption::Deny);

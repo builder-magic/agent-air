@@ -41,7 +41,7 @@ pub const ASK_FOR_PERMISSIONS_TOOL_SCHEMA: &str = r#"{
         },
         "category": {
             "type": "string",
-            "enum": ["file_write", "file_delete", "network", "system", "other"],
+            "enum": ["file_read", "directory_read", "file_write", "file_delete", "network", "system", "other"],
             "description": "Category of permission being requested"
         }
     },
@@ -52,6 +52,10 @@ pub const ASK_FOR_PERMISSIONS_TOOL_SCHEMA: &str = r#"{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionCategory {
+    /// Reading file contents.
+    FileRead,
+    /// Reading directory contents.
+    DirectoryRead,
     /// Writing to files.
     FileWrite,
     /// Deleting files.
@@ -67,11 +71,28 @@ pub enum PermissionCategory {
 impl std::fmt::Display for PermissionCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            PermissionCategory::FileRead => write!(f, "File Read"),
+            PermissionCategory::DirectoryRead => write!(f, "Directory Read"),
             PermissionCategory::FileWrite => write!(f, "File Write"),
             PermissionCategory::FileDelete => write!(f, "File Delete"),
             PermissionCategory::Network => write!(f, "Network"),
             PermissionCategory::System => write!(f, "System"),
             PermissionCategory::Other => write!(f, "Other"),
+        }
+    }
+}
+
+impl PermissionCategory {
+    /// Returns a user-friendly description for "allow all" grants.
+    pub fn allow_all_description(&self) -> &'static str {
+        match self {
+            PermissionCategory::FileRead => "all file reads",
+            PermissionCategory::DirectoryRead => "all directory listings",
+            PermissionCategory::FileWrite => "all file writes",
+            PermissionCategory::FileDelete => "all file deletions",
+            PermissionCategory::Network => "all network operations",
+            PermissionCategory::System => "all system commands",
+            PermissionCategory::Other => "all operations in this category",
         }
     }
 }
@@ -107,8 +128,11 @@ impl PermissionRequest {
 pub enum PermissionScope {
     /// Grant for this request only.
     Once,
-    /// Grant for the remainder of the session.
+    /// Grant for this specific resource for the remainder of the session.
     Session,
+    /// Grant for ALL operations of this category for the remainder of the session.
+    /// E.g., "Allow all file reads" or "Allow all directory listings".
+    CategorySession,
 }
 
 impl std::fmt::Display for PermissionScope {
@@ -116,6 +140,7 @@ impl std::fmt::Display for PermissionScope {
         match self {
             PermissionScope::Once => write!(f, "Once"),
             PermissionScope::Session => write!(f, "Session"),
+            PermissionScope::CategorySession => write!(f, "All in Category"),
         }
     }
 }
@@ -278,6 +303,8 @@ impl Executable for AskForPermissionsTool {
                     .and_then(|v| v.as_str())
                     .map(|s| {
                         match s {
+                            "file_read" => "File Read",
+                            "directory_read" => "Directory Read",
                             "file_write" => "File Write",
                             "file_delete" => "File Delete",
                             "network" => "Network",
@@ -351,6 +378,14 @@ mod tests {
 
     #[test]
     fn test_parse_permission_category() {
+        let file_read: PermissionCategory =
+            serde_json::from_str("\"file_read\"").unwrap();
+        assert_eq!(file_read, PermissionCategory::FileRead);
+
+        let directory_read: PermissionCategory =
+            serde_json::from_str("\"directory_read\"").unwrap();
+        assert_eq!(directory_read, PermissionCategory::DirectoryRead);
+
         let file_write: PermissionCategory =
             serde_json::from_str("\"file_write\"").unwrap();
         assert_eq!(file_write, PermissionCategory::FileWrite);
@@ -371,11 +406,20 @@ mod tests {
 
     #[test]
     fn test_permission_category_display() {
+        assert_eq!(format!("{}", PermissionCategory::FileRead), "File Read");
+        assert_eq!(format!("{}", PermissionCategory::DirectoryRead), "Directory Read");
         assert_eq!(format!("{}", PermissionCategory::FileWrite), "File Write");
         assert_eq!(format!("{}", PermissionCategory::FileDelete), "File Delete");
         assert_eq!(format!("{}", PermissionCategory::Network), "Network");
         assert_eq!(format!("{}", PermissionCategory::System), "System");
         assert_eq!(format!("{}", PermissionCategory::Other), "Other");
+    }
+
+    #[test]
+    fn test_permission_category_allow_all_description() {
+        assert_eq!(PermissionCategory::FileRead.allow_all_description(), "all file reads");
+        assert_eq!(PermissionCategory::DirectoryRead.allow_all_description(), "all directory listings");
+        assert_eq!(PermissionCategory::FileWrite.allow_all_description(), "all file writes");
     }
 
     #[test]
@@ -417,6 +461,7 @@ mod tests {
     fn test_permission_scope_display() {
         assert_eq!(format!("{}", PermissionScope::Once), "Once");
         assert_eq!(format!("{}", PermissionScope::Session), "Session");
+        assert_eq!(format!("{}", PermissionScope::CategorySession), "All in Category");
     }
 
     #[test]

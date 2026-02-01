@@ -55,7 +55,8 @@ pub struct PermissionGrant {
     /// Category of the permission.
     pub category: PermissionCategory,
     /// The action pattern that was granted (for matching future requests).
-    pub action_pattern: String,
+    /// None means this is a category-wide grant ("allow all" for this category).
+    pub action_pattern: Option<String>,
 }
 
 /// Internal state for a pending permission request.
@@ -96,6 +97,10 @@ impl PermissionRegistry {
     /// Check if permission is already granted for the session.
     ///
     /// This checks if a previous session-level grant covers this request.
+    /// A grant matches if:
+    /// - The category matches AND
+    /// - Either the grant is category-wide (action_pattern is None), OR
+    /// - The action_pattern exactly matches the request action
     ///
     /// # Arguments
     /// * `session_id` - Session to check.
@@ -108,7 +113,14 @@ impl PermissionRegistry {
         if let Some(session_grants) = grants.get(&session_id) {
             // Check if any grant matches the request
             session_grants.iter().any(|grant| {
-                grant.category == request.category && grant.action_pattern == request.action
+                if grant.category != request.category {
+                    return false;
+                }
+                // Category-wide grant (None) matches everything in that category
+                match &grant.action_pattern {
+                    None => true,
+                    Some(pattern) => pattern == &request.action,
+                }
             })
         } else {
             false
@@ -187,18 +199,36 @@ impl PermissionRegistry {
                 .ok_or(PermissionError::NotFound)?
         };
 
-        // If granted with session scope, cache the grant
+        // If granted with session or category-session scope, cache the grant
         if response.granted {
             if let Some(ref scope) = response.scope {
-                if *scope == super::ask_for_permissions::PermissionScope::Session {
-                    let mut grants = self.session_grants.lock().await;
-                    let session_grants = grants
-                        .entry(pending_permission.session_id)
-                        .or_insert_with(HashSet::new);
-                    session_grants.insert(PermissionGrant {
-                        category: pending_permission.request.category.clone(),
-                        action_pattern: pending_permission.request.action.clone(),
-                    });
+                use super::ask_for_permissions::PermissionScope;
+                match scope {
+                    PermissionScope::Session => {
+                        // Grant for this specific action pattern
+                        let mut grants = self.session_grants.lock().await;
+                        let session_grants = grants
+                            .entry(pending_permission.session_id)
+                            .or_insert_with(HashSet::new);
+                        session_grants.insert(PermissionGrant {
+                            category: pending_permission.request.category.clone(),
+                            action_pattern: Some(pending_permission.request.action.clone()),
+                        });
+                    }
+                    PermissionScope::CategorySession => {
+                        // Category-wide grant (allow all in this category)
+                        let mut grants = self.session_grants.lock().await;
+                        let session_grants = grants
+                            .entry(pending_permission.session_id)
+                            .or_insert_with(HashSet::new);
+                        session_grants.insert(PermissionGrant {
+                            category: pending_permission.request.category.clone(),
+                            action_pattern: None, // None = category-wide
+                        });
+                    }
+                    PermissionScope::Once => {
+                        // Do not cache - one-time grant
+                    }
                 }
             }
         }
