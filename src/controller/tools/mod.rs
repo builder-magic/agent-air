@@ -3,6 +3,7 @@
 mod ask_for_permissions;
 mod ask_user_questions;
 mod executor;
+mod grep;
 mod ls;
 mod permission_registry;
 mod read_file;
@@ -40,4 +41,8 @@ pub use web_search::{
 };
 pub use write_file::{
     WriteFileTool, WRITE_FILE_TOOL_DESCRIPTION, WRITE_FILE_TOOL_NAME, WRITE_FILE_TOOL_SCHEMA,
+};
+pub use grep::{
+    GrepTool, OutputMode as GrepOutputMode, GREP_TOOL_DESCRIPTION, GREP_TOOL_NAME,
+    GREP_TOOL_SCHEMA,
 };

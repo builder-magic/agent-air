@@ -234,6 +234,34 @@ impl LLMRegistry {
     pub fn providers(&self) -> Vec<&str> {
         self.configs.keys().map(|s| s.as_str()).collect()
     }
+
+    /// Inject environment context into all session prompts.
+    ///
+    /// This appends environment information (working directory, platform, date)
+    /// to all configured system prompts, giving the LLM awareness of its
+    /// execution context.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let registry = load_config(&config).with_environment_context();
+    /// ```
+    pub fn with_environment_context(mut self) -> Self {
+        use super::environment::EnvironmentContext;
+
+        let context = EnvironmentContext::gather();
+        let context_section = context.to_prompt_section();
+
+        for config in self.configs.values_mut() {
+            if let Some(ref prompt) = config.system_prompt {
+                config.system_prompt = Some(format!("{}\n\n{}", prompt, context_section));
+            } else {
+                config.system_prompt = Some(context_section.clone());
+            }
+        }
+
+        self
+    }
 }
 
 impl Default for LLMRegistry {

@@ -280,6 +280,32 @@ impl AgentCore {
         self.version = version.into();
     }
 
+    /// Load environment context into the system prompt.
+    ///
+    /// This adds information about the current execution environment to
+    /// all LLM session prompts:
+    /// - Current working directory
+    /// - Platform (darwin, linux, windows)
+    /// - OS version
+    /// - Today's date
+    ///
+    /// The context is wrapped in `<env>` tags and appended to the system prompt.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut core = AgentCore::new(&config)?;
+    /// core.load_environment_context();  // One line!
+    /// core.run()?;
+    /// ```
+    pub fn load_environment_context(&mut self) -> &mut Self {
+        if let Some(registry) = self.llm_registry.take() {
+            self.llm_registry = Some(registry.with_environment_context());
+            tracing::info!("Environment context loaded into system prompt");
+        }
+        self
+    }
+
     /// Set the conversation view factory.
     ///
     /// The factory is called to create conversation views when sessions
