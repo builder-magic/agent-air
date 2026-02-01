@@ -3,6 +3,7 @@
 mod ask_for_permissions;
 mod ask_user_questions;
 mod bash;
+mod edit_file;
 mod executor;
 mod glob;
 mod grep;
@@ -53,4 +54,7 @@ pub use glob::{
 };
 pub use bash::{
     BashTool, BASH_TOOL_DESCRIPTION, BASH_TOOL_NAME, BASH_TOOL_SCHEMA,
+};
+pub use edit_file::{
+    EditFileTool, EDIT_FILE_TOOL_DESCRIPTION, EDIT_FILE_TOOL_NAME, EDIT_FILE_TOOL_SCHEMA,
 };
