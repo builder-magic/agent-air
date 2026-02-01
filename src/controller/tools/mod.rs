@@ -3,6 +3,7 @@
 mod ask_for_permissions;
 mod ask_user_questions;
 mod executor;
+mod glob;
 mod grep;
 mod ls;
 mod permission_registry;
@@ -45,4 +46,7 @@ pub use write_file::{
 pub use grep::{
     GrepTool, OutputMode as GrepOutputMode, GREP_TOOL_DESCRIPTION, GREP_TOOL_NAME,
     GREP_TOOL_SCHEMA,
+};
+pub use glob::{
+    GlobTool, GLOB_TOOL_DESCRIPTION, GLOB_TOOL_NAME, GLOB_TOOL_SCHEMA,
 };
