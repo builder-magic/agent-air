@@ -2,6 +2,7 @@
 
 mod ask_for_permissions;
 mod ask_user_questions;
+mod bash;
 mod executor;
 mod glob;
 mod grep;
@@ -49,4 +50,7 @@ pub use grep::{
 };
 pub use glob::{
     GlobTool, GLOB_TOOL_DESCRIPTION, GLOB_TOOL_NAME, GLOB_TOOL_SCHEMA,
+};
+pub use bash::{
+    BashTool, BASH_TOOL_DESCRIPTION, BASH_TOOL_NAME, BASH_TOOL_SCHEMA,
 };
