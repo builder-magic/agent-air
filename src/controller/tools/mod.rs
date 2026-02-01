@@ -8,6 +8,7 @@ mod executor;
 mod glob;
 mod grep;
 mod ls;
+mod multi_edit;
 mod permission_registry;
 mod read_file;
 mod registry;
@@ -57,4 +58,7 @@ pub use bash::{
 };
 pub use edit_file::{
     EditFileTool, EDIT_FILE_TOOL_DESCRIPTION, EDIT_FILE_TOOL_NAME, EDIT_FILE_TOOL_SCHEMA,
+};
+pub use multi_edit::{
+    MultiEditTool, MULTI_EDIT_TOOL_DESCRIPTION, MULTI_EDIT_TOOL_NAME, MULTI_EDIT_TOOL_SCHEMA,
 };
