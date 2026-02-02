@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use super::{ControlCmd, InputType, LLMRequestType, LLMResponseType, TurnId};
 use crate::controller::tools::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus};
+use crate::permissions::BatchPermissionRequest;
 
 /// Payload for requests sent to the LLM
 #[derive(Debug, Clone)]
@@ -231,6 +232,14 @@ pub enum ControllerEvent {
         session_id: i64,
         tool_use_id: String,
         request: PermissionRequest,
+        turn_id: Option<TurnId>,
+    },
+    /// Multiple tools are blocked waiting for batch permission from user.
+    /// This is used when parallel tools need permissions - presenting all requests
+    /// together avoids deadlocks and allows the user to make informed decisions.
+    BatchPermissionRequired {
+        session_id: i64,
+        batch: BatchPermissionRequest,
         turn_id: Option<TurnId>,
     },
 }

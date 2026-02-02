@@ -5,6 +5,7 @@
 
 use crate::controller::types::ControlCmd;
 use crate::controller::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus, TurnId};
+use crate::permissions::BatchPermissionRequest;
 
 /// Messages sent from the controller to the TUI for display
 #[derive(Debug, Clone)]
@@ -93,6 +94,15 @@ pub enum UiMessage {
         session_id: i64,
         tool_use_id: String,
         request: PermissionRequest,
+        turn_id: Option<TurnId>,
+    },
+
+    /// Multiple tools are blocked waiting for batch permission.
+    /// This is used when parallel tools need permissions - presenting all requests
+    /// together avoids deadlocks and allows the user to make informed decisions.
+    BatchPermissionRequired {
+        session_id: i64,
+        batch: BatchPermissionRequest,
         turn_id: Option<TurnId>,
     },
 }

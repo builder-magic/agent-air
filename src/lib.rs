@@ -37,5 +37,7 @@ pub mod agent;
 pub mod client;
 /// LLM session controller and tool execution.
 pub mod controller;
+/// Permission system for controlling agent access to resources.
+pub mod permissions;
 /// Terminal UI components and application framework.
 pub mod tui;

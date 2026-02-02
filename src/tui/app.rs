@@ -1056,6 +1056,26 @@ impl App {
                     }
                 }
             }
+            UiMessage::BatchPermissionRequired {
+                session_id,
+                batch,
+                turn_id,
+            } => {
+                if session_id == self.session_id {
+                    // Mark all tools in the batch as waiting for user
+                    for request in &batch.requests {
+                        self.conversation_view.update_tool_status(&request.id, ToolStatus::WaitingForUser);
+                    }
+                    // TODO: Implement BatchPermissionPanel for full UI support
+                    // For now, log the batch request
+                    tracing::debug!(
+                        batch_id = %batch.batch_id,
+                        request_count = batch.requests.len(),
+                        ?turn_id,
+                        "Batch permission required"
+                    );
+                }
+            }
         }
     }
 

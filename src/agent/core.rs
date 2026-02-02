@@ -997,6 +997,15 @@ pub fn convert_controller_event_to_ui_message(event: ControllerEvent) -> UiMessa
             request,
             turn_id,
         },
+        ControllerEvent::BatchPermissionRequired {
+            session_id,
+            batch,
+            turn_id,
+        } => UiMessage::BatchPermissionRequired {
+            session_id,
+            batch,
+            turn_id,
+        },
     }
 }
 
