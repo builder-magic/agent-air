@@ -453,6 +453,10 @@ impl Executable for AskUserQuestionsTool {
             .unwrap_or(0);
         format!("[AskUserQuestions: {} question(s)]", count)
     }
+
+    fn handles_own_permissions(&self) -> bool {
+        true // User interaction tool - no permissions needed
+    }
 }
 
 #[cfg(test)]

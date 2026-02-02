@@ -33,7 +33,7 @@ use tokio::sync::mpsc;
 
 use crate::agent::{FromControllerRx, LLMRegistry, ToControllerTx, UiMessage};
 use crate::controller::{
-    ControlCmd, ControllerInputPayload, LLMController, PermissionRegistry, PermissionResponse,
+    ControlCmd, ControllerInputPayload, LLMController, PermissionPanelResponse, PermissionRegistry,
     ToolResultStatus, TurnId, UserInteractionRegistry,
 };
 
@@ -48,7 +48,7 @@ use super::widgets::{
     widget_ids, ChatView, TextInput, ToolStatus, SessionInfo, SessionPickerState,
     SlashPopupState, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, render_session_picker, render_slash_popup,
     PermissionPanel, QuestionPanel, ConversationView, ConversationViewFactory,
-    StatusBar, StatusBarData,
+    StatusBar, StatusBarData, BatchPermissionPanel,
 };
 use super::{app_theme, current_theme_name, default_theme_name, get_theme, init_theme};
 
@@ -861,12 +861,12 @@ impl App {
     }
 
     /// Submit the permission panel response
-    fn submit_permission_panel_response(&mut self, tool_use_id: String, response: PermissionResponse) {
+    fn submit_permission_panel_response(&mut self, tool_use_id: String, response: PermissionPanelResponse) {
         // Respond to the permission request via the registry
         if let (Some(registry), Some(handle)) = (&self.permission_registry, &self.runtime_handle) {
             let registry = registry.clone();
             handle.spawn(async move {
-                if let Err(e) = registry.respond(&tool_use_id, response).await {
+                if let Err(e) = registry.respond_to_request(&tool_use_id, response).await {
                     tracing::error!(%tool_use_id, ?e, "Failed to respond to permission request");
                 }
             });
@@ -895,6 +895,56 @@ impl App {
         // Deactivate the widget
         if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
             if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
+                panel.deactivate();
+            }
+        }
+    }
+
+    /// Submit the batch permission panel response
+    fn submit_batch_permission_response(
+        &mut self,
+        batch_id: String,
+        response: crate::permissions::BatchPermissionResponse,
+    ) {
+        // Respond to the batch permission request via the registry
+        if let (Some(registry), Some(handle)) = (&self.permission_registry, &self.runtime_handle) {
+            let registry = registry.clone();
+            handle.spawn(async move {
+                if let Err(e) = registry.respond_to_batch(&batch_id, response).await {
+                    tracing::error!(%batch_id, ?e, "Failed to respond to batch permission request");
+                }
+            });
+        }
+
+        // Deactivate the widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL) {
+            if let Some(panel) = widget
+                .as_any_mut()
+                .downcast_mut::<crate::tui::widgets::BatchPermissionPanel>()
+            {
+                panel.deactivate();
+            }
+        }
+    }
+
+    /// Cancel the batch permission panel (closes without responding, denies all)
+    fn cancel_batch_permission_response(&mut self, batch_id: String) {
+        // Cancel the pending batch permission via the registry
+        if let (Some(registry), Some(handle)) = (&self.permission_registry, &self.runtime_handle) {
+            let registry = registry.clone();
+            handle.spawn(async move {
+                if let Err(e) = registry.cancel_batch(&batch_id).await {
+                    tracing::warn!(%batch_id, ?e, "Failed to cancel batch permission request");
+                }
+            });
+        }
+
+        // Deactivate the widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL) {
+            if let Some(panel) = widget
+                .as_any_mut()
+                .downcast_mut::<crate::tui::widgets::BatchPermissionPanel>()
+            {
                 panel.deactivate();
             }
         }
@@ -967,7 +1017,11 @@ impl App {
                 self.context_limit = context_limit;
             }
             UiMessage::Error { error, turn_id, .. } => {
-                if !self.is_current_turn(&turn_id) {
+                // Clear state if: current turn matches OR we have active turn but error has no turn_id
+                // The second condition prevents stale state when errors don't include turn_id
+                let should_process = self.is_current_turn(&turn_id)
+                    || (self.current_turn_id.is_some() && turn_id.is_none());
+                if !should_process {
                     return;
                 }
                 self.conversation_view.complete_streaming();
@@ -1066,14 +1120,12 @@ impl App {
                     for request in &batch.requests {
                         self.conversation_view.update_tool_status(&request.id, ToolStatus::WaitingForUser);
                     }
-                    // TODO: Implement BatchPermissionPanel for full UI support
-                    // For now, log the batch request
-                    tracing::debug!(
-                        batch_id = %batch.batch_id,
-                        request_count = batch.requests.len(),
-                        ?turn_id,
-                        "Batch permission required"
-                    );
+                    // Activate BatchPermissionPanel widget if registered
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL) {
+                        if let Some(panel) = widget.as_any_mut().downcast_mut::<BatchPermissionPanel>() {
+                            panel.activate(session_id, batch, turn_id);
+                        }
+                    }
                 }
             }
         }
@@ -1275,6 +1327,12 @@ impl App {
             }
             WidgetAction::CancelPermission { tool_use_id } => {
                 self.cancel_permission_panel_response(tool_use_id);
+            }
+            WidgetAction::SubmitBatchPermission { batch_id, response } => {
+                self.submit_batch_permission_response(batch_id, response);
+            }
+            WidgetAction::CancelBatchPermission { batch_id } => {
+                self.cancel_batch_permission_response(batch_id);
             }
             WidgetAction::SwitchSession { session_id } => {
                 self.switch_session(session_id);
@@ -1529,6 +1587,7 @@ impl App {
         let session_picker_active = sizes.is_active(widget_ids::SESSION_PICKER);
         let question_panel_active = sizes.is_active(widget_ids::QUESTION_PANEL);
         let permission_panel_active = sizes.is_active(widget_ids::PERMISSION_PANEL);
+        let batch_permission_panel_active = sizes.is_active(widget_ids::BATCH_PERMISSION_PANEL);
 
         // Collect status bar data before taking mutable borrow
         let status_bar_data = StatusBarData {
@@ -1541,7 +1600,7 @@ impl App {
             is_waiting: show_throbber,
             waiting_elapsed: self.waiting_started.map(|t| t.elapsed()),
             input_empty: self.input().map(|i| i.is_empty()).unwrap_or(true),
-            panels_active: question_panel_active || permission_panel_active,
+            panels_active: question_panel_active || permission_panel_active || batch_permission_panel_active,
         };
 
         // Update status bar with collected data
@@ -1610,7 +1669,7 @@ impl App {
 
         // Render input or throbber (special handling)
         if let Some(input_area) = layout.input_area {
-            if !question_panel_active && !permission_panel_active {
+            if !question_panel_active && !permission_panel_active && !batch_permission_panel_active {
                 if show_throbber {
                     let default_message;
                     let message = if let Some(msg) = &self.custom_throbber_message {

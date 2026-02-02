@@ -20,6 +20,7 @@ use crate::controller::types::{
     LLMRequestType, LLMResponseType, ToLLMPayload, TurnId,
 };
 use crate::controller::usage::TokenUsageTracker;
+use crate::permissions::PermissionRegistry;
 use crate::agent::{convert_controller_event_to_ui_message, UiMessage};
 
 /// Default channel buffer size for internal communication.
@@ -84,9 +85,14 @@ impl LLMController {
     /// Creates a new LLM controller
     ///
     /// # Arguments
+    /// * `permission_registry` - Permission registry for batch permission requests
     /// * `ui_tx` - Optional UI channel sender for forwarding events
     /// * `channel_size` - Optional channel buffer size (defaults to DEFAULT_CHANNEL_SIZE)
-    pub fn new(ui_tx: Option<mpsc::Sender<UiMessage>>, channel_size: Option<usize>) -> Self {
+    pub fn new(
+        permission_registry: Arc<PermissionRegistry>,
+        ui_tx: Option<mpsc::Sender<UiMessage>>,
+        channel_size: Option<usize>,
+    ) -> Self {
         let size = channel_size.unwrap_or(DEFAULT_CHANNEL_SIZE);
 
         let (from_llm_tx, from_llm_rx) = mpsc::channel(size);
@@ -99,6 +105,7 @@ impl LLMController {
         let tool_registry = Arc::new(ToolRegistry::new());
         let tool_executor = ToolExecutor::new(
             tool_registry.clone(),
+            permission_registry.clone(),
             tool_result_tx,
             batch_result_tx,
         );
@@ -749,6 +756,20 @@ impl LLMController {
     /// Returns the number of active sessions
     pub async fn session_count(&self) -> usize {
         self.session_mgr.session_count().await
+    }
+
+    /// Removes a session from the controller.
+    ///
+    /// This only removes the session from the session manager. For full cleanup
+    /// including permission and interaction registries, use `AgentCore::remove_session`.
+    ///
+    /// # Arguments
+    /// * `session_id` - The ID of the session to remove
+    ///
+    /// # Returns
+    /// true if the session was found and removed, false otherwise
+    pub async fn remove_session(&self, session_id: i64) -> bool {
+        self.session_mgr.remove_session(session_id).await
     }
 
     // ---- Input Handling ----

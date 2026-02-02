@@ -53,7 +53,8 @@ const STOP_REASON_RECITATION: &str = "recitation";
 /// Matches Anthropic's SSE structure for consistency across providers.
 #[derive(Debug)]
 pub struct SseEvent {
-    /// Event type (Gemini doesn't typically use this, but included for consistency).
+    /// Event type - included for cross-provider consistency even though
+    /// Gemini doesn't typically use event types in their SSE stream.
     #[allow(dead_code)]
     pub event: Option<String>,
     /// JSON data payload.
@@ -77,15 +78,18 @@ pub struct StreamState {
 pub struct PendingFunctionCall {
     /// Index of this content block.
     pub index: usize,
-    /// Generated ID for this function call (kept for potential future use).
+    /// Generated ID for this function call - stored for debugging and potential
+    /// future use in tool call correlation.
     #[allow(dead_code)]
     pub id: String,
     /// Function name.
     pub name: String,
-    /// Accumulated JSON arguments (may be partial).
+    /// Accumulated JSON arguments buffer - written during streaming, available
+    /// for debugging partial argument accumulation.
     #[allow(dead_code)]
     pub args_buffer: String,
-    /// Whether the start event has been emitted (kept for potential future use).
+    /// Tracks whether the ToolUseStart event has been emitted - stored for
+    /// debugging streaming state.
     #[allow(dead_code)]
     pub started: bool,
 }

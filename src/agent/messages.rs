@@ -4,8 +4,8 @@
 // and from the TUI to the controller.
 
 use crate::controller::types::ControlCmd;
-use crate::controller::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus, TurnId};
-use crate::permissions::BatchPermissionRequest;
+use crate::controller::{AskUserQuestionsRequest, ToolResultStatus, TurnId};
+use crate::permissions::{BatchPermissionRequest, PermissionRequest};
 
 /// Messages sent from the controller to the TUI for display
 #[derive(Debug, Clone)]

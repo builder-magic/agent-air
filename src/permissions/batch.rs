@@ -100,14 +100,32 @@ impl BatchPermissionResponse {
     }
 
     /// Checks if a specific request was granted (either explicitly or auto-approved).
+    ///
+    /// # Conflict Resolution
+    /// If a request_id appears in both `auto_approved` and `denied_requests`,
+    /// this is treated as a malformed response. A warning is logged and the
+    /// request is denied (safe default).
     pub fn is_granted(&self, request_id: &str, request: &PermissionRequest) -> bool {
+        // Validate: request cannot be both auto-approved and denied
+        let in_auto_approved = self.auto_approved.contains(request_id);
+        let in_denied = self.denied_requests.contains(request_id);
+
+        if in_auto_approved && in_denied {
+            tracing::warn!(
+                request_id,
+                batch_id = %self.batch_id,
+                "Request appears in both auto_approved and denied_requests, treating as denied"
+            );
+            return false;
+        }
+
         // Check if auto-approved
-        if self.auto_approved.contains(request_id) {
+        if in_auto_approved {
             return true;
         }
 
         // Check if denied
-        if self.denied_requests.contains(request_id) {
+        if in_denied {
             return false;
         }
 
@@ -456,5 +474,24 @@ mod tests {
         } else {
             panic!("Expected command target");
         }
+    }
+
+    #[test]
+    fn test_is_granted_conflict_resolution() {
+        // Create a malformed response where the same ID is in both sets
+        let response = BatchPermissionResponse {
+            batch_id: "batch-1".to_string(),
+            approved_grants: Vec::new(),
+            denied_requests: ["conflict-id".to_string()].into_iter().collect(),
+            auto_approved: ["conflict-id".to_string()].into_iter().collect(),
+        };
+
+        let request = PermissionRequest::file_read("conflict-id", "/project/src/main.rs");
+
+        // Should be denied (safe default) when in both sets
+        assert!(
+            !response.is_granted("conflict-id", &request),
+            "Conflicting request should be denied as safe default"
+        );
     }
 }

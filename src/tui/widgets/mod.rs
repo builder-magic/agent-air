@@ -21,10 +21,12 @@ use crossterm::event::KeyEvent;
 use ratatui::{layout::Rect, Frame};
 use std::any::Any;
 
-use crate::controller::{AskUserQuestionsResponse, PermissionResponse};
+use crate::controller::{AskUserQuestionsResponse, PermissionPanelResponse};
+use crate::permissions::BatchPermissionResponse;
 use crate::tui::keys::NavigationHelper;
 use crate::tui::themes::Theme;
 
+pub mod batch_permission_panel;
 pub mod chat;
 pub mod chat_helpers;
 pub mod conversation;
@@ -35,6 +37,9 @@ pub mod session_picker;
 pub mod slash_popup;
 pub mod status_bar;
 
+pub use batch_permission_panel::{
+    BatchKeyAction, BatchPermissionOption, BatchPermissionPanel, BatchPermissionPanelConfig,
+};
 pub use chat::{ChatView, ChatViewConfig, MessageRole, ToolMessageData, ToolStatus};
 pub use chat_helpers::RenderFn;
 pub use conversation::{ConversationView, ConversationViewFactory};
@@ -60,6 +65,7 @@ pub mod widget_ids {
     pub const TEXT_INPUT: &str = "text_input";
 
     // Registerable widgets
+    pub const BATCH_PERMISSION_PANEL: &str = "batch_permission_panel";
     pub const PERMISSION_PANEL: &str = "permission_panel";
     pub const QUESTION_PANEL: &str = "question_panel";
     pub const SESSION_PICKER: &str = "session_picker";
@@ -103,10 +109,17 @@ pub enum WidgetAction {
     /// Submit a permission panel response
     SubmitPermission {
         tool_use_id: String,
-        response: PermissionResponse,
+        response: PermissionPanelResponse,
     },
     /// Cancel a permission panel
     CancelPermission { tool_use_id: String },
+    /// Submit a batch permission response
+    SubmitBatchPermission {
+        batch_id: String,
+        response: BatchPermissionResponse,
+    },
+    /// Cancel a batch permission panel
+    CancelBatchPermission { batch_id: String },
     /// Switch to a different session
     SwitchSession { session_id: i64 },
     /// Execute a slash command

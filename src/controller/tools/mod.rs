@@ -9,7 +9,6 @@ mod glob;
 mod grep;
 mod ls;
 mod multi_edit;
-mod permission_registry;
 mod read_file;
 mod registry;
 mod types;
@@ -18,8 +17,7 @@ mod web_search;
 mod write_file;
 
 pub use ask_for_permissions::{
-    AskForPermissionsTool, PermissionCategory, PermissionRequest, PermissionResponse,
-    PermissionScope, ASK_FOR_PERMISSIONS_TOOL_DESCRIPTION, ASK_FOR_PERMISSIONS_TOOL_NAME,
+    AskForPermissionsTool, ASK_FOR_PERMISSIONS_TOOL_DESCRIPTION, ASK_FOR_PERMISSIONS_TOOL_NAME,
     ASK_FOR_PERMISSIONS_TOOL_SCHEMA,
 };
 pub use ask_user_questions::{
@@ -37,7 +35,8 @@ pub use types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolBatchResult, ToolContext,
     ToolDefinition, ToolRequest, ToolResult, ToolResultStatus, ToolType,
 };
-pub use permission_registry::{PendingPermissionInfo, PermissionError, PermissionGrant, PermissionRegistry};
+// Re-export permission types from crate::permissions
+pub use crate::permissions::{PendingPermissionInfo, PermissionError, PermissionPanelResponse, PermissionRegistry};
 pub use user_interaction::{PendingQuestionInfo, UserInteractionError, UserInteractionRegistry};
 pub use crate::client::models::Tool as LLMTool;
 pub use web_search::{

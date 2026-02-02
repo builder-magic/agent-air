@@ -13,8 +13,7 @@ use std::sync::Arc;
 
 use strsim::normalized_levenshtein;
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
@@ -114,21 +113,19 @@ impl EditFileTool {
     }
 
     /// Build a permission request for editing a file.
-    fn build_permission_request(file_path: &str, old_string: &str) -> PermissionRequest {
-        let path = Path::new(file_path);
-        let display_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(file_path);
-
+    fn build_permission_request(tool_use_id: &str, file_path: &str, old_string: &str) -> PermissionRequest {
+        let path = file_path;
         let truncated_old = truncate_string(old_string, 30);
+        let reason = format!("Replace '{}' in file", truncated_old);
 
-        PermissionRequest {
-            action: format!("Edit: {}", display_name),
-            reason: Some(format!("Replace '{}' in file", truncated_old)),
-            resources: vec![file_path.to_string()],
-            category: PermissionCategory::FileWrite,
-        }
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::path(path, false),
+            PermissionLevel::Write,
+            &format!("Edit file: {}", path),
+        )
+        .with_reason(reason)
+        .with_tool(EDIT_FILE_TOOL_NAME)
     }
 
     /// Normalize whitespace for fuzzy comparison.
@@ -355,25 +352,14 @@ impl Executable for EditFileTool {
                 return Err("old_string and new_string are identical".to_string());
             }
 
-            // Check if permission is already granted for this session
-            let permission_request = Self::build_permission_request(file_path, old_string);
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
-
-            if !already_granted {
-                // Request permission from user
+            // Request permission if not pre-approved by batch executor
+            if !context.permissions_pre_approved {
+                let permission_request = Self::build_permission_request(&context.tool_use_id, file_path, old_string);
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
-                        context.session_id,
-                        permission_request,
-                        context.turn_id.clone(),
-                    )
+                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
-                // Wait for user response
                 let response = response_rx
                     .await
                     .map_err(|_| "Permission request was cancelled".to_string())?;
@@ -527,6 +513,38 @@ impl Executable for EditFileTool {
 
         format!("[EditFile: {} ({})]", filename, status)
     }
+
+    fn required_permissions(
+        &self,
+        context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract file_path from input
+        let file_path = input
+            .get("file_path")
+            .and_then(|v| v.as_str())?;
+
+        // Extract old_string for permission request context
+        let old_string = input
+            .get("old_string")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        // Validate that the path is absolute
+        let path = PathBuf::from(file_path);
+        if !path.is_absolute() {
+            return None;
+        }
+
+        // Build the permission request using the existing helper method
+        let permission_request = Self::build_permission_request(
+            &context.tool_use_id,
+            file_path,
+            old_string,
+        );
+
+        Some(vec![permission_request])
+    }
 }
 
 /// Truncate string for display purposes.
@@ -541,8 +559,9 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::tools::ask_for_permissions::{PermissionResponse, PermissionScope};
+    use crate::permissions::PermissionPanelResponse;
     use crate::controller::types::ControllerEvent;
+    use crate::permissions::PermissionLevel;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
@@ -550,6 +569,14 @@ mod tests {
         let (tx, rx) = mpsc::channel(16);
         let registry = Arc::new(PermissionRegistry::new(tx));
         (registry, rx)
+    }
+
+    fn grant_once() -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: true, grant: None, message: None }
+    }
+
+    fn deny(reason: &str) -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
     }
 
     #[tokio::test]
@@ -579,6 +606,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-1".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Grant permission in background
@@ -588,7 +616,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -628,6 +656,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-2".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -636,7 +665,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -675,6 +704,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-3".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -683,7 +713,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -717,6 +747,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-4".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -747,6 +778,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-5".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -781,6 +813,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-6".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -815,6 +848,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-7".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -823,7 +857,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::deny(Some("Not allowed".to_string())))
+                    .respond_to_request(&tool_use_id, deny("Not allowed"))
                     .await
                     .unwrap();
             }
@@ -864,6 +898,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-edit-8".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -872,7 +907,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -924,9 +959,10 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = EditFileTool::build_permission_request("/path/to/file.rs", "old code");
-        assert_eq!(request.action, "Edit: file.rs");
+        let request = EditFileTool::build_permission_request("test-tool-use-id", "/path/to/file.rs", "old code");
+        assert_eq!(request.description, "Edit file: /path/to/file.rs");
         assert!(request.reason.unwrap().contains("old code"));
-        assert_eq!(request.category, PermissionCategory::FileWrite);
+        assert_eq!(request.target, GrantTarget::path("/path/to/file.rs", false));
+        assert_eq!(request.required_level, PermissionLevel::Write);
     }
 }

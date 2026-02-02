@@ -4,17 +4,16 @@
 //! and collects user responses (Grant Once / Grant Session / Deny).
 //!
 //! # Navigation
-//! - Up/Down/Ctrl-P/Ctrl-N: Move between options
+//! - Up/Down: Move between options
 //! - Enter/Space: Select option
 //! - Esc: Cancel (deny)
 
+use crate::controller::{PermissionPanelResponse, TurnId};
+use crate::permissions::{Grant, GrantTarget, PermissionLevel, PermissionRequest};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::controller::{
-    PermissionCategory, PermissionRequest, PermissionResponse, PermissionScope, TurnId,
-};
 use ratatui::{
     layout::Rect,
-    style::{Modifier, Style},
+    style::Modifier,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -31,20 +30,15 @@ pub mod defaults {
     /// Blank space for non-focused items (same width as indicator)
     pub const NO_INDICATOR: &str = "   ";
     /// Panel title
-    pub const TITLE: &str = " Permission Required ";
+    pub const TITLE: &str = " Permission Request ";
     /// Help text
-    pub const HELP_TEXT: &str = " Up/Down: Navigate \u{00B7} Enter/Space: Select \u{00B7} Esc: Cancel";
-    /// Category icons
-    pub const ICON_FILE_READ: &str = "\u{1F4C4}";     // Document
-    pub const ICON_DIRECTORY_READ: &str = "\u{1F4C2}"; // Open folder
-    pub const ICON_FILE_WRITE: &str = "\u{270E}";
-    pub const ICON_FILE_DELETE: &str = "\u{2717}";
-    pub const ICON_NETWORK: &str = "\u{2194}";
-    pub const ICON_SYSTEM: &str = "\u{2295}";
-    pub const ICON_OTHER: &str = "\u{25CB}";
-    /// Resource tree characters
-    pub const TREE_BRANCH: &str = "   \u{251C}\u{2500} ";
-    pub const TREE_LAST: &str = "   \u{2514}\u{2500} ";
+    pub const HELP_TEXT: &str =
+        " Up/Down: Navigate \u{00B7} Enter/Space: Select \u{00B7} Esc: Cancel";
+    /// Target type icons
+    pub const ICON_PATH: &str = "\u{1F4C4}"; // Document (for paths)
+    pub const ICON_DOMAIN: &str = "\u{2194}"; // Network arrow (for domains)
+    pub const ICON_COMMAND: &str = "\u{2295}"; // Command/terminal (for commands)
+    pub const ICON_OTHER: &str = "\u{25CB}"; // Default fallback
 }
 
 /// Configuration for PermissionPanel widget
@@ -60,24 +54,14 @@ pub struct PermissionPanelConfig {
     pub title: String,
     /// Help text
     pub help_text: String,
-    /// Category icon for file read
-    pub icon_file_read: String,
-    /// Category icon for directory read
-    pub icon_directory_read: String,
-    /// Category icon for file write
-    pub icon_file_write: String,
-    /// Category icon for file delete
-    pub icon_file_delete: String,
-    /// Category icon for network
-    pub icon_network: String,
-    /// Category icon for system
-    pub icon_system: String,
-    /// Category icon for other
+    /// Icon for path targets
+    pub icon_path: String,
+    /// Icon for domain targets
+    pub icon_domain: String,
+    /// Icon for command targets
+    pub icon_command: String,
+    /// Icon for other/unknown targets
     pub icon_other: String,
-    /// Tree branch character
-    pub tree_branch: String,
-    /// Tree last item character
-    pub tree_last: String,
 }
 
 impl Default for PermissionPanelConfig {
@@ -95,15 +79,10 @@ impl PermissionPanelConfig {
             no_indicator: defaults::NO_INDICATOR.to_string(),
             title: defaults::TITLE.to_string(),
             help_text: defaults::HELP_TEXT.to_string(),
-            icon_file_read: defaults::ICON_FILE_READ.to_string(),
-            icon_directory_read: defaults::ICON_DIRECTORY_READ.to_string(),
-            icon_file_write: defaults::ICON_FILE_WRITE.to_string(),
-            icon_file_delete: defaults::ICON_FILE_DELETE.to_string(),
-            icon_network: defaults::ICON_NETWORK.to_string(),
-            icon_system: defaults::ICON_SYSTEM.to_string(),
+            icon_path: defaults::ICON_PATH.to_string(),
+            icon_domain: defaults::ICON_DOMAIN.to_string(),
+            icon_command: defaults::ICON_COMMAND.to_string(),
             icon_other: defaults::ICON_OTHER.to_string(),
-            tree_branch: defaults::TREE_BRANCH.to_string(),
-            tree_last: defaults::TREE_LAST.to_string(),
         }
     }
 
@@ -131,23 +110,17 @@ impl PermissionPanelConfig {
         self
     }
 
-    /// Set category icons
-    pub fn with_category_icons(
+    /// Set target type icons
+    pub fn with_target_icons(
         mut self,
-        file_read: impl Into<String>,
-        directory_read: impl Into<String>,
-        file_write: impl Into<String>,
-        file_delete: impl Into<String>,
-        network: impl Into<String>,
-        system: impl Into<String>,
+        path: impl Into<String>,
+        domain: impl Into<String>,
+        command: impl Into<String>,
         other: impl Into<String>,
     ) -> Self {
-        self.icon_file_read = file_read.into();
-        self.icon_directory_read = directory_read.into();
-        self.icon_file_write = file_write.into();
-        self.icon_file_delete = file_delete.into();
-        self.icon_network = network.into();
-        self.icon_system = system.into();
+        self.icon_path = path.into();
+        self.icon_domain = domain.into();
+        self.icon_command = command.into();
         self.icon_other = other.into();
         self
     }
@@ -156,12 +129,12 @@ impl PermissionPanelConfig {
 /// Options available for the user to select
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionOption {
-    /// Grant permission for this request only
+    /// Grant permission for this request only (no persistent grant)
     GrantOnce,
     /// Grant permission for the remainder of the session (this specific resource)
     GrantSession,
-    /// Grant permission for ALL operations in this category for the session
-    GrantCategorySession,
+    /// Grant permission for ALL operations of this type for the session
+    GrantAllSession,
     /// Deny the permission request
     Deny,
 }
@@ -172,7 +145,7 @@ impl PermissionOption {
         &[
             PermissionOption::GrantOnce,
             PermissionOption::GrantSession,
-            PermissionOption::GrantCategorySession,
+            PermissionOption::GrantAllSession,
             PermissionOption::Deny,
         ]
     }
@@ -182,42 +155,81 @@ impl PermissionOption {
         match self {
             PermissionOption::GrantOnce => "Grant Once",
             PermissionOption::GrantSession => "Grant for Session",
-            PermissionOption::GrantCategorySession => "Grant All in Category",
+            PermissionOption::GrantAllSession => "Allow All Similar",
             PermissionOption::Deny => "Deny",
         }
     }
 
-    /// Get the description for this option
-    pub fn description(&self) -> &'static str {
+    /// Get the description for this option based on request context
+    pub fn description(&self, request: &PermissionRequest) -> String {
         match self {
-            PermissionOption::GrantOnce => "Allow this action this one time",
-            PermissionOption::GrantSession => "Allow this action for the rest of the session",
-            PermissionOption::GrantCategorySession => "Allow all actions in this category for the session",
-            PermissionOption::Deny => "Reject this permission request",
+            PermissionOption::GrantOnce => "Allow only this request".to_string(),
+            PermissionOption::GrantSession => match (&request.target, request.required_level) {
+                (GrantTarget::Path { .. }, PermissionLevel::Read) => {
+                    "Allow reading this file".to_string()
+                }
+                (GrantTarget::Path { .. }, PermissionLevel::Write) => {
+                    "Allow writing this file".to_string()
+                }
+                (GrantTarget::Command { .. }, _) => "Allow this command".to_string(),
+                (GrantTarget::Domain { .. }, _) => "Allow this domain".to_string(),
+                _ => "Allow for the session".to_string(),
+            },
+            PermissionOption::GrantAllSession => match (&request.target, request.required_level) {
+                (GrantTarget::Path { .. }, PermissionLevel::Read) => {
+                    "Allow reading any file".to_string()
+                }
+                (GrantTarget::Path { .. }, PermissionLevel::Write) => {
+                    "Allow writing any file".to_string()
+                }
+                (GrantTarget::Command { .. }, _) => "Allow all commands".to_string(),
+                (GrantTarget::Domain { .. }, _) => "Allow all domains".to_string(),
+                _ => "Allow all similar actions".to_string(),
+            },
+            PermissionOption::Deny => "Deny this request".to_string(),
         }
     }
 
-    /// Convert to a PermissionResponse
-    pub fn to_response(&self) -> PermissionResponse {
+    /// Returns true if this is a positive (grant) option
+    pub fn is_positive(&self) -> bool {
+        !matches!(self, PermissionOption::Deny)
+    }
+
+    /// Convert to a response with optional grant based on the request
+    pub fn to_response(&self, request: &PermissionRequest) -> PermissionPanelResponse {
         match self {
-            PermissionOption::GrantOnce => PermissionResponse {
+            PermissionOption::GrantOnce => PermissionPanelResponse {
                 granted: true,
-                scope: Some(PermissionScope::Once),
+                grant: None, // No persistent grant
                 message: None,
             },
-            PermissionOption::GrantSession => PermissionResponse {
-                granted: true,
-                scope: Some(PermissionScope::Session),
-                message: None,
-            },
-            PermissionOption::GrantCategorySession => PermissionResponse {
-                granted: true,
-                scope: Some(PermissionScope::CategorySession),
-                message: None,
-            },
-            PermissionOption::Deny => PermissionResponse {
+            PermissionOption::GrantSession => {
+                // Create a grant matching the exact request
+                let grant = Grant::new(request.target.clone(), request.required_level);
+                PermissionPanelResponse {
+                    granted: true,
+                    grant: Some(grant),
+                    message: None,
+                }
+            }
+            PermissionOption::GrantAllSession => {
+                // Create a broader grant based on target type, using the requested level
+                let grant = match &request.target {
+                    GrantTarget::Path { .. } => {
+                        Grant::new(GrantTarget::path("/", true), request.required_level)
+                    }
+                    GrantTarget::Domain { .. } => Grant::domain("*", request.required_level),
+                    GrantTarget::Command { .. } => Grant::command("*", request.required_level),
+                };
+                PermissionPanelResponse {
+                    granted: true,
+                    grant: Some(grant),
+                    message: None,
+                }
+            }
+            PermissionOption::Deny => PermissionPanelResponse {
                 granted: false,
-                scope: None,
+                grant: None,
                 message: None,
             },
         }
@@ -225,12 +237,12 @@ impl PermissionOption {
 }
 
 /// Result of handling a key event
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum KeyAction {
     /// No action taken
     None,
     /// User selected an option (includes tool_use_id and response)
-    Selected(String, PermissionResponse),
+    Selected(String, PermissionPanelResponse),
     /// User cancelled (pressed Escape)
     Cancelled(String),
 }
@@ -265,12 +277,12 @@ impl PermissionPanel {
             active: false,
             tool_use_id: String::new(),
             session_id: 0,
-            request: PermissionRequest {
-                action: String::new(),
-                reason: None,
-                resources: Vec::new(),
-                category: PermissionCategory::Other,
-            },
+            request: PermissionRequest::new(
+                "",
+                GrantTarget::path("/", false),
+                PermissionLevel::None,
+                "",
+            ),
             turn_id: None,
             selected_idx: 0,
             config,
@@ -307,9 +319,12 @@ impl PermissionPanel {
     pub fn deactivate(&mut self) {
         self.active = false;
         self.tool_use_id.clear();
-        self.request.action.clear();
-        self.request.reason = None;
-        self.request.resources.clear();
+        self.request = PermissionRequest::new(
+            "",
+            GrantTarget::path("/", false),
+            PermissionLevel::None,
+            "",
+        );
         self.turn_id = None;
         self.selected_idx = 0;
     }
@@ -339,20 +354,47 @@ impl PermissionPanel {
         self.turn_id.as_ref()
     }
 
+    /// Get available options based on request type.
+    ///
+    /// For commands, "Allow All Similar" is not shown (too risky).
+    /// For file reads/writes, all 4 options are shown.
+    fn available_options(&self) -> Vec<PermissionOption> {
+        match &self.request.target {
+            GrantTarget::Command { .. } => {
+                // No "Allow All" for commands - too risky
+                vec![
+                    PermissionOption::GrantOnce,
+                    PermissionOption::GrantSession,
+                    PermissionOption::Deny,
+                ]
+            }
+            _ => {
+                // File reads/writes and domains show all options
+                vec![
+                    PermissionOption::GrantOnce,
+                    PermissionOption::GrantSession,
+                    PermissionOption::GrantAllSession,
+                    PermissionOption::Deny,
+                ]
+            }
+        }
+    }
+
     /// Get the currently selected option
     pub fn selected_option(&self) -> PermissionOption {
-        PermissionOption::all()[self.selected_idx]
+        let options = self.available_options();
+        options[self.selected_idx.min(options.len() - 1)]
     }
 
     /// Move selection to the next option
     pub fn select_next(&mut self) {
-        let options = PermissionOption::all();
+        let options = self.available_options();
         self.selected_idx = (self.selected_idx + 1) % options.len();
     }
 
     /// Move selection to the previous option
     pub fn select_prev(&mut self) {
-        let options = PermissionOption::all();
+        let options = self.available_options();
         if self.selected_idx == 0 {
             self.selected_idx = options.len() - 1;
         } else {
@@ -361,8 +403,6 @@ impl PermissionPanel {
     }
 
     /// Handle a key event
-    ///
-    /// Returns the action that should be taken based on the key press.
     pub fn process_key(&mut self, key: KeyEvent) -> KeyAction {
         if !self.active {
             return KeyAction::None;
@@ -390,16 +430,14 @@ impl PermissionPanel {
             // Selection
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let option = self.selected_option();
-                let response = option.to_response();
+                let response = option.to_response(&self.request);
                 let tool_use_id = self.tool_use_id.clone();
-                // Note: don't deactivate here - let the caller do it after processing
                 KeyAction::Selected(tool_use_id, response)
             }
 
             // Cancel
             KeyCode::Esc => {
                 let tool_use_id = self.tool_use_id.clone();
-                // Note: don't deactivate here - let the caller do it after processing
                 KeyAction::Cancelled(tool_use_id)
             }
 
@@ -409,54 +447,23 @@ impl PermissionPanel {
 
     /// Calculate the height needed for the panel
     pub fn panel_height(&self, max_height: u16) -> u16 {
-        // Calculate height needed:
-        // - Title: 1 line
-        // - Blank: 1 line
-        // - Category: 1 line
-        // - Action: 1 line (may wrap, but estimate 1)
-        // - Reason (if present): 1 line
-        // - Resources header + items: 1 + resources.len()
-        // - Blank: 1 line
-        // - Options: 3 lines (one per option)
-        // - Blank: 1 line
-        // - Help: 1 line
-        // - Borders: 2 lines
+        // Help text: 1
+        // Blank after help: 1
+        // Permission line: 1
+        // Blank (separator): 1
+        // Options: 3 or 4 (depending on request type)
+        // Bottom padding: 1
+        // Borders: 2
 
-        let mut lines = 0u16;
-
-        // Header
-        lines += 2; // Title + blank
-
-        // Content
-        lines += 1; // Category
-        lines += 1; // Action
-        if self.request.reason.is_some() {
-            lines += 1;
-        }
-        if !self.request.resources.is_empty() {
-            lines += 1 + self.request.resources.len().min(5) as u16; // Header + up to 5 resources
-        }
-
-        // Options
-        lines += 1; // Blank before options
-        lines += PermissionOption::all().len() as u16;
-
-        // Help and borders
-        lines += 1; // Blank before help
-        lines += 1; // Help text
+        let mut lines = 6u16; // Help (1) + blank (1) + permission (1) + separator (1) + padding (1) + 1
+        lines += self.available_options().len() as u16;
         lines += 2; // Borders
 
-        // Cap at percentage of available height
         let max_from_percent = (max_height * self.config.max_panel_percent) / 100;
         lines.min(max_from_percent).min(max_height.saturating_sub(6))
     }
 
     /// Render the panel
-    ///
-    /// # Arguments
-    /// * `frame` - The Ratatui frame to render into
-    /// * `area` - The area to render the panel in
-    /// * `theme` - Theme implementation for styling
     pub fn render_panel(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         if !self.active {
             return;
@@ -475,105 +482,64 @@ impl PermissionPanel {
         )));
         lines.push(Line::from("")); // Blank line
 
-        // Category with icon
-        let category_icon = match self.request.category {
-            PermissionCategory::FileRead => &self.config.icon_file_read,
-            PermissionCategory::DirectoryRead => &self.config.icon_directory_read,
-            PermissionCategory::FileWrite => &self.config.icon_file_write,
-            PermissionCategory::FileDelete => &self.config.icon_file_delete,
-            PermissionCategory::Network => &self.config.icon_network,
-            PermissionCategory::System => &self.config.icon_system,
-            PermissionCategory::Other => &self.config.icon_other,
+        // Single permission line: icon + level + target
+        let (icon, level_str, target_desc) = match &self.request.target {
+            GrantTarget::Path { path, recursive } => {
+                let rec_suffix = if *recursive { " (recursive)" } else { "" };
+                let level = format_level(self.request.required_level);
+                (
+                    &self.config.icon_path,
+                    level,
+                    format!("{}{}", path.display(), rec_suffix),
+                )
+            }
+            GrantTarget::Domain { pattern } => (
+                &self.config.icon_domain,
+                "Access Domain",
+                pattern.clone(),
+            ),
+            GrantTarget::Command { pattern } => (
+                &self.config.icon_command,
+                "Execute",
+                pattern.clone(),
+            ),
         };
+
         lines.push(Line::from(vec![
+            Span::styled("   ", theme.muted_text()),
+            Span::styled(format!("{} ", icon), theme.category()),
+            Span::styled(format!("{}: ", level_str), theme.muted_text()),
             Span::styled(
-                format!(" {} ", category_icon),
-                theme.category(),
-            ),
-            Span::styled(
-                format!("{}", self.request.category),
-                theme.category().add_modifier(Modifier::BOLD),
+                truncate_text(&target_desc, inner_width.saturating_sub(20)),
+                theme.resource(),
             ),
         ]));
 
-        // Action
-        lines.push(Line::from(vec![
-            Span::styled(" Action: ", theme.muted_text()),
-            Span::styled(
-                truncate_text(&self.request.action, inner_width - 10),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-        ]));
-
-        // Reason (if present)
-        if let Some(ref reason) = self.request.reason {
-            lines.push(Line::from(vec![
-                Span::styled(" Reason: ", theme.muted_text()),
-                Span::styled(
-                    truncate_text(reason, inner_width - 10),
-                    theme.muted_text(),
-                ),
-            ]));
-        }
-
-        // Resources (if present)
-        if !self.request.resources.is_empty() {
-            lines.push(Line::from(Span::styled(
-                " Resources:",
-                theme.muted_text(),
-            )));
-            for (i, resource) in self.request.resources.iter().take(5).enumerate() {
-                let prefix = if i < self.request.resources.len() - 1 || self.request.resources.len() <= 5 {
-                    &self.config.tree_branch
-                } else {
-                    &self.config.tree_last
-                };
-                lines.push(Line::from(vec![
-                    Span::raw(prefix.clone()),
-                    Span::styled(
-                        truncate_text(resource, inner_width - 8),
-                        theme.resource(),
-                    ),
-                ]));
-            }
-            if self.request.resources.len() > 5 {
-                lines.push(Line::from(Span::styled(
-                    format!("   ... and {} more", self.request.resources.len() - 5),
-                    theme.muted_text(),
-                )));
-            }
-        }
-
-        // Blank line before options
+        // Separator line
         lines.push(Line::from(""));
 
         // Options
-        for (idx, option) in PermissionOption::all().iter().enumerate() {
+        let options = self.available_options();
+        for (idx, option) in options.iter().enumerate() {
             let is_selected = idx == self.selected_idx;
-            let prefix = if is_selected { &self.config.selection_indicator } else { &self.config.no_indicator };
+            let prefix = if is_selected {
+                &self.config.selection_indicator
+            } else {
+                &self.config.no_indicator
+            };
+
+            let description = option.description(&self.request);
 
             let (label_style, desc_style) = if is_selected {
-                match option {
-                    PermissionOption::GrantOnce
-                    | PermissionOption::GrantSession
-                    | PermissionOption::GrantCategorySession => {
-                        (theme.button_confirm_focused(), theme.focused_text())
-                    }
-                    PermissionOption::Deny => {
-                        (theme.button_cancel_focused(), theme.focused_text())
-                    }
+                if option.is_positive() {
+                    (theme.button_confirm_focused(), theme.focused_text())
+                } else {
+                    (theme.button_cancel_focused(), theme.focused_text())
                 }
+            } else if option.is_positive() {
+                (theme.button_confirm(), theme.muted_text())
             } else {
-                match option {
-                    PermissionOption::GrantOnce
-                    | PermissionOption::GrantSession
-                    | PermissionOption::GrantCategorySession => {
-                        (theme.button_confirm(), theme.muted_text())
-                    }
-                    PermissionOption::Deny => {
-                        (theme.button_cancel(), theme.muted_text())
-                    }
-                }
+                (theme.button_cancel(), theme.muted_text())
             };
 
             let indicator_style = if is_selected {
@@ -586,9 +552,12 @@ impl PermissionPanel {
                 Span::styled(prefix.clone(), indicator_style),
                 Span::styled(option.label(), label_style),
                 Span::styled(" - ", theme.muted_text()),
-                Span::styled(option.description(), desc_style),
+                Span::styled(description, desc_style),
             ]));
         }
+
+        // Bottom padding
+        lines.push(Line::from(""));
 
         // Build the block
         let block = Block::default()
@@ -610,10 +579,31 @@ impl Default for PermissionPanel {
     }
 }
 
+/// Format a permission level for display
+fn format_level(level: PermissionLevel) -> &'static str {
+    match level {
+        PermissionLevel::None => "None",
+        PermissionLevel::Read => "Read File",
+        PermissionLevel::Write => "Write File",
+        PermissionLevel::Execute => "Execute",
+        PermissionLevel::Admin => "Admin",
+    }
+}
+
+/// Truncate text to fit within a maximum width
+fn truncate_text(text: &str, max_width: usize) -> String {
+    if text.chars().count() <= max_width {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(max_width.saturating_sub(3)).collect();
+        format!("{}...", truncated)
+    }
+}
+
 // --- Widget trait implementation ---
 
-use std::any::Any;
 use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
+use std::any::Any;
 
 impl Widget for PermissionPanel {
     fn id(&self) -> &'static str {
@@ -646,7 +636,7 @@ impl Widget for PermissionPanel {
         // Selection using nav helper
         if ctx.nav.is_select(&key) {
             let option = self.selected_option();
-            let response = option.to_response();
+            let response = option.to_response(&self.request);
             let tool_use_id = self.tool_use_id.clone();
             return WidgetKeyResult::Action(WidgetAction::SubmitPermission {
                 tool_use_id,
@@ -670,7 +660,7 @@ impl Widget for PermissionPanel {
                 self.select_next();
                 WidgetKeyResult::Handled
             }
-            _ => WidgetKeyResult::Handled,
+            _ => WidgetKeyResult::NotHandled,
         }
     }
 
@@ -707,19 +697,13 @@ impl Widget for PermissionPanel {
     }
 }
 
-/// Truncate text to fit within a maximum width
-fn truncate_text(text: &str, max_width: usize) -> String {
-    if text.chars().count() <= max_width {
-        text.to_string()
-    } else {
-        let truncated: String = text.chars().take(max_width.saturating_sub(3)).collect();
-        format!("{}...", truncated)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn create_test_request() -> PermissionRequest {
+        PermissionRequest::file_write("test-1", "/tmp/foo.txt")
+    }
 
     #[test]
     fn test_permission_option_all() {
@@ -727,27 +711,29 @@ mod tests {
         assert_eq!(options.len(), 4);
         assert_eq!(options[0], PermissionOption::GrantOnce);
         assert_eq!(options[1], PermissionOption::GrantSession);
-        assert_eq!(options[2], PermissionOption::GrantCategorySession);
+        assert_eq!(options[2], PermissionOption::GrantAllSession);
         assert_eq!(options[3], PermissionOption::Deny);
     }
 
     #[test]
     fn test_permission_option_to_response() {
-        let once = PermissionOption::GrantOnce.to_response();
+        let request = create_test_request();
+
+        let once = PermissionOption::GrantOnce.to_response(&request);
         assert!(once.granted);
-        assert_eq!(once.scope, Some(PermissionScope::Once));
+        assert!(once.grant.is_none()); // Grant once doesn't persist
 
-        let session = PermissionOption::GrantSession.to_response();
+        let session = PermissionOption::GrantSession.to_response(&request);
         assert!(session.granted);
-        assert_eq!(session.scope, Some(PermissionScope::Session));
+        assert!(session.grant.is_some()); // Session grant persists
 
-        let category_session = PermissionOption::GrantCategorySession.to_response();
-        assert!(category_session.granted);
-        assert_eq!(category_session.scope, Some(PermissionScope::CategorySession));
+        let all_session = PermissionOption::GrantAllSession.to_response(&request);
+        assert!(all_session.granted);
+        assert!(all_session.grant.is_some()); // All session grant persists
 
-        let deny = PermissionOption::Deny.to_response();
+        let deny = PermissionOption::Deny.to_response(&request);
         assert!(!deny.granted);
-        assert!(deny.scope.is_none());
+        assert!(deny.grant.is_none());
     }
 
     #[test]
@@ -755,12 +741,7 @@ mod tests {
         let mut panel = PermissionPanel::new();
         assert!(!panel.is_active());
 
-        let request = PermissionRequest {
-            action: "Delete file".to_string(),
-            reason: Some("Cleanup".to_string()),
-            resources: vec!["/tmp/foo.txt".to_string()],
-            category: PermissionCategory::FileDelete,
-        };
+        let request = PermissionRequest::file_write("test-1", "/tmp/foo.txt");
 
         panel.activate("tool_123".to_string(), 1, request, None);
         assert!(panel.is_active());
@@ -774,12 +755,7 @@ mod tests {
     #[test]
     fn test_navigation() {
         let mut panel = PermissionPanel::new();
-        let request = PermissionRequest {
-            action: "Test".to_string(),
-            reason: None,
-            resources: vec![],
-            category: PermissionCategory::Other,
-        };
+        let request = create_test_request();
         panel.activate("tool_1".to_string(), 1, request, None);
 
         // Default is first option
@@ -790,7 +766,7 @@ mod tests {
         assert_eq!(panel.selected_option(), PermissionOption::GrantSession);
 
         panel.select_next();
-        assert_eq!(panel.selected_option(), PermissionOption::GrantCategorySession);
+        assert_eq!(panel.selected_option(), PermissionOption::GrantAllSession);
 
         panel.select_next();
         assert_eq!(panel.selected_option(), PermissionOption::Deny);
@@ -807,34 +783,24 @@ mod tests {
     #[test]
     fn test_handle_key_navigation() {
         let mut panel = PermissionPanel::new();
-        let request = PermissionRequest {
-            action: "Test".to_string(),
-            reason: None,
-            resources: vec![],
-            category: PermissionCategory::Other,
-        };
+        let request = create_test_request();
         panel.activate("tool_1".to_string(), 1, request, None);
 
         // Down key
         let action = panel.process_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-        assert_eq!(action, KeyAction::None);
+        matches!(action, KeyAction::None);
         assert_eq!(panel.selected_option(), PermissionOption::GrantSession);
 
         // Up key
         let action = panel.process_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-        assert_eq!(action, KeyAction::None);
+        matches!(action, KeyAction::None);
         assert_eq!(panel.selected_option(), PermissionOption::GrantOnce);
     }
 
     #[test]
     fn test_handle_key_selection() {
         let mut panel = PermissionPanel::new();
-        let request = PermissionRequest {
-            action: "Test".to_string(),
-            reason: None,
-            resources: vec![],
-            category: PermissionCategory::Other,
-        };
+        let request = create_test_request();
         panel.activate("tool_1".to_string(), 1, request, None);
 
         // Enter to select
@@ -843,11 +809,10 @@ mod tests {
             KeyAction::Selected(tool_use_id, response) => {
                 assert_eq!(tool_use_id, "tool_1");
                 assert!(response.granted);
-                assert_eq!(response.scope, Some(PermissionScope::Once));
+                assert!(response.grant.is_none()); // GrantOnce doesn't persist
             }
             _ => panic!("Expected Selected action"),
         }
-        // Panel doesn't deactivate itself - caller must do it
         panel.deactivate();
         assert!(!panel.is_active());
     }
@@ -855,12 +820,7 @@ mod tests {
     #[test]
     fn test_handle_key_cancel() {
         let mut panel = PermissionPanel::new();
-        let request = PermissionRequest {
-            action: "Test".to_string(),
-            reason: None,
-            resources: vec![],
-            category: PermissionCategory::Other,
-        };
+        let request = create_test_request();
         panel.activate("tool_1".to_string(), 1, request, None);
 
         // Escape to cancel
@@ -871,9 +831,55 @@ mod tests {
             }
             _ => panic!("Expected Cancelled action"),
         }
-        // Panel doesn't deactivate itself - caller must do it
         panel.deactivate();
         assert!(!panel.is_active());
+    }
+
+    #[test]
+    fn test_option_descriptions() {
+        let read_request = PermissionRequest::file_read("1", "/tmp/foo.txt");
+        let write_request = PermissionRequest::file_write("2", "/tmp/bar.txt");
+        let cmd_request = PermissionRequest::command_execute("3", "git status");
+
+        // GrantOnce is always the same
+        assert_eq!(
+            PermissionOption::GrantOnce.description(&read_request),
+            "Allow only this request"
+        );
+
+        // GrantSession varies by type
+        assert_eq!(
+            PermissionOption::GrantSession.description(&read_request),
+            "Allow reading this file"
+        );
+        assert_eq!(
+            PermissionOption::GrantSession.description(&write_request),
+            "Allow writing this file"
+        );
+        assert_eq!(
+            PermissionOption::GrantSession.description(&cmd_request),
+            "Allow this command"
+        );
+
+        // GrantAllSession varies by type
+        assert_eq!(
+            PermissionOption::GrantAllSession.description(&read_request),
+            "Allow reading any file"
+        );
+        assert_eq!(
+            PermissionOption::GrantAllSession.description(&write_request),
+            "Allow writing any file"
+        );
+        assert_eq!(
+            PermissionOption::GrantAllSession.description(&cmd_request),
+            "Allow all commands"
+        );
+
+        // Deny is always the same
+        assert_eq!(
+            PermissionOption::Deny.description(&read_request),
+            "Deny this request"
+        );
     }
 
     #[test]
@@ -881,5 +887,25 @@ mod tests {
         assert_eq!(truncate_text("short", 10), "short");
         assert_eq!(truncate_text("this is a longer text", 10), "this is...");
         assert_eq!(truncate_text("exact", 5), "exact");
+    }
+
+    #[test]
+    fn test_command_hides_allow_all() {
+        let mut panel = PermissionPanel::new();
+
+        // File read: should have 4 options including GrantAllSession
+        let read_request = PermissionRequest::file_read("1", "/tmp/foo.txt");
+        panel.activate("tool_1".to_string(), 1, read_request, None);
+        let options = panel.available_options();
+        assert_eq!(options.len(), 4);
+        assert!(options.contains(&PermissionOption::GrantAllSession));
+        panel.deactivate();
+
+        // Command: should have 3 options, NO GrantAllSession
+        let cmd_request = PermissionRequest::command_execute("2", "git status");
+        panel.activate("tool_2".to_string(), 1, cmd_request, None);
+        let options = panel.available_options();
+        assert_eq!(options.len(), 3);
+        assert!(!options.contains(&PermissionOption::GrantAllSession));
     }
 }

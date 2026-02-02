@@ -14,8 +14,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Local};
 use globset::{Glob, GlobMatcher};
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType};
 
 /// Ls tool name constant.
@@ -226,18 +225,17 @@ impl LsTool {
         Self { permission_registry }
     }
 
-    fn build_permission_request(path: &str) -> PermissionRequest {
-        let dirname = Path::new(path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(path);
+    fn build_permission_request(tool_use_id: &str, path: &str) -> PermissionRequest {
+        let reason = "Read directory contents";
 
-        PermissionRequest {
-            action: format!("List directory: {}", dirname),
-            reason: Some("Read directory contents".to_string()),
-            resources: vec![path.to_string()],
-            category: PermissionCategory::DirectoryRead,
-        }
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::path(path, false),
+            PermissionLevel::Read,
+            &format!("List directory: {}", path),
+        )
+        .with_reason(reason)
+        .with_tool(LS_TOOL_NAME)
     }
 }
 
@@ -287,25 +285,14 @@ impl Executable for LsTool {
                 return Err(format!("Path is not a directory: {}", path_str));
             }
 
-            // Check permission
-            let permission_request = Self::build_permission_request(path_str);
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
-
-            if !already_granted {
-                // Request permission from user
+            // Request permission if not pre-approved by batch executor
+            if !context.permissions_pre_approved {
+                let permission_request = Self::build_permission_request(&context.tool_use_id, path_str);
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
-                        context.session_id,
-                        permission_request,
-                        context.turn_id.clone(),
-                    )
+                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
-                // Block until user responds
                 let response = response_rx
                     .await
                     .map_err(|_| "Permission request was cancelled".to_string())?;
@@ -496,6 +483,35 @@ impl Executable for LsTool {
 
         format!("[Ls: {} ({} entries)]", dirname, entry_count)
     }
+
+    fn required_permissions(
+        &self,
+        context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract path parameter
+        let path_str = input.get("path").and_then(|v| v.as_str())?;
+
+        let path = Path::new(path_str);
+
+        // Validate path is absolute, exists, and is a directory
+        if !path.is_absolute() {
+            return None;
+        }
+
+        if !path.exists() {
+            return None;
+        }
+
+        if !path.is_dir() {
+            return None;
+        }
+
+        // Build permission request using the existing helper
+        let permission_request = Self::build_permission_request(&context.tool_use_id, path_str);
+
+        Some(vec![permission_request])
+    }
 }
 
 #[cfg(test)]
@@ -536,10 +552,11 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = LsTool::build_permission_request("/home/user/project");
-        assert_eq!(request.action, "List directory: project");
-        assert_eq!(request.category, PermissionCategory::DirectoryRead);
-        assert_eq!(request.resources, vec!["/home/user/project".to_string()]);
+        let request = LsTool::build_permission_request("test-tool-id", "/home/user/project");
+        assert_eq!(request.description, "List directory: /home/user/project");
+        assert_eq!(request.reason, Some("Read directory contents".to_string()));
+        assert_eq!(request.target, GrantTarget::path("/home/user/project", false));
+        assert_eq!(request.required_level, PermissionLevel::Read);
     }
 
     #[tokio::test]
@@ -552,6 +569,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let mut input = HashMap::new();
@@ -575,6 +593,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let mut input = HashMap::new();
@@ -601,6 +620,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let mut input = HashMap::new();

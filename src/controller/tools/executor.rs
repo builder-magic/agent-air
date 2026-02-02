@@ -1,17 +1,21 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::registry::ToolRegistry;
 use super::types::{ToolBatchResult, ToolContext, ToolRequest, ToolResult};
 use crate::controller::types::TurnId;
+use crate::permissions::{PermissionRegistry, PermissionRequest};
 
 /// Manages tool execution with support for parallel batch execution.
 pub struct ToolExecutor {
     registry: Arc<ToolRegistry>,
+    permission_registry: Arc<PermissionRegistry>,
     tool_result_tx: mpsc::Sender<ToolResult>,
     batch_result_tx: mpsc::Sender<ToolBatchResult>,
     batch_counter: AtomicI64,
@@ -22,15 +26,18 @@ impl ToolExecutor {
     ///
     /// # Arguments
     /// * `registry` - Tool registry for looking up tools
+    /// * `permission_registry` - Permission registry for batch permission requests
     /// * `tool_result_tx` - Channel for individual tool results (UI feedback)
     /// * `batch_result_tx` - Channel for batch results (sending to LLM)
     pub fn new(
         registry: Arc<ToolRegistry>,
+        permission_registry: Arc<PermissionRegistry>,
         tool_result_tx: mpsc::Sender<ToolResult>,
         batch_result_tx: mpsc::Sender<ToolBatchResult>,
     ) -> Self {
         Self {
             registry,
+            permission_registry,
             tool_result_tx,
             batch_result_tx,
             batch_counter: AtomicI64::new(0),
@@ -38,6 +45,15 @@ impl ToolExecutor {
     }
 
     /// Execute a batch of tools in parallel.
+    ///
+    /// This method implements batch permission handling:
+    /// 1. Collects required permissions from all tools via `required_permissions()`
+    /// 2. Requests batch approval from the permission registry (single UI prompt)
+    /// 3. If approved: executes all tools with `permissions_pre_approved: true`
+    /// 4. If denied: returns error results for all tools
+    ///
+    /// Tools that handle their own permissions (`handles_own_permissions() -> true`)
+    /// are always executed regardless of batch permission status.
     ///
     /// Results are emitted individually to tool_result_tx for UI feedback,
     /// and the complete batch is sent to batch_result_tx when all tools finish.
@@ -74,6 +90,291 @@ impl ToolExecutor {
             "Starting tool batch execution"
         );
 
+        // Collect permission requirements from all tools
+        let mut all_permissions: Vec<PermissionRequest> = Vec::new();
+        let mut tools_needing_permissions: Vec<String> = Vec::new();
+
+        for request in &requests {
+            if let Some(tool) = self.registry.get(&request.tool_name).await {
+                // Skip tools that handle their own permissions
+                if tool.handles_own_permissions() {
+                    continue;
+                }
+
+                // Build context for permission check
+                let context = ToolContext::new(session_id, &request.tool_use_id, turn_id.clone());
+
+                // Collect required permissions
+                if let Some(perms) = tool.required_permissions(&context, &request.input) {
+                    if !perms.is_empty() {
+                        tools_needing_permissions.push(request.tool_use_id.clone());
+                        all_permissions.extend(perms);
+                    }
+                }
+            }
+        }
+
+        // Determine if batch permissions are pre-approved
+        let permissions_pre_approved = if !all_permissions.is_empty() {
+            tracing::debug!(
+                batch_id,
+                permission_count = all_permissions.len(),
+                tool_count = tools_needing_permissions.len(),
+                "Requesting permissions"
+            );
+
+            // Use single permission request for single permission, batch for multiple
+            if all_permissions.len() == 1 {
+                // Single permission - use simpler PermissionPanel UI
+                let permission = all_permissions.into_iter().next().unwrap();
+                match self
+                    .permission_registry
+                    .request_permission(session_id, permission, turn_id.clone())
+                    .await
+                {
+                    Ok(rx) => {
+                        match rx.await {
+                            Ok(response) => {
+                                if response.granted {
+                                    tracing::info!(batch_id, "Single permission approved");
+                                    true
+                                } else {
+                                    tracing::info!(batch_id, "Single permission denied");
+
+                                    // Create error results for all tools
+                                    let error_results: Vec<ToolResult> = requests
+                                        .iter()
+                                        .map(|req| {
+                                            ToolResult::error(
+                                                session_id,
+                                                req.tool_name.clone(),
+                                                req.tool_use_id.clone(),
+                                                req.input.clone(),
+                                                "Permission denied by user".to_string(),
+                                                turn_id.clone(),
+                                            )
+                                        })
+                                        .collect();
+
+                                    // Send individual error results
+                                    for result in &error_results {
+                                        if let Err(e) =
+                                            self.tool_result_tx.send(result.clone()).await
+                                        {
+                                            tracing::debug!("Failed to send tool result: {}", e);
+                                        }
+                                    }
+
+                                    // Send batch result
+                                    let batch_result = ToolBatchResult {
+                                        batch_id,
+                                        session_id,
+                                        turn_id,
+                                        results: error_results,
+                                    };
+                                    if let Err(e) = self.batch_result_tx.send(batch_result).await {
+                                        tracing::debug!("Failed to send batch result: {}", e);
+                                    }
+
+                                    return batch_id;
+                                }
+                            }
+                            Err(_) => {
+                                // Channel closed - permission request was cancelled
+                                tracing::info!(batch_id, "Single permission request cancelled");
+
+                                let error_results: Vec<ToolResult> = requests
+                                    .iter()
+                                    .map(|req| {
+                                        ToolResult::error(
+                                            session_id,
+                                            req.tool_name.clone(),
+                                            req.tool_use_id.clone(),
+                                            req.input.clone(),
+                                            "Permission request cancelled".to_string(),
+                                            turn_id.clone(),
+                                        )
+                                    })
+                                    .collect();
+
+                                for result in &error_results {
+                                    if let Err(e) = self.tool_result_tx.send(result.clone()).await {
+                                        tracing::debug!("Failed to send tool result: {}", e);
+                                    }
+                                }
+
+                                let batch_result = ToolBatchResult {
+                                    batch_id,
+                                    session_id,
+                                    turn_id,
+                                    results: error_results,
+                                };
+                                if let Err(e) = self.batch_result_tx.send(batch_result).await {
+                                    tracing::debug!("Failed to send batch result: {}", e);
+                                }
+
+                                return batch_id;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(batch_id, error = %e, "Failed to request single permission");
+
+                        let error_results: Vec<ToolResult> = requests
+                            .iter()
+                            .map(|req| {
+                                ToolResult::error(
+                                    session_id,
+                                    req.tool_name.clone(),
+                                    req.tool_use_id.clone(),
+                                    req.input.clone(),
+                                    format!("Permission request failed: {}", e),
+                                    turn_id.clone(),
+                                )
+                            })
+                            .collect();
+
+                        for result in &error_results {
+                            if let Err(e) = self.tool_result_tx.send(result.clone()).await {
+                                tracing::debug!("Failed to send tool result: {}", e);
+                            }
+                        }
+
+                        let batch_result = ToolBatchResult {
+                            batch_id,
+                            session_id,
+                            turn_id,
+                            results: error_results,
+                        };
+                        if let Err(e) = self.batch_result_tx.send(batch_result).await {
+                            tracing::debug!("Failed to send batch result: {}", e);
+                        }
+
+                        return batch_id;
+                    }
+                }
+            } else {
+                // Multiple permissions - use BatchPermissionPanel UI
+                match self
+                    .permission_registry
+                    .register_batch(session_id, all_permissions, turn_id.clone())
+                    .await
+                {
+                Ok(rx) => {
+                    // Wait for permission response
+                    match rx.await {
+                        Ok(response) => {
+                            // Batch permissions: all-or-none model
+                            // If any requests were denied, fail all tools
+                            if !response.denied_requests.is_empty() {
+                                tracing::info!(
+                                    batch_id,
+                                    denied_count = response.denied_requests.len(),
+                                    "Batch permissions denied"
+                                );
+
+                                // Create error results for all tools
+                                let error_results: Vec<ToolResult> = requests
+                                    .iter()
+                                    .map(|req| {
+                                        ToolResult::error(
+                                            session_id,
+                                            req.tool_name.clone(),
+                                            req.tool_use_id.clone(),
+                                            req.input.clone(),
+                                            "Permission denied by user".to_string(),
+                                            turn_id.clone(),
+                                        )
+                                    })
+                                    .collect();
+
+                                // Send individual error results
+                                for result in &error_results {
+                                    if let Err(e) =
+                                        self.tool_result_tx.send(result.clone()).await
+                                    {
+                                        tracing::debug!("Failed to send tool result: {}", e);
+                                    }
+                                }
+
+                                // Send batch result
+                                let batch_result = ToolBatchResult {
+                                    batch_id,
+                                    session_id,
+                                    turn_id,
+                                    results: error_results,
+                                };
+                                if let Err(e) = self.batch_result_tx.send(batch_result).await {
+                                    tracing::debug!("Failed to send batch result: {}", e);
+                                }
+
+                                return batch_id;
+                            }
+
+                            tracing::info!(
+                                batch_id,
+                                grant_count = response.approved_grants.len(),
+                                "Batch permissions approved"
+                            );
+                            true
+                        }
+                        Err(_) => {
+                            // Channel closed - permission request was cancelled
+                            tracing::info!(batch_id, "Batch permission request cancelled");
+
+                            // Create error results for all tools
+                            let error_results: Vec<ToolResult> = requests
+                                .iter()
+                                .map(|req| {
+                                    ToolResult::error(
+                                        session_id,
+                                        req.tool_name.clone(),
+                                        req.tool_use_id.clone(),
+                                        req.input.clone(),
+                                        "Permission request cancelled".to_string(),
+                                        turn_id.clone(),
+                                    )
+                                })
+                                .collect();
+
+                            // Send individual error results
+                            for result in &error_results {
+                                if let Err(e) = self.tool_result_tx.send(result.clone()).await {
+                                    tracing::debug!("Failed to send tool result: {}", e);
+                                }
+                            }
+
+                            // Send batch result
+                            let batch_result = ToolBatchResult {
+                                batch_id,
+                                session_id,
+                                turn_id,
+                                results: error_results,
+                            };
+                            if let Err(e) = self.batch_result_tx.send(batch_result).await {
+                                tracing::debug!("Failed to send batch result: {}", e);
+                            }
+
+                            return batch_id;
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Failed to register batch - treat as permission denied
+                    tracing::warn!(
+                        batch_id,
+                        error = %e,
+                        "Failed to register batch permission request"
+                    );
+                    false
+                }
+                }
+            }
+        } else {
+            // No permissions needed
+            true
+        };
+
         // Create batch state
         let batch = Arc::new(ToolExecutorBatch {
             batch_id,
@@ -84,20 +385,25 @@ impl ToolExecutor {
             requests: requests.clone(),
             results: Mutex::new(HashMap::new()),
             expected_count,
+            permissions_pre_approved,
+            task_handles: Mutex::new(Vec::with_capacity(expected_count)),
         });
 
-        // Start all tools concurrently
+        // Start all tools concurrently, storing JoinHandles for tracking
         for request in requests {
-            let batch = batch.clone();
+            let batch_clone = batch.clone();
             let registry = self.registry.clone();
             let cancel = cancel_token.clone();
             let turn_id = turn_id.clone();
 
-            tokio::spawn(async move {
-                batch
+            let handle = tokio::spawn(async move {
+                batch_clone
                     .run_tool(registry, request, turn_id, cancel)
                     .await;
             });
+
+            // Store the handle for tracking
+            batch.task_handles.lock().await.push(handle);
         }
 
         batch_id
@@ -126,6 +432,10 @@ struct ToolExecutorBatch {
     requests: Vec<ToolRequest>,
     results: Mutex<HashMap<String, ToolResult>>,
     expected_count: usize,
+    /// Whether permissions were pre-approved by the batch executor.
+    permissions_pre_approved: bool,
+    /// JoinHandles for spawned tool tasks, enabling graceful shutdown and panic detection.
+    task_handles: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl ToolExecutorBatch {
@@ -173,11 +483,12 @@ impl ToolExecutorBatch {
                 // Get display name from tool's display config
                 let display_name = Some(tool.display_config().display_name);
 
-                // Build tool context
+                // Build tool context with pre-approved flag from batch
                 let context = ToolContext {
                     session_id: self.session_id,
                     tool_use_id: tool_use_id.clone(),
                     turn_id: turn_id.clone(),
+                    permissions_pre_approved: self.permissions_pre_approved,
                 };
 
                 // Execute tool with cancellation support
@@ -293,15 +604,104 @@ impl ToolExecutorBatch {
             tracing::debug!("Failed to send batch result: {}", e);
         }
     }
+
+    /// Await completion of all spawned tasks with an optional timeout.
+    ///
+    /// This method drains the task handles and awaits each one. If a timeout is provided,
+    /// tasks that don't complete within the timeout will be logged but not forcefully aborted
+    /// (Tokio tasks can only be aborted by dropping the handle, which we do after timeout).
+    ///
+    /// # Arguments
+    /// * `timeout` - Optional timeout duration. If None, waits indefinitely.
+    ///
+    /// # Returns
+    /// A tuple of (completed_count, panicked_count, timed_out_count)
+    #[allow(dead_code)] // Available for future use in graceful shutdown
+    async fn await_completion(&self, timeout: Option<Duration>) -> (usize, usize, usize) {
+        let handles: Vec<JoinHandle<()>> = {
+            let mut guard = self.task_handles.lock().await;
+            std::mem::take(&mut *guard)
+        };
+
+        let total = handles.len();
+        let mut completed = 0;
+        let mut panicked = 0;
+        let mut timed_out = 0;
+
+        for handle in handles {
+            let result = if let Some(timeout_duration) = timeout {
+                match tokio::time::timeout(timeout_duration, handle).await {
+                    Ok(join_result) => Some(join_result),
+                    Err(_) => {
+                        timed_out += 1;
+                        tracing::warn!(
+                            batch_id = self.batch_id,
+                            "Task did not complete within timeout"
+                        );
+                        None
+                    }
+                }
+            } else {
+                Some(handle.await)
+            };
+
+            if let Some(join_result) = result {
+                match join_result {
+                    Ok(()) => completed += 1,
+                    Err(e) => {
+                        panicked += 1;
+                        if e.is_panic() {
+                            tracing::error!(
+                                batch_id = self.batch_id,
+                                error = %e,
+                                "Task panicked"
+                            );
+                        } else {
+                            tracing::warn!(
+                                batch_id = self.batch_id,
+                                error = %e,
+                                "Task was cancelled"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::debug!(
+            batch_id = self.batch_id,
+            total,
+            completed,
+            panicked,
+            timed_out,
+            "Batch task completion summary"
+        );
+
+        (completed, panicked, timed_out)
+    }
+
+    /// Returns the number of tasks that are still running.
+    #[allow(dead_code)] // Available for future use in monitoring
+    async fn active_task_count(&self) -> usize {
+        let handles = self.task_handles.lock().await;
+        handles.iter().filter(|h| !h.is_finished()).count()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::controller::tools::types::{Executable, ToolResultStatus, ToolType};
+    use crate::controller::types::ControllerEvent;
     use std::future::Future;
     use std::pin::Pin;
     use std::time::Duration;
+
+    /// Create a test permission registry that auto-approves everything.
+    fn create_test_permission_registry() -> Arc<PermissionRegistry> {
+        let (event_tx, _event_rx) = mpsc::channel::<ControllerEvent>(10);
+        Arc::new(PermissionRegistry::new(event_tx))
+    }
 
     struct EchoTool;
 
@@ -372,10 +772,11 @@ mod tests {
         let registry = Arc::new(ToolRegistry::new());
         registry.register(Arc::new(EchoTool)).await.unwrap();
 
+        let permission_registry = create_test_permission_registry();
         let (tool_tx, mut tool_rx) = mpsc::channel(10);
         let (batch_tx, mut batch_rx) = mpsc::channel(10);
 
-        let executor = ToolExecutor::new(registry, tool_tx, batch_tx);
+        let executor = ToolExecutor::new(registry, permission_registry, tool_tx, batch_tx);
 
         let mut input = HashMap::new();
         input.insert(
@@ -407,10 +808,11 @@ mod tests {
         let registry = Arc::new(ToolRegistry::new());
         registry.register(Arc::new(EchoTool)).await.unwrap();
 
+        let permission_registry = create_test_permission_registry();
         let (tool_tx, mut tool_rx) = mpsc::channel(10);
         let (batch_tx, mut batch_rx) = mpsc::channel(10);
 
-        let executor = ToolExecutor::new(registry, tool_tx, batch_tx);
+        let executor = ToolExecutor::new(registry, permission_registry, tool_tx, batch_tx);
 
         let requests: Vec<ToolRequest> = (0..3)
             .map(|i| {
@@ -445,10 +847,11 @@ mod tests {
     async fn test_tool_not_found() {
         let registry = Arc::new(ToolRegistry::new());
 
+        let permission_registry = create_test_permission_registry();
         let (tool_tx, mut tool_rx) = mpsc::channel(10);
         let (batch_tx, _batch_rx) = mpsc::channel(10);
 
-        let executor = ToolExecutor::new(registry, tool_tx, batch_tx);
+        let executor = ToolExecutor::new(registry, permission_registry, tool_tx, batch_tx);
 
         let request = ToolRequest {
             tool_use_id: "test_1".to_string(),
@@ -469,10 +872,11 @@ mod tests {
         let registry = Arc::new(ToolRegistry::new());
         registry.register(Arc::new(SlowTool)).await.unwrap();
 
+        let permission_registry = create_test_permission_registry();
         let (tool_tx, mut tool_rx) = mpsc::channel(10);
         let (batch_tx, _batch_rx) = mpsc::channel(10);
 
-        let executor = ToolExecutor::new(registry, tool_tx, batch_tx);
+        let executor = ToolExecutor::new(registry, permission_registry, tool_tx, batch_tx);
 
         let request = ToolRequest {
             tool_use_id: "test_1".to_string(),

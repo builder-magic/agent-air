@@ -62,7 +62,8 @@ pub type FromControllerRx = mpsc::Receiver<UiMessage>;
 /// }
 /// ```
 pub struct AgentCore {
-    /// Logger instance (must be kept alive)
+    /// Logger instance - never directly accessed but must be kept alive for RAII.
+    /// Dropping this field would stop logging, so it's held for the lifetime of AgentCore.
     #[allow(dead_code)]
     logger: Logger,
 
@@ -91,7 +92,6 @@ pub struct AgentCore {
     to_controller_rx: Option<ToControllerRx>,
 
     /// Sender for messages from controller to TUI (held by event handler)
-    #[allow(dead_code)]
     from_controller_tx: FromControllerTx,
 
     /// Receiver for messages from controller to TUI
@@ -184,16 +184,6 @@ impl AgentCore {
         let (from_controller_tx, from_controller_rx) =
             mpsc::channel::<UiMessage>(channel_size);
 
-        // Create the controller with UI channel for direct event forwarding
-        // The controller will use backpressure: when UI channel is full, it stops
-        // reading from LLM, which backs up the from_llm channel, which blocks the
-        // session, which slows down network consumption.
-        let controller = Arc::new(LLMController::new(
-            Some(from_controller_tx.clone()),
-            Some(channel_size),
-        ));
-        let cancel_token = CancellationToken::new();
-
         // Create channel for user interaction events
         let (interaction_event_tx, mut interaction_event_rx) =
             mpsc::channel::<ControllerEvent>(channel_size);
@@ -232,6 +222,17 @@ impl AgentCore {
                 }
             }
         });
+
+        // Create the controller with UI channel for direct event forwarding
+        // The controller will use backpressure: when UI channel is full, it stops
+        // reading from LLM, which backs up the from_llm channel, which blocks the
+        // session, which slows down network consumption.
+        let controller = Arc::new(LLMController::new(
+            permission_registry.clone(),
+            Some(from_controller_tx.clone()),
+            Some(channel_size),
+        ));
+        let cancel_token = CancellationToken::new();
 
         Ok(Self {
             logger,
@@ -535,6 +536,7 @@ impl AgentCore {
     /// ```ignore
     /// let mut agent = AgentCore::new(&MyConfig)?;
     /// agent.register_widget(PermissionPanel::new());
+    /// agent.register_widget(BatchPermissionPanel::new());
     /// agent.register_widget(QuestionPanel::new());
     /// agent.run()
     /// ```
@@ -843,6 +845,39 @@ impl AgentCore {
         &self.permission_registry
     }
 
+    /// Removes a session and cleans up all associated resources.
+    ///
+    /// This is the recommended way to remove a session as it orchestrates cleanup across:
+    /// - The LLM session manager (terminates the session)
+    /// - The permission registry (cancels pending permission requests)
+    /// - The user interaction registry (cancels pending user questions)
+    /// - The tool registry (cleans up per-session state in tools)
+    ///
+    /// # Arguments
+    /// * `session_id` - The ID of the session to remove
+    ///
+    /// # Returns
+    /// true if the session was found and removed, false if session didn't exist
+    pub async fn remove_session(&self, session_id: i64) -> bool {
+        // Remove from controller's session manager
+        let removed = self.controller.remove_session(session_id).await;
+
+        // Clean up pending permission requests for this session
+        self.permission_registry.cancel_session(session_id).await;
+
+        // Clean up pending user interactions for this session
+        self.user_interaction_registry.cancel_session(session_id).await;
+
+        // Clean up per-session state in tools (e.g., bash working directories)
+        self.controller.tool_registry().cleanup_session(session_id).await;
+
+        if removed {
+            tracing::info!(session_id, "Session removed with full cleanup");
+        }
+
+        removed
+    }
+
     /// Returns a reference to the LLM registry.
     pub fn llm_registry(&self) -> Option<&LLMRegistry> {
         self.llm_registry.as_ref()
@@ -875,6 +910,18 @@ impl AgentCore {
 ///
 /// This function maps the internal controller events to UI-friendly messages
 /// that can be displayed in a terminal interface.
+///
+/// # Architecture Note
+///
+/// This function serves as the **intentional integration point** between the
+/// controller layer (`ControllerEvent`) and the UI layer (`UiMessage`). It is
+/// defined in the agent module because:
+/// 1. The agent orchestrates both controller and UI components
+/// 2. `UiMessage` is an agent-layer type consumed by the TUI
+/// 3. The agent owns the responsibility of bridging these layers
+///
+/// Both `LLMController::send_to_ui()` and `AgentCore` initialization use this
+/// function to translate controller events into UI-displayable messages.
 pub fn convert_controller_event_to_ui_message(event: ControllerEvent) -> UiMessage {
     match event {
         ControllerEvent::StreamStart { session_id, .. } => {

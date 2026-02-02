@@ -13,8 +13,7 @@ use std::sync::Arc;
 
 use strsim::normalized_levenshtein;
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
@@ -156,19 +155,22 @@ impl MultiEditTool {
     }
 
     /// Build a permission request for multi-edit operation.
-    fn build_permission_request(file_path: &str, edit_count: usize) -> PermissionRequest {
-        let path = Path::new(file_path);
-        let display_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(file_path);
+    fn build_permission_request(
+        tool_use_id: &str,
+        file_path: &str,
+        edit_count: usize,
+    ) -> PermissionRequest {
+        let path = file_path;
+        let reason = format!("Apply {} find-and-replace operations", edit_count);
 
-        PermissionRequest {
-            action: format!("Multi-edit: {} ({} edits)", display_name, edit_count),
-            reason: Some(format!("Apply {} find-and-replace operations", edit_count)),
-            resources: vec![file_path.to_string()],
-            category: PermissionCategory::FileWrite,
-        }
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::path(path, false),
+            PermissionLevel::Write,
+            &format!("Multi-edit file: {}", path),
+        )
+        .with_reason(reason)
+        .with_tool(MULTI_EDIT_TOOL_NAME)
     }
 
     /// Normalize whitespace for fuzzy comparison.
@@ -553,16 +555,12 @@ impl Executable for MultiEditTool {
                 return Ok(summary);
             }
 
-            // Request permission (single request for all edits)
-            let permission_request = Self::build_permission_request(file_path, edits.len());
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
-
-            if !already_granted {
+            // Request permission if not pre-approved by batch executor
+            if !context.permissions_pre_approved {
+                let permission_request =
+                    Self::build_permission_request(&context.tool_use_id, file_path, edits.len());
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
+                    .request_permission(
                         context.session_id,
                         permission_request,
                         context.turn_id.clone(),
@@ -672,6 +670,25 @@ impl Executable for MultiEditTool {
 
         format!("[MultiEdit: {} ({} edits, {})]", filename, count, status)
     }
+
+    fn required_permissions(
+        &self,
+        _context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract file_path from input
+        let file_path = input.get("file_path")?.as_str()?;
+
+        // Extract and parse edits array
+        let edits_value = input.get("edits")?;
+        let edits = Self::parse_edits(edits_value).ok()?;
+
+        // Build a single permission request for all edits
+        let permission_request =
+            Self::build_permission_request("preview", file_path, edits.len());
+
+        Some(vec![permission_request])
+    }
 }
 
 /// Truncate string for display purposes.
@@ -686,7 +703,7 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::tools::ask_for_permissions::{PermissionResponse, PermissionScope};
+    use crate::permissions::PermissionPanelResponse;
     use crate::controller::types::ControllerEvent;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
@@ -695,6 +712,14 @@ mod tests {
         let (tx, rx) = mpsc::channel(16);
         let registry = Arc::new(PermissionRegistry::new(tx));
         (registry, rx)
+    }
+
+    fn grant_once() -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: true, grant: None, message: None }
+    }
+
+    fn deny(reason: &str) -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
     }
 
     #[tokio::test]
@@ -723,6 +748,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-1".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -731,7 +757,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -769,6 +795,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-2".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -777,7 +804,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -815,6 +842,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-3".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -850,6 +878,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-4".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -883,6 +912,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-5".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -912,6 +942,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-6".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -944,6 +975,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-7".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -976,6 +1008,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-8".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -984,9 +1017,9 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(
+                    .respond_to_request(
                         &tool_use_id,
-                        PermissionResponse::deny(Some("Not allowed".to_string())),
+                        deny("Not allowed"),
                     )
                     .await
                     .unwrap();
@@ -1030,6 +1063,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-multi-9".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -1038,7 +1072,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }

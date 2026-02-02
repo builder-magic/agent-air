@@ -89,6 +89,17 @@ impl ToolRegistry {
         let tools = self.tools.read().await;
         tools.is_empty()
     }
+
+    /// Cleans up session-specific state in all registered tools.
+    ///
+    /// This should be called when a session is removed to prevent
+    /// unbounded memory growth from abandoned session state in tools.
+    pub async fn cleanup_session(&self, session_id: i64) {
+        let tools = self.tools.read().await;
+        for tool in tools.values() {
+            tool.cleanup_session(session_id).await;
+        }
+    }
 }
 
 impl Default for ToolRegistry {

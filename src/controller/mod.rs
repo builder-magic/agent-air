@@ -26,10 +26,9 @@ pub use tools::{
     Answer, AskForPermissionsTool, AskUserQuestionsRequest, AskUserQuestionsResponse,
     AskUserQuestionsTool, BashTool, DisplayConfig, DisplayResult, EditFileTool, Executable,
     GlobTool, GrepTool, GrepOutputMode, LsTool, MultiEditTool, PendingPermissionInfo,
-    PendingQuestionInfo, PermissionCategory, PermissionError, PermissionGrant, PermissionRegistry,
-    PermissionRequest, PermissionResponse, PermissionScope, Question, ReadFileTool,
-    ResultContentType, ToolBatchResult, ToolContext, ToolDefinition, ToolExecutor, ToolRegistry,
-    ToolRequest, ToolResult, ToolResultStatus, ToolType, UserInteractionError,
+    PendingQuestionInfo, PermissionError, PermissionPanelResponse, PermissionRegistry, Question,
+    ReadFileTool, ResultContentType, ToolBatchResult, ToolContext, ToolDefinition, ToolExecutor,
+    ToolRegistry, ToolRequest, ToolResult, ToolResultStatus, ToolType, UserInteractionError,
     UserInteractionRegistry, ValidationError, ValidationErrorCode, ValidationErrorDetail, LLMTool,
     WebSearchTool, WriteFileTool, ASK_FOR_PERMISSIONS_TOOL_DESCRIPTION,
     ASK_FOR_PERMISSIONS_TOOL_NAME, ASK_FOR_PERMISSIONS_TOOL_SCHEMA,
@@ -43,6 +42,8 @@ pub use tools::{
     WEB_SEARCH_TOOL_SCHEMA, WRITE_FILE_TOOL_DESCRIPTION, WRITE_FILE_TOOL_NAME,
     WRITE_FILE_TOOL_SCHEMA,
 };
+// Re-export new permission types
+pub use crate::permissions::{Grant, GrantTarget, PermissionLevel, PermissionRequest};
 pub use types::{
     ContentBlock, ControlCmd, ControllerEvent, ControllerInputPayload, FromLLMPayload, InputType,
     LLMRequestType, LLMResponseType, Message, MessageRole, ToLLMPayload, TurnCounter, TurnId,

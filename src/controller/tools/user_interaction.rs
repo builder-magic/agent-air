@@ -4,11 +4,18 @@
 //! such as the AskUserQuestions tool.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{oneshot, Mutex, mpsc};
 
 use super::ask_user_questions::{AskUserQuestionsRequest, AskUserQuestionsResponse};
 use crate::controller::types::{ControllerEvent, TurnId};
+
+/// Maximum number of pending interactions before triggering cleanup.
+const PENDING_CLEANUP_THRESHOLD: usize = 50;
+
+/// Maximum age for pending interactions before they're considered stale (5 minutes).
+const PENDING_MAX_AGE: Duration = Duration::from_secs(300);
 
 /// Error types for user interaction operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +62,7 @@ struct PendingInteraction {
     request: AskUserQuestionsRequest,
     turn_id: Option<TurnId>,
     responder: oneshot::Sender<AskUserQuestionsResponse>,
+    created_at: Instant,
 }
 
 /// Registry for managing pending user interactions.
@@ -105,6 +113,23 @@ impl UserInteractionRegistry {
         // Store the pending interaction
         {
             let mut pending = self.pending.lock().await;
+
+            // Cleanup stale entries if map is getting large
+            if pending.len() >= PENDING_CLEANUP_THRESHOLD {
+                let now = Instant::now();
+                pending.retain(|id, interaction| {
+                    let keep = now.duration_since(interaction.created_at) < PENDING_MAX_AGE;
+                    if !keep {
+                        tracing::warn!(
+                            tool_use_id = %id,
+                            age_secs = now.duration_since(interaction.created_at).as_secs(),
+                            "Cleaning up stale pending user interaction"
+                        );
+                    }
+                    keep
+                });
+            }
+
             pending.insert(
                 tool_use_id.clone(),
                 PendingInteraction {
@@ -112,6 +137,7 @@ impl UserInteractionRegistry {
                     request: request.clone(),
                     turn_id: turn_id.clone(),
                     responder: tx,
+                    created_at: Instant::now(),
                 },
             );
         }

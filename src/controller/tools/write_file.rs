@@ -12,8 +12,7 @@ use std::sync::Arc;
 
 use tokio::fs;
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
@@ -70,27 +69,41 @@ impl WriteFileTool {
     }
 
     /// Builds a permission request for writing to a file.
+    ///
+    /// # Arguments
+    /// * `tool_use_id` - Unique identifier for this tool invocation
+    /// * `file_path` - Path to the file being written
+    /// * `content_len` - Number of bytes to write
+    /// * `is_overwrite` - Whether this overwrites an existing file
+    /// * `will_create_directories` - Whether parent directories will be created
     fn build_permission_request(
+        tool_use_id: &str,
         file_path: &str,
         content_len: usize,
         is_overwrite: bool,
+        will_create_directories: bool,
     ) -> PermissionRequest {
         let action_verb = if is_overwrite { "Overwrite" } else { "Create" };
-        let filename = Path::new(file_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(file_path);
+        let dir_note = if will_create_directories {
+            " (will create parent directories)"
+        } else {
+            ""
+        };
+        let reason = format!(
+            "{} file with {} bytes of content{}",
+            action_verb.to_lowercase(),
+            content_len,
+            dir_note
+        );
 
-        PermissionRequest {
-            action: format!("{} file: {}", action_verb, filename),
-            reason: Some(format!(
-                "{} file with {} bytes of content",
-                action_verb.to_lowercase(),
-                content_len
-            )),
-            resources: vec![file_path.to_string()],
-            category: PermissionCategory::FileWrite,
-        }
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::path(file_path, false),
+            PermissionLevel::Write,
+            &format!("Write file: {}", file_path),
+        )
+        .with_reason(reason)
+        .with_tool(WRITE_FILE_TOOL_NAME)
     }
 }
 
@@ -151,43 +164,32 @@ impl Executable for WriteFileTool {
             let is_overwrite = path.exists();
 
             // ─────────────────────────────────────────────────────────────
-            // Step 2: Build permission request
+            // Step 2: Determine if directories will be created
             // ─────────────────────────────────────────────────────────────
-            let permission_request =
-                Self::build_permission_request(file_path, content.len(), is_overwrite);
+            let will_create_directories = create_directories
+                && path.parent().map(|p| !p.exists()).unwrap_or(false);
 
             // ─────────────────────────────────────────────────────────────
-            // Step 3: Check if permission is already granted for this session
+            // Step 3: Request permission if not pre-approved by batch executor
             // ─────────────────────────────────────────────────────────────
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
+            if !context.permissions_pre_approved {
+                let permission_request = Self::build_permission_request(
+                    &context.tool_use_id,
+                    file_path,
+                    content.len(),
+                    is_overwrite,
+                    will_create_directories,
+                );
 
-            if !already_granted {
-                // ─────────────────────────────────────────────────────────
-                // Step 4: Request permission from user
-                // This emits ControllerEvent::PermissionRequired to UI
-                // ─────────────────────────────────────────────────────────
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
-                        context.session_id,
-                        permission_request,
-                        context.turn_id.clone(),
-                    )
+                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 5: Block until user responds
-                // ─────────────────────────────────────────────────────────
                 let response = response_rx
                     .await
                     .map_err(|_| "Permission request was cancelled".to_string())?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 6: Check if permission was granted
-                // ─────────────────────────────────────────────────────────
                 if !response.granted {
                     let reason = response
                         .message
@@ -300,13 +302,55 @@ impl Executable for WriteFileTool {
 
         format!("[WriteFile: {} ({} bytes)]", filename, bytes)
     }
+
+    fn required_permissions(
+        &self,
+        context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract file_path parameter
+        let file_path = input.get("file_path").and_then(|v| v.as_str())?;
+
+        // Extract content to determine size
+        let content = input.get("content").and_then(|v| v.as_str())?;
+
+        let path = Path::new(file_path);
+
+        // Validate absolute path - return None if invalid
+        if !path.is_absolute() {
+            return None;
+        }
+
+        // Check if this is an overwrite (file exists) or create (new file)
+        let is_overwrite = path.exists();
+
+        // Check if directories will be created (default is true)
+        let create_directories = input
+            .get("create_directories")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let will_create_directories =
+            create_directories && path.parent().map(|p| !p.exists()).unwrap_or(false);
+
+        // Build and return permission request
+        let permission_request = Self::build_permission_request(
+            &context.tool_use_id,
+            file_path,
+            content.len(),
+            is_overwrite,
+            will_create_directories,
+        );
+
+        Some(vec![permission_request])
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::tools::ask_for_permissions::{PermissionResponse, PermissionScope};
+    use crate::controller::PermissionPanelResponse;
     use crate::controller::types::ControllerEvent;
+    use crate::permissions::PermissionLevel;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
@@ -315,6 +359,14 @@ mod tests {
         let (tx, rx) = mpsc::channel(16);
         let registry = Arc::new(PermissionRegistry::new(tx));
         (registry, rx)
+    }
+
+    fn grant_once() -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: true, grant: None, message: None }
+    }
+
+    fn deny(reason: &str) -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
     }
 
     #[tokio::test]
@@ -338,6 +390,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-123".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Spawn task to handle permission request
@@ -349,7 +402,7 @@ mod tests {
             {
                 // Grant permission
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -386,6 +439,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-456".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Spawn task to deny permission
@@ -396,9 +450,9 @@ mod tests {
             {
                 // Deny permission
                 registry_clone
-                    .respond(
+                    .respond_to_request(
                         &tool_use_id,
-                        PermissionResponse::deny(Some("Not allowed".to_string())),
+                        deny("Not allowed"),
                     )
                     .await
                     .unwrap();
@@ -434,6 +488,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-1".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Grant with Session scope
@@ -443,9 +498,9 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(
+                    .respond_to_request(
                         &tool_use_id,
-                        PermissionResponse::grant(PermissionScope::Session),
+                        grant_once(),
                     )
                     .await
                     .unwrap();
@@ -486,6 +541,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-overwrite".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Grant permission
@@ -495,7 +551,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -532,6 +588,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-nested".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Grant permission
@@ -541,7 +598,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -573,6 +630,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -595,6 +653,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -617,6 +676,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -645,27 +705,49 @@ mod tests {
 
     #[test]
     fn test_build_permission_request_create() {
-        let request = WriteFileTool::build_permission_request("/path/to/new.txt", 100, false);
+        let request =
+            WriteFileTool::build_permission_request("test-id", "/path/to/new.txt", 100, false, false);
 
-        assert_eq!(request.action, "Create file: new.txt");
+        assert_eq!(request.description, "Write file: /path/to/new.txt");
         assert_eq!(
             request.reason,
             Some("create file with 100 bytes of content".to_string())
         );
-        assert_eq!(request.resources, vec!["/path/to/new.txt".to_string()]);
-        assert_eq!(request.category, PermissionCategory::FileWrite);
+        assert_eq!(request.target, GrantTarget::path("/path/to/new.txt", false));
+        assert_eq!(request.required_level, PermissionLevel::Write);
     }
 
     #[test]
     fn test_build_permission_request_overwrite() {
-        let request = WriteFileTool::build_permission_request("/path/to/existing.txt", 500, true);
+        let request =
+            WriteFileTool::build_permission_request("test-id", "/path/to/existing.txt", 500, true, false);
 
-        assert_eq!(request.action, "Overwrite file: existing.txt");
+        assert_eq!(request.description, "Write file: /path/to/existing.txt");
         assert_eq!(
             request.reason,
             Some("overwrite file with 500 bytes of content".to_string())
         );
-        assert_eq!(request.resources, vec!["/path/to/existing.txt".to_string()]);
-        assert_eq!(request.category, PermissionCategory::FileWrite);
+        assert_eq!(
+            request.target,
+            GrantTarget::path("/path/to/existing.txt", false)
+        );
+        assert_eq!(request.required_level, PermissionLevel::Write);
+    }
+
+    #[test]
+    fn test_build_permission_request_with_directory_creation() {
+        let request =
+            WriteFileTool::build_permission_request("test-id", "/new/path/file.txt", 200, false, true);
+
+        assert_eq!(request.description, "Write file: /new/path/file.txt");
+        assert_eq!(
+            request.reason,
+            Some("create file with 200 bytes of content (will create parent directories)".to_string())
+        );
+        assert_eq!(
+            request.target,
+            GrantTarget::path("/new/path/file.txt", false)
+        );
+        assert_eq!(request.required_level, PermissionLevel::Write);
     }
 }

@@ -61,7 +61,10 @@ pub use batch::{
 };
 pub use grant::{Grant, PermissionRequest};
 pub use level::PermissionLevel;
-pub use registry::{generate_batch_id, PermissionError, PermissionEvent, PermissionRegistry};
+pub use registry::{
+    generate_batch_id, PendingPermissionInfo, PermissionError, PermissionPanelResponse,
+    PermissionRegistry,
+};
 pub use target::GrantTarget;
 pub use tool_mapping::{get_tool_category, ToolCategory, ToolPermissions};
 

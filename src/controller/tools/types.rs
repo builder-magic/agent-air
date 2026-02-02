@@ -4,6 +4,7 @@ use std::pin::Pin;
 
 use crate::controller::types::TurnId;
 use crate::client::models::Tool as LLMTool;
+use crate::permissions::PermissionRequest;
 
 /// Tool type classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +27,36 @@ pub struct ToolContext {
     pub tool_use_id: String,
     /// Assistant turn ID.
     pub turn_id: Option<TurnId>,
+    /// Whether permissions were pre-approved by the batch executor.
+    /// When true, tools should skip their internal permission checks.
+    #[doc(hidden)]
+    pub permissions_pre_approved: bool,
+}
+
+impl ToolContext {
+    /// Create a new ToolContext.
+    pub fn new(session_id: i64, tool_use_id: impl Into<String>, turn_id: Option<TurnId>) -> Self {
+        Self {
+            session_id,
+            tool_use_id: tool_use_id.into(),
+            turn_id,
+            permissions_pre_approved: false,
+        }
+    }
+
+    /// Create a ToolContext with pre-approved permissions.
+    pub fn with_pre_approved_permissions(
+        session_id: i64,
+        tool_use_id: impl Into<String>,
+        turn_id: Option<TurnId>,
+    ) -> Self {
+        Self {
+            session_id,
+            tool_use_id: tool_use_id.into(),
+            turn_id,
+            permissions_pre_approved: true,
+        }
+    }
 }
 
 /// Result status from tool execution.
@@ -280,5 +311,55 @@ pub trait Executable: Send + Sync {
         _result: &str,
     ) -> String {
         format!("[{}: completed]", self.name())
+    }
+
+    /// Return the permissions required to execute this tool with the given input.
+    ///
+    /// This method is called by the batch executor to collect all permission requests
+    /// from tools before execution. If a tool returns `Some(vec![...])`, those permissions
+    /// will be requested from the user before execution.
+    ///
+    /// # Arguments
+    /// * `context` - The tool context including session and tool use IDs
+    /// * `input` - The input parameters for this tool call
+    ///
+    /// # Returns
+    /// * `None` - No permissions required (default)
+    /// * `Some(Vec<PermissionRequest>)` - List of permissions to request
+    fn required_permissions(
+        &self,
+        _context: &ToolContext,
+        _input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        None // Default: no permissions required
+    }
+
+    /// Whether this tool handles its own permission flow internally.
+    ///
+    /// Tools that return `true` will NOT have their permissions checked by the batch
+    /// executor. Use this for tools that have special permission handling needs, such as:
+    /// - AskForPermissions (explicitly requests permission from user)
+    /// - AskUserQuestions (user interaction, not permission-based)
+    ///
+    /// Default: `false` (executor handles permissions)
+    fn handles_own_permissions(&self) -> bool {
+        false
+    }
+
+    /// Cleans up any session-specific state when a session is removed.
+    ///
+    /// Tools that maintain per-session state (e.g., working directories, caches)
+    /// should implement this to clean up when sessions are destroyed, preventing
+    /// unbounded memory growth from abandoned sessions.
+    ///
+    /// # Arguments
+    /// * `session_id` - The session being removed
+    ///
+    /// Default: no-op (no session state to clean up)
+    fn cleanup_session(
+        &self,
+        _session_id: i64,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async {})
     }
 }

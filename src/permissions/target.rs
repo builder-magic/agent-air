@@ -334,6 +334,27 @@ mod tests {
             let request = GrantTarget::path("/etc/passwd", false);
             assert!(!grant.covers(&request));
         }
+
+        #[test]
+        fn test_path_prefix_collision_not_covered() {
+            // CR-001: Verify that /project/src does NOT cover /project/src-backup
+            // This tests that path matching uses component boundaries, not string prefixes
+            let grant = GrantTarget::path("/project/src", true);
+
+            // These should NOT be covered - they share a string prefix but are different directories
+            let request1 = GrantTarget::path("/project/src-backup/file.rs", false);
+            assert!(!grant.covers(&request1), "/project/src should not cover /project/src-backup");
+
+            let request2 = GrantTarget::path("/project/srcrc/file.rs", false);
+            assert!(!grant.covers(&request2), "/project/src should not cover /project/srcrc");
+
+            let request3 = GrantTarget::path("/project/src_old/file.rs", false);
+            assert!(!grant.covers(&request3), "/project/src should not cover /project/src_old");
+
+            // This SHOULD be covered - it's actually under /project/src
+            let request4 = GrantTarget::path("/project/src/backup/file.rs", false);
+            assert!(grant.covers(&request4), "/project/src should cover /project/src/backup");
+        }
     }
 
     mod domain_tests {

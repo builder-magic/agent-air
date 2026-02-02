@@ -185,8 +185,9 @@ pub enum ToolStatus {
 /// Display data for tool execution messages.
 #[derive(Debug, Clone)]
 pub struct ToolMessageData {
-    /// Unique identifier for the tool use.
-    #[allow(dead_code)] // Used as HashMap key, kept here for debugging
+    /// Unique identifier for the tool use - stored for debugging even though
+    /// primary lookup is done via HashMap key in ChatView.
+    #[allow(dead_code)]
     pub tool_use_id: String,
     /// Tool name for display.
     pub display_name: String,

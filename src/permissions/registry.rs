@@ -7,13 +7,46 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+/// Maximum number of pending requests before triggering cleanup.
+const PENDING_CLEANUP_THRESHOLD: usize = 50;
+
+/// Maximum age for pending requests before they're considered stale (5 minutes).
+const PENDING_MAX_AGE: Duration = Duration::from_secs(300);
+
 use super::{
-    BatchPermissionRequest, BatchPermissionResponse, Grant, GrantTarget, PermissionLevel,
-    PermissionRequest,
+    BatchPermissionRequest, BatchPermissionResponse, Grant, GrantTarget, PermissionRequest,
 };
+use crate::controller::types::{ControllerEvent, TurnId};
+
+/// Information about a pending permission request for UI display.
+#[derive(Debug, Clone)]
+pub struct PendingPermissionInfo {
+    /// Tool use ID for this permission request.
+    pub tool_use_id: String,
+    /// Session ID this permission belongs to.
+    pub session_id: i64,
+    /// The permission request details.
+    pub request: PermissionRequest,
+    /// Turn ID for this permission request.
+    pub turn_id: Option<TurnId>,
+}
+
+/// Response from the UI to a permission request.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PermissionPanelResponse {
+    /// Whether permission was granted.
+    pub granted: bool,
+    /// Grant to add to session (None for "once" or "deny").
+    #[serde(skip)]
+    pub grant: Option<Grant>,
+    /// Optional message from user (e.g., reason for denial).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
 
 /// Counter for generating unique batch IDs.
 static BATCH_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -53,36 +86,26 @@ impl std::fmt::Display for PermissionError {
 
 impl std::error::Error for PermissionError {}
 
-/// Event emitted when permission is needed.
-#[derive(Debug, Clone)]
-pub enum PermissionEvent {
-    /// A single permission request requires user approval.
-    PermissionRequired {
-        session_id: i64,
-        request_id: String,
-        request: PermissionRequest,
-    },
-    /// A batch of permission requests requires user approval.
-    BatchPermissionRequired {
-        session_id: i64,
-        batch: BatchPermissionRequest,
-    },
-}
-
 /// Internal state for a pending individual permission request.
 struct PendingRequest {
     session_id: i64,
-    #[allow(dead_code)] // Stored for future use in UI display
     request: PermissionRequest,
-    responder: oneshot::Sender<bool>,
+    turn_id: Option<TurnId>,
+    responder: oneshot::Sender<PermissionPanelResponse>,
+    created_at: Instant,
 }
 
 /// Internal state for a pending batch permission request.
 struct PendingBatch {
     session_id: i64,
-    #[allow(dead_code)] // Stored for future use in UI display
+    /// Stored for potential future UI display of pending batch details.
+    #[allow(dead_code)]
     requests: Vec<PermissionRequest>,
+    /// Stored for potential future UI context display.
+    #[allow(dead_code)]
+    turn_id: Option<TurnId>,
     responder: oneshot::Sender<BatchPermissionResponse>,
+    created_at: Instant,
 }
 
 /// Registry for managing permission grants and requests.
@@ -92,6 +115,29 @@ struct PendingBatch {
 /// - Path-based grants with optional recursion
 /// - Domain and command pattern grants
 /// - Batch permission request handling
+///
+/// # Lock Ordering
+///
+/// This struct contains multiple async mutexes. To prevent deadlocks, all methods
+/// follow these rules:
+///
+/// 1. **Never hold multiple locks simultaneously** - each method acquires locks
+///    in separate scopes, releasing one before acquiring the next
+/// 2. **Release locks before async operations** - locks are released before
+///    sending to channels or awaiting other async calls
+/// 3. **Sequential ordering when multiple locks needed**:
+///    - `pending_requests` or `pending_batches` first (for request lookup)
+///    - `session_grants` second (for grant operations)
+///
+/// Example pattern used throughout:
+/// ```ignore
+/// // Good: sequential lock acquisition in separate scopes
+/// let request = {
+///     let mut pending = self.pending_requests.lock().await;
+///     pending.remove(id)?
+/// }; // lock released here
+/// self.add_grant(session_id, grant).await; // acquires session_grants
+/// ```
 pub struct PermissionRegistry {
     /// Active grants per session (session_id -> list of grants).
     session_grants: Mutex<HashMap<i64, Vec<Grant>>>,
@@ -99,8 +145,8 @@ pub struct PermissionRegistry {
     pending_requests: Mutex<HashMap<String, PendingRequest>>,
     /// Pending batch permission requests (batch_id -> pending state).
     pending_batches: Mutex<HashMap<String, PendingBatch>>,
-    /// Channel to send permission events.
-    event_tx: mpsc::Sender<PermissionEvent>,
+    /// Channel to send controller events.
+    event_tx: mpsc::Sender<ControllerEvent>,
 }
 
 impl PermissionRegistry {
@@ -108,7 +154,7 @@ impl PermissionRegistry {
     ///
     /// # Arguments
     /// * `event_tx` - Channel to send events when permissions are requested.
-    pub fn new(event_tx: mpsc::Sender<PermissionEvent>) -> Self {
+    pub fn new(event_tx: mpsc::Sender<ControllerEvent>) -> Self {
         Self {
             session_grants: Mutex::new(HashMap::new()),
             pending_requests: Mutex::new(HashMap::new()),
@@ -274,24 +320,38 @@ impl PermissionRegistry {
 
     /// Registers an individual permission request.
     ///
-    /// If the request is already satisfied by existing grants, returns `Ok(true)` immediately.
+    /// If the request is already satisfied by existing grants, returns an auto-approved response immediately.
     /// Otherwise, registers the request, emits an event, and returns a receiver to await the response.
     ///
     /// # Arguments
     /// * `session_id` - Session requesting permission.
     /// * `request` - The permission request.
+    /// * `turn_id` - Optional turn ID for UI context.
     ///
     /// # Returns
-    /// A receiver that will receive `true` if granted, `false` if denied.
+    /// A receiver that will receive a `PermissionPanelResponse`.
     pub async fn request_permission(
         &self,
         session_id: i64,
         request: PermissionRequest,
-    ) -> Result<oneshot::Receiver<bool>, PermissionError> {
-        // Check if already granted
+        turn_id: Option<TurnId>,
+    ) -> Result<oneshot::Receiver<PermissionPanelResponse>, PermissionError> {
+        // Check if already granted - auto-approve if so
+        //
+        // Note: There's a theoretical TOCTOU race here - a grant could be revoked
+        // between check() and sending the auto-approval. We accept this because:
+        // 1. Grant revocation during active requests is extremely rare
+        // 2. The window is microseconds
+        // 3. Holding the lock during channel ops would block all permission checks
+        // 4. The worst case is honoring a just-revoked grant (not a security issue
+        //    since the user explicitly granted it moments ago)
         if self.check(session_id, &request).await {
             let (tx, rx) = oneshot::channel();
-            let _ = tx.send(true); // Auto-approve
+            let _ = tx.send(PermissionPanelResponse {
+                granted: true,
+                grant: None, // Already have a grant covering this
+                message: None,
+            });
             return Ok(rx);
         }
 
@@ -301,22 +361,42 @@ impl PermissionRegistry {
         // Store pending request
         {
             let mut pending = self.pending_requests.lock().await;
+
+            // Cleanup stale entries if map is getting large
+            if pending.len() >= PENDING_CLEANUP_THRESHOLD {
+                let now = Instant::now();
+                pending.retain(|id, req| {
+                    let keep = now.duration_since(req.created_at) < PENDING_MAX_AGE;
+                    if !keep {
+                        tracing::warn!(
+                            request_id = %id,
+                            age_secs = now.duration_since(req.created_at).as_secs(),
+                            "Cleaning up stale pending permission request"
+                        );
+                    }
+                    keep
+                });
+            }
+
             pending.insert(
                 request_id.clone(),
                 PendingRequest {
                     session_id,
                     request: request.clone(),
+                    turn_id: turn_id.clone(),
                     responder: tx,
+                    created_at: Instant::now(),
                 },
             );
         }
 
         // Emit event
         self.event_tx
-            .send(PermissionEvent::PermissionRequired {
+            .send(ControllerEvent::PermissionRequired {
                 session_id,
-                request_id,
+                tool_use_id: request_id,
                 request,
+                turn_id,
             })
             .await
             .map_err(|_| PermissionError::EventSendFailed)?;
@@ -328,16 +408,14 @@ impl PermissionRegistry {
     ///
     /// # Arguments
     /// * `request_id` - ID of the request to respond to.
-    /// * `granted` - Whether permission is granted.
-    /// * `grant` - Optional grant to add if approved.
+    /// * `response` - The user's response (grant/deny with optional persistent grant).
     ///
     /// # Returns
     /// Ok(()) if successful.
     pub async fn respond_to_request(
         &self,
         request_id: &str,
-        granted: bool,
-        grant: Option<Grant>,
+        response: PermissionPanelResponse,
     ) -> Result<(), PermissionError> {
         let pending = {
             let mut pending = self.pending_requests.lock().await;
@@ -347,16 +425,72 @@ impl PermissionRegistry {
         };
 
         // Add grant if provided and granted
-        if granted {
-            if let Some(g) = grant {
-                self.add_grant(pending.session_id, g).await;
+        if response.granted {
+            if let Some(ref g) = response.grant {
+                self.add_grant(pending.session_id, g.clone()).await;
             }
         }
 
         pending
             .responder
-            .send(granted)
+            .send(response)
             .map_err(|_| PermissionError::SendFailed)
+    }
+
+    /// Cancels a pending permission request.
+    ///
+    /// This is called by the UI when the user closes the permission dialog
+    /// without responding. Dropping the sender will cause the tool to receive a RecvError.
+    ///
+    /// # Arguments
+    /// * `request_id` - ID of the request to cancel.
+    ///
+    /// # Returns
+    /// Ok(()) if the request was found and cancelled.
+    pub async fn cancel(&self, request_id: &str) -> Result<(), PermissionError> {
+        let mut pending = self.pending_requests.lock().await;
+        if pending.remove(request_id).is_some() {
+            // Dropping the sender will cause the tool to receive a RecvError
+            Ok(())
+        } else {
+            Err(PermissionError::NotFound)
+        }
+    }
+
+    /// Gets all pending permission requests for a session.
+    ///
+    /// # Arguments
+    /// * `session_id` - Session ID to query.
+    ///
+    /// # Returns
+    /// List of pending permission info for the session.
+    pub async fn pending_for_session(&self, session_id: i64) -> Vec<PendingPermissionInfo> {
+        let pending = self.pending_requests.lock().await;
+        pending
+            .iter()
+            .filter(|(_, req)| req.session_id == session_id)
+            .map(|(tool_use_id, req)| PendingPermissionInfo {
+                tool_use_id: tool_use_id.clone(),
+                session_id: req.session_id,
+                request: req.request.clone(),
+                turn_id: req.turn_id.clone(),
+            })
+            .collect()
+    }
+
+    /// Check if permission is already granted for the session.
+    ///
+    /// This is a convenience method that wraps `check()`.
+    /// Uses the Grant::satisfies method from the permission system.
+    ///
+    /// # Arguments
+    /// * `session_id` - Session to check.
+    /// * `request` - The permission request to check.
+    ///
+    /// # Returns
+    /// True if permission was previously granted for the session.
+    pub async fn is_granted(&self, session_id: i64, request: &PermissionRequest) -> bool {
+        self.check(session_id, request).await
     }
 
     // ========================================================================
@@ -371,6 +505,7 @@ impl PermissionRegistry {
     /// # Arguments
     /// * `session_id` - Session requesting permissions.
     /// * `requests` - The permission requests.
+    /// * `turn_id` - Optional turn ID for UI context.
     ///
     /// # Returns
     /// A receiver that will receive the batch response.
@@ -378,6 +513,7 @@ impl PermissionRegistry {
         &self,
         session_id: i64,
         requests: Vec<PermissionRequest>,
+        turn_id: Option<TurnId>,
     ) -> Result<oneshot::Receiver<BatchPermissionResponse>, PermissionError> {
         // Check which requests are already granted
         let auto_approved = self.check_batch(session_id, &requests).await;
@@ -409,21 +545,41 @@ impl PermissionRegistry {
         // Store pending batch
         {
             let mut pending = self.pending_batches.lock().await;
+
+            // Cleanup stale entries if map is getting large
+            if pending.len() >= PENDING_CLEANUP_THRESHOLD {
+                let now = Instant::now();
+                pending.retain(|id, batch| {
+                    let keep = now.duration_since(batch.created_at) < PENDING_MAX_AGE;
+                    if !keep {
+                        tracing::warn!(
+                            batch_id = %id,
+                            age_secs = now.duration_since(batch.created_at).as_secs(),
+                            "Cleaning up stale pending batch permission request"
+                        );
+                    }
+                    keep
+                });
+            }
+
             pending.insert(
                 batch_id.clone(),
                 PendingBatch {
                     session_id,
                     requests: needs_approval,
+                    turn_id: turn_id.clone(),
                     responder: tx,
+                    created_at: Instant::now(),
                 },
             );
         }
 
         // Emit event
         self.event_tx
-            .send(PermissionEvent::BatchPermissionRequired {
+            .send(ControllerEvent::BatchPermissionRequired {
                 session_id,
                 batch,
+                turn_id,
             })
             .await
             .map_err(|_| PermissionError::EventSendFailed)?;
@@ -464,6 +620,26 @@ impl PermissionRegistry {
             .responder
             .send(response)
             .map_err(|_| PermissionError::SendFailed)
+    }
+
+    /// Cancels a pending batch permission request.
+    ///
+    /// This is called by the UI when the user closes the batch permission dialog
+    /// without responding. Dropping the sender will cause the tools to receive errors.
+    ///
+    /// # Arguments
+    /// * `batch_id` - ID of the batch to cancel.
+    ///
+    /// # Returns
+    /// Ok(()) if the batch was found and cancelled.
+    pub async fn cancel_batch(&self, batch_id: &str) -> Result<(), PermissionError> {
+        let mut pending = self.pending_batches.lock().await;
+        if pending.remove(batch_id).is_some() {
+            // Dropping the sender will cause the tools to receive errors
+            Ok(())
+        } else {
+            Err(PermissionError::NotFound)
+        }
     }
 
     // ========================================================================
@@ -551,6 +727,7 @@ impl PermissionRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::permissions::PermissionLevel;
 
     fn create_read_request(id: &str, path: &str) -> PermissionRequest {
         PermissionRequest::file_read(id, path)
@@ -672,11 +849,11 @@ mod tests {
 
         // Request should be auto-approved
         let request = create_read_request("req-1", "/project/file.rs");
-        let result_rx = registry.request_permission(1, request).await.unwrap();
+        let result_rx = registry.request_permission(1, request, None).await.unwrap();
 
-        // Should receive true immediately (auto-approved)
-        let granted = result_rx.await.unwrap();
-        assert!(granted);
+        // Should receive response immediately (auto-approved)
+        let response = result_rx.await.unwrap();
+        assert!(response.granted);
 
         // No event should be emitted for auto-approved
         assert!(rx.try_recv().is_err());
@@ -689,26 +866,28 @@ mod tests {
 
         // No grant - should need approval
         let request = create_read_request("req-1", "/project/file.rs");
-        let result_rx = registry.request_permission(1, request).await.unwrap();
+        let result_rx = registry.request_permission(1, request, None).await.unwrap();
 
         // Event should be emitted
         let event = rx.recv().await.unwrap();
-        if let PermissionEvent::PermissionRequired { request_id, .. } = event {
-            assert_eq!(request_id, "req-1");
+        if let ControllerEvent::PermissionRequired { tool_use_id, .. } = event {
+            assert_eq!(tool_use_id, "req-1");
         } else {
             panic!("Expected PermissionRequired event");
         }
 
-        // Respond to request
+        // Respond to request with session grant
         let grant = Grant::read_path("/project", true);
-        registry
-            .respond_to_request("req-1", true, Some(grant))
-            .await
-            .unwrap();
+        let response = PermissionPanelResponse {
+            granted: true,
+            grant: Some(grant),
+            message: None,
+        };
+        registry.respond_to_request("req-1", response).await.unwrap();
 
         // Should receive approval
-        let granted = result_rx.await.unwrap();
-        assert!(granted);
+        let response = result_rx.await.unwrap();
+        assert!(response.granted);
 
         // Future requests should be auto-approved
         let new_request = create_read_request("req-2", "/project/other.rs");
@@ -721,20 +900,22 @@ mod tests {
         let registry = PermissionRegistry::new(tx);
 
         let request = create_read_request("req-1", "/project/file.rs");
-        let result_rx = registry.request_permission(1, request).await.unwrap();
+        let result_rx = registry.request_permission(1, request, None).await.unwrap();
 
         // Consume the event
         let _ = rx.recv().await.unwrap();
 
         // Deny the request
-        registry
-            .respond_to_request("req-1", false, None)
-            .await
-            .unwrap();
+        let response = PermissionPanelResponse {
+            granted: false,
+            grant: None,
+            message: None,
+        };
+        registry.respond_to_request("req-1", response).await.unwrap();
 
         // Should receive denial
-        let granted = result_rx.await.unwrap();
-        assert!(!granted);
+        let response = result_rx.await.unwrap();
+        assert!(!response.granted);
     }
 
     #[tokio::test]
@@ -747,11 +928,11 @@ mod tests {
             create_read_request("req-2", "/project/src/lib.rs"),
         ];
 
-        let result_rx = registry.register_batch(1, requests).await.unwrap();
+        let result_rx = registry.register_batch(1, requests, None).await.unwrap();
 
         // Event should be emitted
         let event = rx.recv().await.unwrap();
-        let batch_id = if let PermissionEvent::BatchPermissionRequired { batch, .. } = event {
+        let batch_id = if let ControllerEvent::BatchPermissionRequired { batch, .. } = event {
             assert_eq!(batch.requests.len(), 2);
             assert!(!batch.suggested_grants.is_empty());
             batch.batch_id.clone()
@@ -783,11 +964,11 @@ mod tests {
             create_read_request("req-2", "/project/tests/test.rs"), // Needs approval
         ];
 
-        let result_rx = registry.register_batch(1, requests).await.unwrap();
+        let result_rx = registry.register_batch(1, requests, None).await.unwrap();
 
         // Event should only contain non-auto-approved request
         let event = rx.recv().await.unwrap();
-        let batch_id = if let PermissionEvent::BatchPermissionRequired { batch, .. } = event {
+        let batch_id = if let ControllerEvent::BatchPermissionRequired { batch, .. } = event {
             assert_eq!(batch.requests.len(), 1);
             assert_eq!(batch.requests[0].id, "req-2");
             batch.batch_id.clone()
@@ -817,7 +998,7 @@ mod tests {
             create_read_request("req-2", "/project/tests/test.rs"),
         ];
 
-        let result_rx = registry.register_batch(1, requests).await.unwrap();
+        let result_rx = registry.register_batch(1, requests, None).await.unwrap();
 
         // Should receive immediately with auto-approved
         let result = result_rx.await.unwrap();
@@ -875,7 +1056,7 @@ mod tests {
 
         // Register a pending request
         let request = create_read_request("req-1", "/project/file.rs");
-        let result_rx = registry.request_permission(1, request).await.unwrap();
+        let result_rx = registry.request_permission(1, request, None).await.unwrap();
 
         assert!(registry.has_pending(1).await);
 
@@ -943,7 +1124,7 @@ mod tests {
         assert_eq!(registry.pending_count().await, 0);
 
         let request = create_read_request("req-1", "/project/file.rs");
-        let _ = registry.request_permission(1, request).await;
+        let _ = registry.request_permission(1, request, None).await;
 
         assert_eq!(registry.pending_count().await, 1);
 

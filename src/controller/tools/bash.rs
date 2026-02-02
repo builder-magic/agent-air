@@ -17,11 +17,10 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 
 /// Bash tool name constant.
 pub const BASH_TOOL_NAME: &str = "bash";
@@ -46,6 +45,7 @@ Options:
 - timeout: Timeout in milliseconds (default: 120000, max: 600000)
 - working_dir: Working directory for the command (optional)
 - run_in_background: Run command in background and return immediately (optional)
+- background_timeout: Timeout in milliseconds for background tasks (optional, no limit if not set)
 
 Examples:
 - Run git status: command="git status"
@@ -71,6 +71,10 @@ pub const BASH_TOOL_SCHEMA: &str = r#"{
         "run_in_background": {
             "type": "boolean",
             "description": "Run the command in background. Returns immediately with a task ID."
+        },
+        "background_timeout": {
+            "type": "integer",
+            "description": "Timeout in milliseconds for background tasks. If not set, background tasks run until completion."
         },
         "env": {
             "type": "object",
@@ -131,8 +135,19 @@ impl BashTool {
         }
     }
 
+    /// Cleans up session-specific state when a session is removed.
+    ///
+    /// This removes the working directory state for the given session,
+    /// preventing unbounded memory growth from abandoned sessions.
+    pub async fn cleanup_session(&self, session_id: i64) {
+        let mut sessions = self.sessions.lock().await;
+        if sessions.remove(&session_id).is_some() {
+            tracing::debug!(session_id, "Cleaned up bash session state");
+        }
+    }
+
     /// Builds a permission request for executing a bash command.
-    fn build_permission_request(command: &str) -> PermissionRequest {
+    fn build_permission_request(tool_use_id: &str, command: &str) -> PermissionRequest {
         // Extract the first command/word for the action description
         let first_word = command
             .split_whitespace()
@@ -145,12 +160,14 @@ impl BashTool {
             command.to_string()
         };
 
-        PermissionRequest {
-            action: format!("Execute: {}", first_word),
-            reason: Some(format!("Run command: {}", truncated_cmd)),
-            resources: vec![command.to_string()],
-            category: PermissionCategory::System,
-        }
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::Command { pattern: command.to_string() },
+            PermissionLevel::Execute,
+            &format!("Execute: {}", first_word),
+        )
+        .with_reason(&format!("Run command: {}", truncated_cmd))
+        .with_tool(BASH_TOOL_NAME)
     }
 
     /// Check if a command contains dangerous patterns.
@@ -272,6 +289,11 @@ impl Executable for BashTool {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
+            let background_timeout = input
+                .get("background_timeout")
+                .and_then(|v| v.as_u64())
+                .map(|ms| Duration::from_millis(ms));
+
             // Extract additional environment variables
             let extra_env: HashMap<String, String> = input
                 .get("env")
@@ -284,25 +306,13 @@ impl Executable for BashTool {
                 .unwrap_or_default();
 
             // ─────────────────────────────────────────────────────────────
-            // Step 2: Build permission request
+            // Step 2: Request permission if not pre-approved by batch executor
             // ─────────────────────────────────────────────────────────────
-            let permission_request = Self::build_permission_request(command);
+            if !context.permissions_pre_approved {
+                let permission_request = Self::build_permission_request(&context.tool_use_id, command);
 
-            // ─────────────────────────────────────────────────────────────
-            // Step 3: Check if permission is already granted for this session
-            // ─────────────────────────────────────────────────────────────
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
-
-            if !already_granted {
-                // ─────────────────────────────────────────────────────────
-                // Step 4: Request permission from user
-                // This emits ControllerEvent::PermissionRequired to UI
-                // ─────────────────────────────────────────────────────────
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
+                    .request_permission(
                         context.session_id,
                         permission_request,
                         context.turn_id.clone(),
@@ -310,16 +320,10 @@ impl Executable for BashTool {
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 5: Block until user responds
-                // ─────────────────────────────────────────────────────────
                 let response = response_rx
                     .await
                     .map_err(|_| "Permission request was cancelled".to_string())?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 6: Check if permission was granted
-                // ─────────────────────────────────────────────────────────
                 if !response.granted {
                     let reason = response
                         .message
@@ -329,7 +333,7 @@ impl Executable for BashTool {
             }
 
             // ─────────────────────────────────────────────────────────────
-            // Step 7: Build command
+            // Step 3: Build command
             // ─────────────────────────────────────────────────────────────
             let mut cmd = Command::new("bash");
             cmd.arg("-c")
@@ -345,14 +349,14 @@ impl Executable for BashTool {
             }
 
             // ─────────────────────────────────────────────────────────────
-            // Step 8: Handle background execution
+            // Step 4: Handle background execution
             // ─────────────────────────────────────────────────────────────
             if run_in_background {
-                return execute_background(cmd, command, context.tool_use_id).await;
+                return execute_background(cmd, command, context.tool_use_id, background_timeout).await;
             }
 
             // ─────────────────────────────────────────────────────────────
-            // Step 9: Execute with timeout
+            // Step 8: Execute with timeout
             // ─────────────────────────────────────────────────────────────
             let timeout_duration = Duration::from_millis(timeout_ms);
 
@@ -431,6 +435,27 @@ impl Executable for BashTool {
 
         format!("[Bash: {} ({})]", command, status)
     }
+
+    fn required_permissions(
+        &self,
+        context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract the command from input
+        let command = input.get("command").and_then(|v| v.as_str())?;
+
+        // Use the existing build_permission_request helper to create the permission request
+        let permission_request = Self::build_permission_request(&context.tool_use_id, command);
+
+        Some(vec![permission_request])
+    }
+
+    fn cleanup_session(
+        &self,
+        session_id: i64,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(self.cleanup_session(session_id))
+    }
 }
 
 /// Execute a command and capture its output.
@@ -500,12 +525,16 @@ async fn execute_command(mut cmd: Command) -> Result<String, String> {
 }
 
 /// Execute a command in the background.
+///
+/// If `timeout` is provided, the process will be killed after the specified duration.
+/// If `timeout` is None, the process runs until completion (no limit).
 async fn execute_background(
     mut cmd: Command,
     command: &str,
     tool_use_id: String,
+    background_timeout: Option<Duration>,
 ) -> Result<String, String> {
-    let child = cmd
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn background command: {}", e))?;
 
@@ -517,16 +546,69 @@ async fn execute_background(
         command.to_string()
     };
 
-    Ok(format!(
-        "Background task started\nTask ID: {}\nPID: {}\nCommand: {}",
-        tool_use_id, pid, truncated_cmd
-    ))
+    // If timeout is specified, spawn a monitoring task that kills the process after timeout
+    if let Some(timeout_duration) = background_timeout {
+        let task_id = tool_use_id.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = tokio::time::sleep(timeout_duration) => {
+                    // Timeout reached, kill the process
+                    if let Err(e) = child.kill().await {
+                        tracing::warn!(
+                            task_id = %task_id,
+                            pid = pid,
+                            error = %e,
+                            "Failed to kill background process after timeout"
+                        );
+                    } else {
+                        tracing::info!(
+                            task_id = %task_id,
+                            pid = pid,
+                            timeout_secs = timeout_duration.as_secs(),
+                            "Background process killed after timeout"
+                        );
+                    }
+                }
+                status = child.wait() => {
+                    // Process completed before timeout
+                    match status {
+                        Ok(s) => tracing::debug!(
+                            task_id = %task_id,
+                            pid = pid,
+                            exit_code = ?s.code(),
+                            "Background process completed"
+                        ),
+                        Err(e) => tracing::warn!(
+                            task_id = %task_id,
+                            pid = pid,
+                            error = %e,
+                            "Background process wait failed"
+                        ),
+                    }
+                }
+            }
+        });
+
+        Ok(format!(
+            "Background task started (timeout: {} seconds)\nTask ID: {}\nPID: {}\nCommand: {}",
+            timeout_duration.as_secs(),
+            tool_use_id,
+            pid,
+            truncated_cmd
+        ))
+    } else {
+        // No timeout - fire and forget (original behavior)
+        Ok(format!(
+            "Background task started (no timeout)\nTask ID: {}\nPID: {}\nCommand: {}",
+            tool_use_id, pid, truncated_cmd
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::tools::ask_for_permissions::{PermissionResponse, PermissionScope};
+    use crate::permissions::PermissionPanelResponse;
     use crate::controller::types::ControllerEvent;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
@@ -536,6 +618,24 @@ mod tests {
         let (tx, rx) = mpsc::channel(16);
         let registry = Arc::new(PermissionRegistry::new(tx));
         (registry, rx)
+    }
+
+    /// Helper to create a granted response (no persistent grant - "once")
+    fn grant_once() -> PermissionPanelResponse {
+        PermissionPanelResponse {
+            granted: true,
+            grant: None,
+            message: None,
+        }
+    }
+
+    /// Helper to create a denied response
+    fn deny(reason: &str) -> PermissionPanelResponse {
+        PermissionPanelResponse {
+            granted: false,
+            grant: None,
+            message: Some(reason.to_string()),
+        }
     }
 
     #[tokio::test]
@@ -553,6 +653,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-bash-1".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Grant permission in background
@@ -562,7 +663,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -588,6 +689,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-bash-denied".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -596,9 +698,9 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(
+                    .respond_to_request(
                         &tool_use_id,
-                        PermissionResponse::deny(Some("Not allowed".to_string())),
+                        deny("Not allowed"),
                     )
                     .await
                     .unwrap();
@@ -626,6 +728,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-bash-fail".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -634,7 +737,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -666,6 +769,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-bash-timeout".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -674,7 +778,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -705,6 +809,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-bash-wd".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -713,7 +818,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -746,6 +851,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-bash-env".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -754,7 +860,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -780,6 +886,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-bash-danger".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -798,6 +905,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -820,6 +928,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -846,6 +955,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -872,6 +982,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -913,12 +1024,12 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = BashTool::build_permission_request("git status");
+        let request = BashTool::build_permission_request("test-id", "git status");
 
-        assert_eq!(request.action, "Execute: git");
+        assert_eq!(request.description, "Execute: git");
         assert_eq!(request.reason, Some("Run command: git status".to_string()));
-        assert_eq!(request.resources, vec!["git status".to_string()]);
-        assert_eq!(request.category, PermissionCategory::System);
+        assert!(matches!(request.target, GrantTarget::Command { pattern } if pattern == "git status"));
+        assert_eq!(request.required_level, PermissionLevel::Execute);
     }
 
     #[test]

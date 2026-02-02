@@ -3,6 +3,9 @@
 use crate::client::error::LlmError;
 use crate::client::models::{ContentBlockType, StreamEvent, Usage};
 
+/// Error code for SSE parsing errors (consistent with other providers).
+const ERROR_SSE_PARSE: &str = "SSE_PARSE_ERROR";
+
 /// Parsed SSE event with event type and data.
 #[derive(Debug)]
 pub struct SseEvent {
@@ -79,7 +82,7 @@ pub fn parse_stream_event(sse: &SseEvent) -> Result<Option<StreamEvent>, LlmErro
 fn parse_message_start(data: &str) -> Result<Option<StreamEvent>, LlmError> {
     // {"type":"message_start","message":{"id":"msg_...","model":"claude-3-...","content":[],...}}
     let json: serde_json::Value = serde_json::from_str(data)
-        .map_err(|e| LlmError::new("SSE_PARSE_ERROR", format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| LlmError::new(ERROR_SSE_PARSE, format!("Invalid JSON: {}", e)))?;
 
     let message = &json["message"];
     let message_id = message["id"]
@@ -98,7 +101,7 @@ fn parse_content_block_start(data: &str) -> Result<Option<StreamEvent>, LlmError
     // {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
     // {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"...","name":"..."}}
     let json: serde_json::Value = serde_json::from_str(data)
-        .map_err(|e| LlmError::new("SSE_PARSE_ERROR", format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| LlmError::new(ERROR_SSE_PARSE, format!("Invalid JSON: {}", e)))?;
 
     let index = json["index"].as_u64().unwrap_or(0) as usize;
     let content_block = &json["content_block"];
@@ -121,7 +124,7 @@ fn parse_content_block_delta(data: &str) -> Result<Option<StreamEvent>, LlmError
     // {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
     // {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"..."}}
     let json: serde_json::Value = serde_json::from_str(data)
-        .map_err(|e| LlmError::new("SSE_PARSE_ERROR", format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| LlmError::new(ERROR_SSE_PARSE, format!("Invalid JSON: {}", e)))?;
 
     let index = json["index"].as_u64().unwrap_or(0) as usize;
     let delta = &json["delta"];
@@ -144,7 +147,7 @@ fn parse_content_block_delta(data: &str) -> Result<Option<StreamEvent>, LlmError
 fn parse_content_block_stop(data: &str) -> Result<Option<StreamEvent>, LlmError> {
     // {"type":"content_block_stop","index":0}
     let json: serde_json::Value = serde_json::from_str(data)
-        .map_err(|e| LlmError::new("SSE_PARSE_ERROR", format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| LlmError::new(ERROR_SSE_PARSE, format!("Invalid JSON: {}", e)))?;
 
     let index = json["index"].as_u64().unwrap_or(0) as usize;
     Ok(Some(StreamEvent::ContentBlockStop { index }))
@@ -153,7 +156,7 @@ fn parse_content_block_stop(data: &str) -> Result<Option<StreamEvent>, LlmError>
 fn parse_message_delta(data: &str) -> Result<Option<StreamEvent>, LlmError> {
     // {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":15}}
     let json: serde_json::Value = serde_json::from_str(data)
-        .map_err(|e| LlmError::new("SSE_PARSE_ERROR", format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| LlmError::new(ERROR_SSE_PARSE, format!("Invalid JSON: {}", e)))?;
 
     let delta = &json["delta"];
     let stop_reason = delta["stop_reason"].as_str().map(|s| s.to_string());
@@ -178,7 +181,7 @@ fn parse_message_delta(data: &str) -> Result<Option<StreamEvent>, LlmError> {
 fn parse_error(data: &str) -> Result<Option<StreamEvent>, LlmError> {
     // {"type":"error","error":{"type":"...","message":"..."}}
     let json: serde_json::Value = serde_json::from_str(data)
-        .map_err(|e| LlmError::new("SSE_PARSE_ERROR", format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| LlmError::new(ERROR_SSE_PARSE, format!("Invalid JSON: {}", e)))?;
 
     let error = &json["error"];
     let error_type = error["type"].as_str().unwrap_or("unknown");

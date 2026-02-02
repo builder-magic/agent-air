@@ -16,8 +16,7 @@ use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder};
 use walkdir::WalkDir;
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
@@ -165,24 +164,18 @@ impl GrepTool {
     }
 
     /// Builds a permission request for searching files in a path.
-    fn build_permission_request(search_path: &str) -> PermissionRequest {
+    fn build_permission_request(tool_use_id: &str, search_path: &str) -> PermissionRequest {
         let path = Path::new(search_path);
-        let display_name = if path.is_file() {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(search_path)
-        } else {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(search_path)
-        };
+        let reason = "Search file contents using grep";
 
-        PermissionRequest {
-            action: format!("Search files in: {}", display_name),
-            reason: Some("Search file contents using grep".to_string()),
-            resources: vec![search_path.to_string()],
-            category: PermissionCategory::FileRead,
-        }
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::path(path, true), // recursive for grep
+            PermissionLevel::Read,
+            &format!("Search files in: {}", path.display()),
+        )
+        .with_reason(reason)
+        .with_tool(GREP_TOOL_NAME)
     }
 
     /// Get file type extensions for a given type name.
@@ -326,42 +319,20 @@ impl Executable for GrepTool {
                 .unwrap_or(1000);
 
             // ─────────────────────────────────────────────────────────────
-            // Step 2: Build permission request
+            // Step 2: Request permission if not pre-approved by batch executor
             // ─────────────────────────────────────────────────────────────
-            let permission_request = Self::build_permission_request(&search_path_str);
+            if !context.permissions_pre_approved {
+                let permission_request = Self::build_permission_request(&context.tool_use_id, &search_path_str);
 
-            // ─────────────────────────────────────────────────────────────
-            // Step 3: Check if permission is already granted for this session
-            // ─────────────────────────────────────────────────────────────
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
-
-            if !already_granted {
-                // ─────────────────────────────────────────────────────────
-                // Step 4: Request permission from user
-                // This emits ControllerEvent::PermissionRequired to UI
-                // ─────────────────────────────────────────────────────────
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
-                        context.session_id,
-                        permission_request,
-                        context.turn_id.clone(),
-                    )
+                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 5: Block until user responds
-                // ─────────────────────────────────────────────────────────
                 let response = response_rx
                     .await
                     .map_err(|_| "Permission request was cancelled".to_string())?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 6: Check if permission was granted
-                // ─────────────────────────────────────────────────────────
                 if !response.granted {
                     let reason = response
                         .message
@@ -374,7 +345,7 @@ impl Executable for GrepTool {
             }
 
             // ─────────────────────────────────────────────────────────────
-            // Step 7: Build regex matcher
+            // Step 3: Build regex matcher
             // ─────────────────────────────────────────────────────────────
             let matcher = RegexMatcherBuilder::new()
                 .case_insensitive(case_insensitive)
@@ -536,6 +507,29 @@ impl Executable for GrepTool {
 
         format!("[Grep: '{}' ({} matches)]", pattern, match_count)
     }
+
+    fn required_permissions(
+        &self,
+        context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract the path from input or use default_path
+        let search_path = input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(PathBuf::from)
+            .or_else(|| self.default_path.clone())
+            .unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            });
+
+        let search_path_str = search_path.to_string_lossy().to_string();
+
+        // Build the permission request using the existing helper method
+        let permission_request = Self::build_permission_request(&context.tool_use_id, &search_path_str);
+
+        Some(vec![permission_request])
+    }
 }
 
 /// Search for files containing matches (files_with_matches mode).
@@ -668,8 +662,9 @@ fn search_count<M: Matcher>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::tools::ask_for_permissions::{PermissionResponse, PermissionScope};
+    use crate::controller::PermissionPanelResponse;
     use crate::controller::types::ControllerEvent;
+    use crate::permissions::GrantTarget;
     use std::fs;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
@@ -679,6 +674,14 @@ mod tests {
         let (tx, rx) = mpsc::channel(16);
         let registry = Arc::new(PermissionRegistry::new(tx));
         (registry, rx)
+    }
+
+    fn grant_once() -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: true, grant: None, message: None }
+    }
+
+    fn deny(reason: &str) -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
     }
 
     fn setup_test_files() -> TempDir {
@@ -732,6 +735,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-grep-1".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Grant permission in background
@@ -741,7 +745,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -770,6 +774,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-grep-denied".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Deny permission
@@ -779,9 +784,9 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(
+                    .respond_to_request(
                         &tool_use_id,
-                        PermissionResponse::deny(Some("Access denied".to_string())),
+                        deny("Access denied"),
                     )
                     .await
                     .unwrap();
@@ -813,6 +818,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-grep-content".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -821,7 +827,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -854,6 +860,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-grep-count".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -862,7 +869,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -895,6 +902,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-grep-type".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -903,7 +911,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -934,6 +942,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-grep-invalid".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -942,7 +951,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -964,6 +973,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -990,6 +1000,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -1034,15 +1045,18 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = GrepTool::build_permission_request("/path/to/src");
+        let request = GrepTool::build_permission_request("test-tool-id", "/path/to/src");
 
-        assert_eq!(request.action, "Search files in: src");
+        assert_eq!(request.description, "Search files in: /path/to/src");
         assert_eq!(
             request.reason,
             Some("Search file contents using grep".to_string())
         );
-        assert_eq!(request.resources, vec!["/path/to/src".to_string()]);
-        assert_eq!(request.category, PermissionCategory::FileRead);
+        assert_eq!(
+            request.target,
+            GrantTarget::path("/path/to/src", true)
+        );
+        assert_eq!(request.required_level, PermissionLevel::Read);
     }
 
     #[test]

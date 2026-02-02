@@ -14,8 +14,7 @@ use std::time::SystemTime;
 use globset::{Glob, GlobMatcher};
 use walkdir::WalkDir;
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
@@ -106,19 +105,20 @@ impl GlobTool {
     }
 
     /// Builds a permission request for searching files in a directory.
-    fn build_permission_request(search_path: &str, pattern: &str) -> PermissionRequest {
-        let path = Path::new(search_path);
-        let display_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(search_path);
-
-        PermissionRequest {
-            action: format!("Search for '{}' in: {}", pattern, display_name),
-            reason: Some("Find files matching glob pattern".to_string()),
-            resources: vec![search_path.to_string()],
-            category: PermissionCategory::DirectoryRead,
-        }
+    fn build_permission_request(
+        tool_use_id: &str,
+        path: &str,
+        pattern: &str,
+    ) -> PermissionRequest {
+        let reason = format!("Search for '{}' pattern", pattern);
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::path(path, true), // recursive for glob
+            PermissionLevel::Read,
+            &format!("Glob search in: {}", path),
+        )
+        .with_reason(reason)
+        .with_tool(GLOB_TOOL_NAME)
     }
 
     /// Get file modification time for sorting.
@@ -201,42 +201,21 @@ impl Executable for GlobTool {
             }
 
             // ─────────────────────────────────────────────────────────────
-            // Step 2: Build permission request
+            // Step 2: Request permission if not pre-approved by batch executor
             // ─────────────────────────────────────────────────────────────
-            let permission_request = Self::build_permission_request(&search_path_str, pattern);
+            if !context.permissions_pre_approved {
+                let permission_request =
+                    Self::build_permission_request(&context.tool_use_id, &search_path_str, pattern);
 
-            // ─────────────────────────────────────────────────────────────
-            // Step 3: Check if permission is already granted for this session
-            // ─────────────────────────────────────────────────────────────
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
-
-            if !already_granted {
-                // ─────────────────────────────────────────────────────────
-                // Step 4: Request permission from user
-                // This emits ControllerEvent::PermissionRequired to UI
-                // ─────────────────────────────────────────────────────────
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
-                        context.session_id,
-                        permission_request,
-                        context.turn_id.clone(),
-                    )
+                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 5: Block until user responds
-                // ─────────────────────────────────────────────────────────
                 let response = response_rx
                     .await
                     .map_err(|_| "Permission request was cancelled".to_string())?;
 
-                // ─────────────────────────────────────────────────────────
-                // Step 6: Check if permission was granted
-                // ─────────────────────────────────────────────────────────
                 if !response.granted {
                     let reason = response
                         .message
@@ -249,7 +228,7 @@ impl Executable for GlobTool {
             }
 
             // ─────────────────────────────────────────────────────────────
-            // Step 7: Compile glob pattern
+            // Step 3: Compile glob pattern
             // ─────────────────────────────────────────────────────────────
             let glob_matcher: GlobMatcher = Glob::new(pattern)
                 .map_err(|e| format!("Invalid glob pattern '{}': {}", pattern, e))?
@@ -359,13 +338,40 @@ impl Executable for GlobTool {
 
         format!("[Glob: {} ({} files)]", pattern, file_count)
     }
+
+    fn required_permissions(
+        &self,
+        context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract pattern - required parameter
+        let pattern = input.get("pattern").and_then(|v| v.as_str())?;
+
+        // Extract path or use default_path, mirroring execute() logic
+        let search_path = input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(PathBuf::from)
+            .or_else(|| self.default_path.clone())
+            .unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            });
+
+        let search_path_str = search_path.to_string_lossy().to_string();
+
+        // Build permission request using the helper method
+        let permission_request =
+            Self::build_permission_request(&context.tool_use_id, &search_path_str, pattern);
+
+        Some(vec![permission_request])
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::tools::ask_for_permissions::{PermissionResponse, PermissionScope};
     use crate::controller::types::ControllerEvent;
+    use crate::permissions::{PermissionLevel, PermissionPanelResponse};
     use std::fs;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
@@ -375,6 +381,14 @@ mod tests {
         let (tx, rx) = mpsc::channel(16);
         let registry = Arc::new(PermissionRegistry::new(tx));
         (registry, rx)
+    }
+
+    fn grant_once() -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: true, grant: None, message: None }
+    }
+
+    fn deny(reason: &str) -> PermissionPanelResponse {
+        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
     }
 
     fn setup_test_dir() -> TempDir {
@@ -410,6 +424,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-1".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Grant permission in background
@@ -419,7 +434,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -446,6 +461,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-recursive".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -454,7 +470,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -484,6 +500,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-hidden".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -492,7 +509,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -526,6 +543,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-hidden-incl".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -534,7 +552,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -563,6 +581,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-denied".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -571,10 +590,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(
-                        &tool_use_id,
-                        PermissionResponse::deny(Some("Access denied".to_string())),
-                    )
+                    .respond_to_request(&tool_use_id, deny("Access denied"))
                     .await
                     .unwrap();
             }
@@ -602,6 +618,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-limit".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -610,7 +627,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -639,6 +656,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-nomatch".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -647,7 +665,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -675,6 +693,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test-glob-invalid".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let registry_clone = registry.clone();
@@ -683,7 +702,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond(&tool_use_id, PermissionResponse::grant(PermissionScope::Once))
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -705,6 +724,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -731,6 +751,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let result = tool.execute(context, input).await;
@@ -772,14 +793,14 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = GlobTool::build_permission_request("/path/to/src", "**/*.rs");
+        let request = GlobTool::build_permission_request("tool-123", "/path/to/src", "**/*.rs");
 
-        assert_eq!(request.action, "Search for '**/*.rs' in: src");
+        assert_eq!(request.description, "Glob search in: /path/to/src");
         assert_eq!(
             request.reason,
-            Some("Find files matching glob pattern".to_string())
+            Some("Search for '**/*.rs' pattern".to_string())
         );
-        assert_eq!(request.resources, vec!["/path/to/src".to_string()]);
-        assert_eq!(request.category, PermissionCategory::DirectoryRead);
+        assert_eq!(request.target, GrantTarget::path("/path/to/src", true));
+        assert_eq!(request.required_level, PermissionLevel::Read);
     }
 }

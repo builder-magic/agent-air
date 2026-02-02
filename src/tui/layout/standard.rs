@@ -34,6 +34,7 @@ impl Default for StandardOptions {
             input_widget_id: widget_ids::TEXT_INPUT,
             panel_widget_ids: vec![
                 widget_ids::PERMISSION_PANEL,
+                widget_ids::BATCH_PERMISSION_PANEL,
                 widget_ids::QUESTION_PANEL,
             ],
             popup_widget_ids: vec![widget_ids::SLASH_POPUP],

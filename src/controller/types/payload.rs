@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use super::{ControlCmd, InputType, LLMRequestType, LLMResponseType, TurnId};
-use crate::controller::tools::{AskUserQuestionsRequest, PermissionRequest, ToolResultStatus};
-use crate::permissions::BatchPermissionRequest;
+use crate::controller::tools::{AskUserQuestionsRequest, ToolResultStatus};
+use crate::permissions::{BatchPermissionRequest, PermissionRequest};
 
 /// Payload for requests sent to the LLM
 #[derive(Debug, Clone)]

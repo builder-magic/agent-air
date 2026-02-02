@@ -141,9 +141,11 @@ pub fn parse_to_styled_words(text: &str, theme: &Theme) -> Vec<(String, Style)> 
 pub enum ContentSegment {
     Text(String),
     Table(Vec<String>),
-    /// Code block with optional language hint (reserved for syntax highlighting)
+    /// Code block with optional language hint.
     CodeBlock {
         code: String,
+        /// Language hint (e.g., "rust", "python") - parsed from markdown but
+        /// not yet used. Reserved for future syntax highlighting support.
         #[allow(dead_code)]
         language: Option<String>,
     },

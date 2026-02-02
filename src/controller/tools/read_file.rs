@@ -13,8 +13,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
-use super::ask_for_permissions::{PermissionCategory, PermissionRequest};
-use super::permission_registry::PermissionRegistry;
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType};
 
 /// ReadFile tool name constant.
@@ -83,18 +82,17 @@ impl ReadFileTool {
         Self { permission_registry }
     }
 
-    fn build_permission_request(file_path: &str) -> PermissionRequest {
-        let filename = Path::new(file_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(file_path);
+    fn build_permission_request(tool_use_id: &str, path: &str) -> PermissionRequest {
+        let reason = "Read file contents";
 
-        PermissionRequest {
-            action: format!("Read file: {}", filename),
-            reason: Some("Read file contents".to_string()),
-            resources: vec![file_path.to_string()],
-            category: PermissionCategory::FileRead,
-        }
+        PermissionRequest::new(
+            tool_use_id,
+            GrantTarget::path(path, false),
+            PermissionLevel::Read,
+            &format!("Read file: {}", path),
+        )
+        .with_reason(reason)
+        .with_tool(READ_FILE_TOOL_NAME)
     }
 }
 
@@ -237,25 +235,14 @@ impl Executable for ReadFileTool {
                 ));
             }
 
-            // Check permission
-            let permission_request = ReadFileTool::build_permission_request(file_path);
-            let already_granted = permission_registry
-                .is_granted(context.session_id, &permission_request)
-                .await;
-
-            if !already_granted {
-                // Request permission from user
+            // Request permission if not pre-approved by batch executor
+            if !context.permissions_pre_approved {
+                let permission_request = ReadFileTool::build_permission_request(&context.tool_use_id, file_path);
                 let response_rx = permission_registry
-                    .register(
-                        context.tool_use_id.clone(),
-                        context.session_id,
-                        permission_request,
-                        context.turn_id.clone(),
-                    )
+                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
-                // Block until user responds
                 let response = response_rx
                     .await
                     .map_err(|_| "Permission request was cancelled".to_string())?;
@@ -432,6 +419,29 @@ impl Executable for ReadFileTool {
 
         format!("[ReadFile: {} ({})]", filename, status)
     }
+
+    fn required_permissions(
+        &self,
+        context: &ToolContext,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Option<Vec<PermissionRequest>> {
+        // Extract file_path from input
+        let file_path = input
+            .get("file_path")
+            .and_then(|v| v.as_str())?;
+
+        let path = Path::new(file_path);
+
+        // Only request permission for absolute paths
+        if !path.is_absolute() {
+            return None;
+        }
+
+        // Build permission request using the existing helper
+        let permission_request = ReadFileTool::build_permission_request(&context.tool_use_id, file_path);
+
+        Some(vec![permission_request])
+    }
 }
 
 #[cfg(test)]
@@ -442,13 +452,21 @@ mod tests {
     use tempfile::NamedTempFile;
     use tokio::sync::mpsc;
 
-    use crate::controller::tools::ask_for_permissions::PermissionScope;
-    use crate::controller::tools::permission_registry::PermissionRegistry;
     use crate::controller::types::ControllerEvent;
+    use crate::permissions::{Grant, PermissionPanelResponse, PermissionRegistry};
 
     fn create_test_registry() -> (Arc<PermissionRegistry>, mpsc::Receiver<ControllerEvent>) {
         let (event_tx, event_rx) = mpsc::channel(10);
         (Arc::new(PermissionRegistry::new(event_tx)), event_rx)
+    }
+
+    /// Create a session-level grant response from a permission request
+    fn create_session_grant(request: &PermissionRequest) -> PermissionPanelResponse {
+        PermissionPanelResponse {
+            granted: true,
+            grant: Some(Grant::new(request.target.clone(), request.required_level)),
+            message: None,
+        }
     }
 
     #[test]
@@ -488,21 +506,14 @@ mod tests {
 
         let file_path = temp_file.path().to_str().unwrap().to_string();
 
-        // Pre-grant permission for the file
-        let permission_request = ReadFileTool::build_permission_request(&file_path);
+        // Pre-grant session permission for the file
+        let permission_request = ReadFileTool::build_permission_request("pre_grant", &file_path);
         let rx = registry
-            .register("pre_grant".to_string(), 1, permission_request, None)
+            .request_permission(1, permission_request.clone(), None)
             .await
             .unwrap();
         registry
-            .respond(
-                "pre_grant",
-                super::super::ask_for_permissions::PermissionResponse {
-                    granted: true,
-                    scope: Some(PermissionScope::Session),
-                    message: None,
-                },
-            )
+            .respond_to_request("pre_grant", create_session_grant(&permission_request))
             .await
             .unwrap();
         let _ = rx.await;
@@ -511,6 +522,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let mut input = HashMap::new();
@@ -542,21 +554,14 @@ mod tests {
 
         let file_path = temp_file.path().to_str().unwrap().to_string();
 
-        // Pre-grant permission
-        let permission_request = ReadFileTool::build_permission_request(&file_path);
+        // Pre-grant session permission
+        let permission_request = ReadFileTool::build_permission_request("pre_grant", &file_path);
         let rx = registry
-            .register("pre_grant".to_string(), 1, permission_request, None)
+            .request_permission(1, permission_request.clone(), None)
             .await
             .unwrap();
         registry
-            .respond(
-                "pre_grant",
-                super::super::ask_for_permissions::PermissionResponse {
-                    granted: true,
-                    scope: Some(PermissionScope::Session),
-                    message: None,
-                },
-            )
+            .respond_to_request("pre_grant", create_session_grant(&permission_request))
             .await
             .unwrap();
         let _ = rx.await;
@@ -565,6 +570,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let mut input = HashMap::new();
@@ -594,6 +600,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let mut input = HashMap::new();
@@ -615,6 +622,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         let mut input = HashMap::new();
@@ -636,6 +644,7 @@ mod tests {
             session_id: 1,
             tool_use_id: "test".to_string(),
             turn_id: None,
+            permissions_pre_approved: false,
         };
 
         // Create a temp file with binary extension
@@ -645,21 +654,14 @@ mod tests {
 
         let file_path = binary_path.to_str().unwrap().to_string();
 
-        // Pre-grant permission
-        let permission_request = ReadFileTool::build_permission_request(&file_path);
+        // Pre-grant session permission
+        let permission_request = ReadFileTool::build_permission_request("pre_grant", &file_path);
         let rx = registry
-            .register("pre_grant".to_string(), 1, permission_request, None)
+            .request_permission(1, permission_request.clone(), None)
             .await
             .unwrap();
         registry
-            .respond(
-                "pre_grant",
-                super::super::ask_for_permissions::PermissionResponse {
-                    granted: true,
-                    scope: Some(PermissionScope::Session),
-                    message: None,
-                },
-            )
+            .respond_to_request("pre_grant", create_session_grant(&permission_request))
             .await
             .unwrap();
         let _ = rx.await;
@@ -701,9 +703,10 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = ReadFileTool::build_permission_request("/home/user/project/file.rs");
-        assert_eq!(request.action, "Read file: file.rs");
-        assert_eq!(request.category, PermissionCategory::FileRead);
-        assert_eq!(request.resources, vec!["/home/user/project/file.rs".to_string()]);
+        let request = ReadFileTool::build_permission_request("test-id", "/home/user/project/file.rs");
+        assert_eq!(request.description, "Read file: /home/user/project/file.rs");
+        assert_eq!(request.reason, Some("Read file contents".to_string()));
+        assert_eq!(request.target, GrantTarget::path("/home/user/project/file.rs", false));
+        assert_eq!(request.required_level, PermissionLevel::Read);
     }
 }
