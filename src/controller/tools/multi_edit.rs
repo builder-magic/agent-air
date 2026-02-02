@@ -588,18 +588,24 @@ impl Executable for MultiEditTool {
 
             // Build success response
             let edit_count = planned.len();
-            let fuzzy_count = planned
+            let fuzzy_edits: Vec<_> = planned
                 .iter()
                 .filter(|e| e.match_type != MatchType::Exact)
-                .count();
+                .collect();
 
             let mut result = format!(
                 "Successfully applied {} edit(s) to '{}'",
                 edit_count, file_path
             );
 
-            if fuzzy_count > 0 {
-                result.push_str(&format!(" ({} fuzzy matches)", fuzzy_count));
+            if !fuzzy_edits.is_empty() {
+                let avg_similarity: f64 =
+                    fuzzy_edits.iter().map(|e| e.similarity).sum::<f64>() / fuzzy_edits.len() as f64;
+                result.push_str(&format!(
+                    " ({} fuzzy matches, avg {:.0}% similarity)",
+                    fuzzy_edits.len(),
+                    avg_similarity * 100.0
+                ));
             }
 
             Ok(result)
