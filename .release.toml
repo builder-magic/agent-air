@@ -1,0 +1,29 @@
+# cargo-release configuration
+# https://github.com/crate-ci/cargo-release
+
+# Tag format
+tag-name = "v{{version}}"
+tag-message = "Release {{version}}"
+
+# Commit message for version bump
+pre-release-commit-message = "chore: release {{version}}"
+
+# Push to remote
+push = true
+
+# Publish to crates.io
+publish = true
+
+# Create GitHub release with notes extracted from CHANGELOG.md
+# This extracts the section for the current version and pipes it to gh
+post-release-hook = [
+    "sh", "-c", """
+    # Extract release notes for this version from CHANGELOG.md
+    notes=$(sed -n '/^## \\[{{version}}\\]/,/^## \\[/p' CHANGELOG.md | sed '$ d')
+
+    # Create GitHub release
+    echo "$notes" | gh release create v{{version}} \
+        --title 'v{{version}}' \
+        --notes-file -
+    """
+]
