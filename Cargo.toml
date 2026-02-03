@@ -8,7 +8,7 @@ members = [
 # The main agent-core package (meta-crate that re-exports sub-crates)
 [package]
 name = "agent-core"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "A Rust Framework to build TUI Agents"
 license = "MIT"
@@ -22,10 +22,10 @@ tui = ["dep:agent-core-tui"]
 
 [dependencies]
 # Always include the runtime
-agent-core-runtime = { path = "agent-core-runtime", version = "0.4.0" }
+agent-core-runtime = { path = "agent-core-runtime", version = "0.5.0" }
 
 # Optionally include the TUI
-agent-core-tui = { path = "agent-core-tui", version = "0.4.0", optional = true }
+agent-core-tui = { path = "agent-core-tui", version = "0.5.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

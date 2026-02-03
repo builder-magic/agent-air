@@ -1,6 +1,6 @@
 [package]
 name = "agent-core-tui"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "TUI frontend for agent-core - ratatui-based terminal interface"
 license = "MIT"
@@ -10,7 +10,7 @@ categories = ["command-line-interface"]
 
 [dependencies]
 # Runtime crate
-agent-core-runtime = { path = "../agent-core-runtime", version = "0.4.0" }
+agent-core-runtime = { path = "../agent-core-runtime", version = "0.5.0" }
 
 # TUI dependencies
 ratatui = "0.30"

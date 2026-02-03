@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agent-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "agent-core-runtime",
  "agent-core-tui",
@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "agent-core-runtime"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-stream",
  "aws-credential-types",
@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "agent-core-tui"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "agent-core-runtime",
  "chrono",

@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-02-03
+
+### Added
+
+#### Agent Skills Support
+- New `skills` module implementing the [Agent Skills](https://agentskills.io) open format
+- `SkillDiscovery` for scanning directories for SKILL.md files
+- `SkillRegistry` thread-safe registry with XML generation for system prompts
+- YAML frontmatter parser with name/description validation
+- Default search paths: `$PWD/.skills/` (project) and `~/.agent-core/skills/` (user)
+
+#### AgentCore Skill Methods
+- `load_skills()`: Discover and register skills from configured paths
+- `load_skills_from()`: One-shot loading from custom paths
+- `reload_skills()`: Hot reload with added/removed tracking
+- `refresh_session_skills()`: Update session system prompts with current skills
+- `add_skill_path()`: Add custom skill search directories
+- `skill_registry()`: Access the skill registry directly
+- Automatic skills XML injection on session creation
+
+#### ListSkillsTool
+- New tool allowing LLM to discover available skills at runtime
+- Returns name, description, and SKILL.md path for each skill
+- `register_list_skills_tool()` method on AgentCore
+
+### Changed
+- `AgentError` now includes `SessionNotFound` variant for skill refresh errors
+
 ## [0.4.0] - 2025-02-02
 
 ### Changed
