@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-02-03
+
+### Added
+
+#### Event Sink Abstraction (Pluggable Frontends)
+- New `interface` module for custom frontend integration
+- `EventSink` trait for receiving events from the engine
+  - `ChannelEventSink`: Channel-backed sink with backpressure support
+  - `SimpleEventSink`: Minimal stdout sink for CLI tools
+- `InputSource` trait for providing input to the engine
+  - `ChannelInputSource`: Channel-backed input with helper `channel()` method
+- `PermissionPolicy` trait for automatic permission handling
+  - `AutoApprovePolicy`: Auto-approve all requests (headless/trusted environments)
+  - `DenyAllPolicy`: Deny all requests (sandboxed environments)
+  - `InteractivePolicy`: Forward all requests to user (default for TUI)
+  - `PolicyDecision` enum with `Allow`, `AllowWithGrant`, `Deny`, `AskUser` variants
+  - `supports_interaction()` method for handling user questions in headless mode
+
+#### AgentCore Frontend Methods
+- `run_with_frontend()`: Run agent with custom sink, source, and policy
+- Inline policy handling for `PermissionRequired` and `BatchPermissionRequired` events
+- Auto-cancel user interactions when policy doesn't support interaction
+
+#### Simplified Agent Setup
+- `SimpleConfig` struct for quick agent configuration
+- `AgentCore::with_config(name, path, prompt)`: One-line agent creation
+
+### Changed
+- Re-export interface types at `agent` module level for convenience
+
 ## [0.5.0] - 2025-02-03
 
 ### Added
