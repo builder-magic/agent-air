@@ -206,17 +206,17 @@ if [[ "$NOTES_LINES" -lt 3 ]]; then
 fi
 success "Release notes OK ($NOTES_LINES lines)"
 
-# Check 8: cargo publish dry run for all crates
-info "Running cargo publish dry run for workspace crates..."
+# Check 8: cargo publish dry run for base crate
+# Note: We can only dry-run agent-core-runtime because the other crates
+# depend on it, and it won't exist on crates.io until actually published
+info "Running cargo publish dry run for agent-core-runtime..."
 echo ""
-for crate in agent-core-runtime agent-core-tui agent-core; do
-    info "  Checking $crate..."
-    if ! cargo publish -p "$crate" --dry-run 2>&1; then
-        error "cargo publish dry run failed for $crate"
-    fi
-done
+if ! cargo publish -p agent-core-runtime --dry-run 2>&1; then
+    error "cargo publish dry run failed for agent-core-runtime"
+fi
 echo ""
-success "cargo publish dry run passed for all crates"
+success "cargo publish dry run passed (agent-core-runtime)"
+info "Note: agent-core-tui and agent-core will be validated during actual publish"
 
 echo ""
 echo "=========================================="
@@ -266,7 +266,26 @@ echo ""
 # 2. agent-core-tui (depends on runtime)
 # 3. agent-core (depends on both)
 
-CRATES_IO_DELAY=30  # seconds to wait for crates.io index update
+# Function to wait for a crate version to appear in the crates.io index
+wait_for_crate() {
+    local crate_name=$1
+    local version=$2
+    local max_attempts=20
+    local attempt=1
+
+    info "Waiting for $crate_name $version to appear in crates.io index..."
+    while [[ $attempt -le $max_attempts ]]; do
+        # Update the index and check for the version
+        if cargo search "$crate_name" 2>/dev/null | grep -q "^$crate_name = \"$version\""; then
+            success "$crate_name $version found in index"
+            return 0
+        fi
+        info "  Attempt $attempt/$max_attempts - not yet indexed, waiting 15s..."
+        sleep 15
+        ((attempt++))
+    done
+    error "$crate_name $version not found in index after $max_attempts attempts"
+}
 
 info "Step 1/3: Publishing agent-core-runtime..."
 if ! cargo publish -p agent-core-runtime; then
@@ -274,8 +293,7 @@ if ! cargo publish -p agent-core-runtime; then
 fi
 success "agent-core-runtime published"
 
-info "Waiting ${CRATES_IO_DELAY}s for crates.io index update..."
-sleep $CRATES_IO_DELAY
+wait_for_crate "agent-core-runtime" "$NEW_VERSION"
 
 info "Step 2/3: Publishing agent-core-tui..."
 if ! cargo publish -p agent-core-tui; then
@@ -283,8 +301,7 @@ if ! cargo publish -p agent-core-tui; then
 fi
 success "agent-core-tui published"
 
-info "Waiting ${CRATES_IO_DELAY}s for crates.io index update..."
-sleep $CRATES_IO_DELAY
+wait_for_crate "agent-core-tui" "$NEW_VERSION"
 
 info "Step 3/3: Publishing agent-core..."
 if ! cargo publish -p agent-core; then
