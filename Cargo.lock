@@ -6,11 +6,19 @@ version = 4
 name = "agent-core"
 version = "0.3.0"
 dependencies = [
+ "agent-core-runtime",
+ "agent-core-tui",
+ "tempfile",
+]
+
+[[package]]
+name = "agent-core-runtime"
+version = "0.3.0"
+dependencies = [
  "async-stream",
  "aws-credential-types",
  "aws-sigv4",
  "chrono",
- "crossterm 0.28.1",
  "dirs",
  "futures",
  "globset",
@@ -22,8 +30,6 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
- "pulldown-cmark",
- "ratatui 0.30.0",
  "regex",
  "ring",
  "serde",
@@ -32,16 +38,32 @@ dependencies = [
  "strsim",
  "tempfile",
  "thiserror 2.0.18",
- "throbber-widgets-tui",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "walkdir",
+]
+
+[[package]]
+name = "agent-core-tui"
+version = "0.3.0"
+dependencies = [
+ "agent-core-runtime",
+ "chrono",
+ "crossterm 0.28.1",
+ "pulldown-cmark",
+ "ratatui 0.30.0",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "throbber-widgets-tui",
+ "tokio",
+ "tracing",
  "tui-textarea",
  "unicode-width 0.2.0",
- "walkdir",
 ]
 
 [[package]]

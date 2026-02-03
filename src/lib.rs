@@ -1,43 +1,75 @@
 //! Agent Core
 //!
-//! A TUI Framework for building terminal UI agents powered by large language models.
+//! A Rust Framework for building TUI Agents powered by large language models.
 //!
-//! This crate provides:
+//! This is a meta-crate that re-exports from:
+//! - `agent-core-runtime` - Core runtime (always included)
+//! - `agent-core-tui` - TUI frontend (optional, enabled by default)
 //!
-//! ## TUI Components
-//! - Permission request panels
-//! - Question/answer dialogs
-//! - Markdown rendering with theming
-//! - Table rendering
-//! - Session pickers
-//! - Slash command popups
-//! - Text input with cursor management
+//! ## Features
 //!
-//! ## Agent Infrastructure
-//! - Message types for TUI-Controller communication
-//! - Input routing
-//! - Logging infrastructure
-//! - Configuration management
-//! - Base agent trait for building custom agents
+//! - `tui` (default) - Include the TUI frontend
 //!
-//! ## LLM Client
-//! - Provider-agnostic LLM client interface
-//! - Anthropic and OpenAI provider implementations
-//! - HTTP client utilities
+//! ## Quick Start (with TUI)
 //!
-//! ## LLM Controller
-//! - Controller logic for managing LLM interactions
-//! - Session management and compaction
-//! - Tool execution framework
-//! - Permission and user interaction registries
+//! ```ignore
+//! use agent_core::agent::{AgentConfig, AgentCore};
+//! use agent_core::tui::AgentCoreExt;
+//!
+//! struct MyConfig;
+//! impl AgentConfig for MyConfig {
+//!     fn config_path(&self) -> &str { ".myagent/config.yaml" }
+//!     fn default_system_prompt(&self) -> &str { "You are helpful." }
+//!     fn log_prefix(&self) -> &str { "myagent" }
+//!     fn name(&self) -> &str { "MyAgent" }
+//! }
+//!
+//! fn main() -> std::io::Result<()> {
+//!     let agent = AgentCore::new(&MyConfig)?;
+//!     agent.into_tui().run()
+//! }
+//! ```
+//!
+//! ## Headless Usage (without TUI)
+//!
+//! ```ignore
+//! use agent_core::agent::{AgentConfig, AgentCore};
+//!
+//! struct MyConfig;
+//! impl AgentConfig for MyConfig {
+//!     fn config_path(&self) -> &str { ".myagent/config.yaml" }
+//!     fn default_system_prompt(&self) -> &str { "You are helpful." }
+//!     fn log_prefix(&self) -> &str { "myagent" }
+//!     fn name(&self) -> &str { "MyAgent" }
+//! }
+//!
+//! fn main() -> std::io::Result<()> {
+//!     let mut core = AgentCore::new(&MyConfig)?;
+//!     core.start_background_tasks();
+//!
+//!     // Get channels for custom frontend integration
+//!     let tx = core.to_controller_tx();
+//!     let rx = core.take_from_controller_rx();
+//!
+//!     // Create a session and interact programmatically
+//!     let (session_id, model, _) = core.create_initial_session()?;
+//!     // ... implement your own event loop
+//!
+//!     core.shutdown();
+//!     Ok(())
+//! }
+//! ```
 
-/// Agent infrastructure and configuration.
-pub mod agent;
-/// LLM client interface and provider implementations.
-pub mod client;
-/// LLM session controller and tool execution.
-pub mod controller;
-/// Permission system for controlling agent access to resources.
-pub mod permissions;
-/// Terminal UI components and application framework.
-pub mod tui;
+// Re-export everything from the runtime crate
+pub use agent_core_runtime::*;
+
+// Re-export the TUI crate when the feature is enabled
+#[cfg(feature = "tui")]
+pub mod tui {
+    //! TUI frontend for agent-core.
+    //!
+    //! This module provides a ratatui-based terminal interface for agents.
+    //! Use `AgentCoreExt::into_tui()` to convert an `AgentCore` into a `TuiRunner`.
+
+    pub use agent_core_tui::*;
+}

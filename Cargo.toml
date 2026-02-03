@@ -1,3 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "agent-core-runtime",
+    "agent-core-tui",
+]
+
+# The main agent-core package (meta-crate that re-exports sub-crates)
 [package]
 name = "agent-core"
 version = "0.3.0"
@@ -6,53 +14,16 @@ description = "A Rust Framework to build TUI Agents"
 license = "MIT"
 repository = "https://github.com/deepmesa/agent-core"
 
+[features]
+default = ["tui"]
+tui = ["dep:agent-core-tui"]
+
 [dependencies]
-# TUI dependencies
-ratatui = "0.30"
-crossterm = "0.28"
-tui-textarea = "0.7"
-pulldown-cmark = "0.13.0"
-unicode-width = "0.2"
-throbber-widgets-tui = "0.10"
+# Always include the runtime
+agent-core-runtime = { path = "agent-core-runtime" }
 
-# Agent dependencies
-tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "full"] }
-tokio-util = "0.7"
-tokio-stream = "0.1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
-chrono = { version = "0.4", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_yaml = "0.9"
-dirs = "5"
-globset = "0.4"
-regex = "1"
-walkdir = "2"
-
-# Ripgrep crates for fast file searching
-grep-regex = "0.1"
-grep-searcher = "0.1"
-grep-matcher = "0.1"
-
-# String similarity for fuzzy matching
-strsim = "0.11"
-futures = "0.3"
-thiserror = "2.0"
-
-# HTTP client dependencies (from vangogh-rs)
-async-stream = "0.3"
-http-body-util = "0.1.3"
-hyper = { version = "1.8.1", features = ["full"] }
-hyper-rustls = { version = "0.27.7", features = ["native-tokio", "http1", "http2", "tls12"] }
-hyper-util = { version = "0.1.19", features = ["client-legacy", "http1", "http2", "tokio"] }
-
-# AWS dependencies for Bedrock
-aws-sigv4 = "1.2"
-aws-credential-types = "1.2"
-ring = "0.17"
-hex = "0.4"
+# Optionally include the TUI
+agent-core-tui = { path = "agent-core-tui", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

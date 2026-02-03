@@ -2,29 +2,30 @@
 default:
     @just --list
 
-# Build the crate
+# Build the workspace
 build:
-    @cargo build
+    @cargo build --workspace
 
 # Run tests
 test:
-    @cargo test
+    @cargo test --workspace
 
 # Run clippy
 lint:
-    @cargo clippy -- -D warnings
+    @cargo clippy --workspace -- -D warnings
 
 # Format code
 fmt:
-    @cargo fmt
+    @cargo fmt --all
 
 # Check formatting
 fmt-check:
-    @cargo fmt -- --check
+    @cargo fmt --all -- --check
 
 # Clean build artifacts
 clean:
     @cargo clean
 
+# Generate documentation
 doc:
-    cargo doc --no-deps --all
+    cargo doc --no-deps --workspace
