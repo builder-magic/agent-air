@@ -1,10 +1,12 @@
 [package]
 name = "agent-core-runtime"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "Core runtime for agent-core - LLM orchestration, tools, and permissions (no TUI dependencies)"
 license = "MIT"
 repository = "https://github.com/deepmesa/agent-core"
+keywords = ["llm", "agent", "ai", "anthropic", "openai"]
+categories = ["api-bindings", "asynchronous"]
 
 [dependencies]
 # Async runtime

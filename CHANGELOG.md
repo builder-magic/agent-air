@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-02-02
+
+### Changed
+- Split agent-core into workspace with three crates:
+  - `agent-core-runtime`: Core engine (controller, client, permissions, tools)
+  - `agent-core-tui`: TUI frontend (ratatui, widgets, themes, commands)
+  - `agent-core`: Meta-crate re-exporting both (backwards compatible)
+- TUI methods moved from AgentCore to TuiRunner
+- New AgentCoreExt trait provides into_tui() conversion
+- Headless agents can now depend on agent-core-runtime only
+
 ## [0.3.0]
 
 ### Added

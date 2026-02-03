@@ -119,14 +119,7 @@ if ! gh auth status &> /dev/null; then
 fi
 success "GitHub authenticated"
 
-# Check 3: cargo-release installed
-info "Checking cargo-release..."
-if ! cargo release --version &> /dev/null; then
-    error "cargo-release not installed. Run: cargo install cargo-release"
-fi
-success "cargo-release installed"
-
-# Check 4: Clean working directory (except CHANGELOG.md which may be staged)
+# Check 3: Clean working directory (except CHANGELOG.md which may be staged)
 info "Checking working directory..."
 DIRTY_FILES=$(git status --porcelain | grep -v CHANGELOG.md | grep -v scripts/release.sh || true)
 if [[ -n "$DIRTY_FILES" ]]; then
@@ -141,7 +134,7 @@ if [[ -n "$DIRTY_FILES" ]]; then
 fi
 success "Working directory OK"
 
-# Check 5: On main branch (or confirm)
+# Check 4: On main branch (or confirm)
 info "Checking branch..."
 CURRENT_BRANCH=$(git branch --show-current)
 if [[ "$CURRENT_BRANCH" != "main" && "$CURRENT_BRANCH" != "mainline" && "$CURRENT_BRANCH" != "master" ]]; then
@@ -154,7 +147,7 @@ if [[ "$CURRENT_BRANCH" != "main" && "$CURRENT_BRANCH" != "mainline" && "$CURREN
 fi
 success "Branch: $CURRENT_BRANCH"
 
-# Check 6: Up to date with remote
+# Check 5: Up to date with remote
 info "Checking remote sync..."
 git fetch origin &> /dev/null || warn "Could not fetch from origin"
 LOCAL=$(git rev-parse HEAD)
@@ -169,7 +162,7 @@ if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
 fi
 success "Remote sync OK"
 
-# Check 7: CHANGELOG.md has entry for new version
+# Check 6: CHANGELOG.md has entry for new version
 info "Checking CHANGELOG.md..."
 if ! grep -q "## \[$NEW_VERSION\]" CHANGELOG.md; then
     if grep -q "## \[Unreleased\]" CHANGELOG.md; then
@@ -194,7 +187,7 @@ if ! grep -q "## \[$NEW_VERSION\]" CHANGELOG.md; then
 fi
 success "CHANGELOG.md has [$NEW_VERSION] section"
 
-# Check 8: Release notes extraction works
+# Check 7: Release notes extraction works
 info "Testing release notes extraction..."
 RELEASE_NOTES=$(./scripts/extract-release-notes.sh "$NEW_VERSION" 2>/dev/null || echo "")
 if [[ -z "$RELEASE_NOTES" ]]; then
@@ -213,14 +206,17 @@ if [[ "$NOTES_LINES" -lt 3 ]]; then
 fi
 success "Release notes OK ($NOTES_LINES lines)"
 
-# Check 9: cargo release dry run
-info "Running cargo release dry run..."
+# Check 8: cargo publish dry run for all crates
+info "Running cargo publish dry run for workspace crates..."
 echo ""
-if ! cargo release "$BUMP" 2>&1; then
-    error "cargo release dry run failed"
-fi
+for crate in agent-core-runtime agent-core-tui agent-core; do
+    info "  Checking $crate..."
+    if ! cargo publish -p "$crate" --dry-run 2>&1; then
+        error "cargo publish dry run failed for $crate"
+    fi
+done
 echo ""
-success "cargo release dry run passed"
+success "cargo publish dry run passed for all crates"
 
 echo ""
 echo "=========================================="
@@ -244,10 +240,10 @@ fi
 echo -e "${YELLOW}Ready to release v$NEW_VERSION${NC}"
 echo ""
 echo "This will:"
-echo "  1. Bump version in Cargo.toml"
-echo "  2. Commit and create git tag v$NEW_VERSION"
-echo "  3. Push to GitHub"
-echo "  4. Publish to crates.io"
+echo "  1. Publish agent-core-runtime to crates.io"
+echo "  2. Publish agent-core-tui to crates.io"
+echo "  3. Publish agent-core to crates.io"
+echo "  4. Create and push git tag v$NEW_VERSION"
 echo "  5. Create GitHub release with notes"
 echo ""
 read -p "Proceed with release? (y/N) " -n 1 -r
@@ -262,30 +258,57 @@ fi
 # ==========================================
 
 echo ""
-info "Executing cargo release..."
-if ! cargo release "$BUMP" --execute --no-confirm; then
-    error "cargo release failed"
+info "Publishing workspace crates in dependency order..."
+echo ""
+
+# Workspace publishing requires publishing in dependency order
+# 1. agent-core-runtime (no internal deps)
+# 2. agent-core-tui (depends on runtime)
+# 3. agent-core (depends on both)
+
+CRATES_IO_DELAY=30  # seconds to wait for crates.io index update
+
+info "Step 1/3: Publishing agent-core-runtime..."
+if ! cargo publish -p agent-core-runtime; then
+    error "Failed to publish agent-core-runtime"
 fi
+success "agent-core-runtime published"
 
-success "cargo release completed"
+info "Waiting ${CRATES_IO_DELAY}s for crates.io index update..."
+sleep $CRATES_IO_DELAY
 
-# Check if GitHub release was created by the hook
-info "Verifying GitHub release..."
-sleep 2  # Give GitHub a moment
+info "Step 2/3: Publishing agent-core-tui..."
+if ! cargo publish -p agent-core-tui; then
+    error "Failed to publish agent-core-tui"
+fi
+success "agent-core-tui published"
 
-if gh release view "v$NEW_VERSION" &> /dev/null; then
+info "Waiting ${CRATES_IO_DELAY}s for crates.io index update..."
+sleep $CRATES_IO_DELAY
+
+info "Step 3/3: Publishing agent-core..."
+if ! cargo publish -p agent-core; then
+    error "Failed to publish agent-core"
+fi
+success "agent-core published"
+
+success "All crates published to crates.io"
+
+# Create git tag
+info "Creating git tag v$NEW_VERSION..."
+git tag "v$NEW_VERSION"
+git push origin "v$NEW_VERSION"
+success "Git tag v$NEW_VERSION created and pushed"
+
+# Create GitHub release
+info "Creating GitHub release..."
+if echo "$RELEASE_NOTES" | gh release create "v$NEW_VERSION" \
+    --title "v$NEW_VERSION" \
+    --notes-file -; then
     success "GitHub release v$NEW_VERSION created"
 else
-    warn "GitHub release not found - creating manually..."
-
-    if echo "$RELEASE_NOTES" | gh release create "v$NEW_VERSION" \
-        --title "v$NEW_VERSION" \
-        --notes-file -; then
-        success "GitHub release v$NEW_VERSION created manually"
-    else
-        error "Failed to create GitHub release. Create manually with:"
-        echo "  ./scripts/extract-release-notes.sh $NEW_VERSION | gh release create v$NEW_VERSION --title 'v$NEW_VERSION' --notes-file -"
-    fi
+    error "Failed to create GitHub release. Create manually with:"
+    echo "  ./scripts/extract-release-notes.sh $NEW_VERSION | gh release create v$NEW_VERSION --title 'v$NEW_VERSION' --notes-file -"
 fi
 
 echo ""
@@ -294,6 +317,9 @@ echo -e "  ${GREEN}Release v$NEW_VERSION complete!${NC}"
 echo "=========================================="
 echo ""
 echo "Links:"
-echo "  GitHub: https://github.com/deepmesa/agent-core/releases/tag/v$NEW_VERSION"
-echo "  Crates: https://crates.io/crates/agent-core/$NEW_VERSION"
+echo "  GitHub:  https://github.com/deepmesa/agent-core/releases/tag/v$NEW_VERSION"
+echo "  Crates:"
+echo "    - https://crates.io/crates/agent-core-runtime/$NEW_VERSION"
+echo "    - https://crates.io/crates/agent-core-tui/$NEW_VERSION"
+echo "    - https://crates.io/crates/agent-core/$NEW_VERSION"
 echo ""
