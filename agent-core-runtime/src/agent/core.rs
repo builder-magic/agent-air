@@ -509,6 +509,212 @@ impl AgentCore {
         tracing::info!("{} shutdown complete", self.name);
     }
 
+    // ---- Custom Frontend Support ----
+
+    /// Run the agent with a custom frontend.
+    ///
+    /// This is the primary entry point for custom frontends. It:
+    /// 1. Starts background tasks (controller, input router)
+    /// 2. Wires the event sink to receive engine events
+    /// 3. Wires the input source to provide user input
+    /// 4. Applies the permission policy
+    /// 5. Runs until the input source closes
+    ///
+    /// # Arguments
+    ///
+    /// * `event_sink` - Receives events from the engine
+    /// * `input_source` - Provides input to the engine
+    /// * `permission_policy` - Handles permission requests
+    ///
+    /// # Example: Headless with Auto-Approve
+    ///
+    /// ```ignore
+    /// use agent_core_runtime::agent::{
+    ///     AgentCore, AutoApprovePolicy, StdoutEventSink, ChannelInputSource
+    /// };
+    ///
+    /// let mut agent = AgentCore::with_config(
+    ///     "my-agent",
+    ///     "~/.config/my-agent/config.yaml",
+    ///     "You are helpful."
+    /// )?;
+    ///
+    /// // Create input channel
+    /// let (input_tx, input_source) = ChannelInputSource::channel(100);
+    ///
+    /// // Run with custom frontend (blocks until input_tx is dropped)
+    /// agent.run_with_frontend(
+    ///     StdoutEventSink::new(),
+    ///     input_source,
+    ///     AutoApprovePolicy::new(),
+    /// )?;
+    /// ```
+    pub fn run_with_frontend<E, I, P>(
+        &mut self,
+        event_sink: E,
+        mut input_source: I,
+        permission_policy: P,
+    ) -> io::Result<()>
+    where
+        E: super::interface::EventSink,
+        I: super::interface::InputSource,
+        P: super::interface::PermissionPolicy,
+    {
+        use std::sync::Arc;
+        use super::interface::PolicyDecision;
+        use crate::permissions::{BatchPermissionResponse, PermissionPanelResponse};
+
+        tracing::info!("{} starting with custom frontend", self.name);
+
+        // Wrap sink in Arc for sharing with event forwarder
+        let sink = Arc::new(event_sink);
+        let policy = Arc::new(permission_policy);
+
+        // Start background tasks (controller, but not the default input router)
+        // We'll handle input ourselves
+        let controller = self.controller.clone();
+        self.runtime.spawn(async move {
+            controller.start().await;
+        });
+        tracing::info!("Controller started");
+
+        // Set up event forwarding from controller to custom sink
+        // Take the from_controller_rx if available
+        if let Some(mut from_controller_rx) = self.from_controller_rx.take() {
+            let sink_clone = sink.clone();
+            let policy_clone = policy.clone();
+            let permission_registry = self.permission_registry.clone();
+            let user_interaction_registry = self.user_interaction_registry.clone();
+
+            self.runtime.spawn(async move {
+                while let Some(event) = from_controller_rx.recv().await {
+                    // Check if this is a permission request that should be handled by policy
+                    match &event {
+                        UiMessage::PermissionRequired { tool_use_id, request, .. } => {
+                            match policy_clone.decide(request) {
+                                PolicyDecision::AskUser => {
+                                    // Fall through to forward to sink
+                                }
+                                decision => {
+                                    let response = match decision {
+                                        PolicyDecision::Allow => PermissionPanelResponse {
+                                            granted: true,
+                                            grant: None,
+                                            message: None,
+                                        },
+                                        PolicyDecision::AllowWithGrant(grant) => PermissionPanelResponse {
+                                            granted: true,
+                                            grant: Some(grant),
+                                            message: None,
+                                        },
+                                        PolicyDecision::Deny { reason } => PermissionPanelResponse {
+                                            granted: false,
+                                            grant: None,
+                                            message: reason,
+                                        },
+                                        PolicyDecision::AskUser => unreachable!(),
+                                    };
+                                    if let Err(e) = permission_registry
+                                        .respond_to_request(tool_use_id, response)
+                                        .await
+                                    {
+                                        tracing::warn!("Failed to respond to permission request: {}", e);
+                                    }
+                                    continue; // Don't forward to sink
+                                }
+                            }
+                        }
+                        UiMessage::BatchPermissionRequired { batch, .. } => {
+                            // Check if policy handles all requests in the batch
+                            let mut all_handled = true;
+                            let mut approved_grants = Vec::new();
+                            let mut denied_ids = Vec::new();
+
+                            for request in &batch.requests {
+                                match policy_clone.decide(request) {
+                                    PolicyDecision::Allow => {
+                                        // No grant to add, but approved
+                                    }
+                                    PolicyDecision::AllowWithGrant(grant) => {
+                                        approved_grants.push(grant);
+                                    }
+                                    PolicyDecision::Deny { .. } => {
+                                        denied_ids.push(request.id.clone());
+                                    }
+                                    PolicyDecision::AskUser => {
+                                        all_handled = false;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if all_handled {
+                                // Respond to batch with policy decisions
+                                let response = if denied_ids.is_empty() {
+                                    BatchPermissionResponse::all_granted(&batch.batch_id, approved_grants)
+                                } else {
+                                    BatchPermissionResponse::all_denied(&batch.batch_id, denied_ids)
+                                };
+                                if let Err(e) = permission_registry
+                                    .respond_to_batch(&batch.batch_id, response)
+                                    .await
+                                {
+                                    tracing::warn!("Failed to respond to batch permission request: {}", e);
+                                }
+                                continue; // Don't forward to sink
+                            }
+                            // Fall through to forward to sink if any request needs user input
+                        }
+                        UiMessage::UserInteractionRequired { tool_use_id, .. } => {
+                            if !policy_clone.supports_interaction() {
+                                // Headless mode - auto-cancel the interaction
+                                if let Err(e) = user_interaction_registry.cancel(tool_use_id).await {
+                                    tracing::warn!("Failed to cancel user interaction: {}", e);
+                                }
+                                tracing::debug!("Auto-cancelled user interaction in headless mode");
+                                continue; // Don't forward to sink
+                            }
+                            // Fall through to forward to sink for interactive policies
+                        }
+                        _ => {}
+                    }
+
+                    // Forward event to sink
+                    if let Err(e) = sink_clone.send(event) {
+                        tracing::warn!("Failed to send event to sink: {}", e);
+                    }
+                }
+            });
+        }
+
+        // Create initial session if configured
+        match self.create_initial_session() {
+            Ok((session_id, model, _)) => {
+                tracing::info!(session_id, model = %model, "Created initial session");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "No initial session created");
+            }
+        }
+
+        // Run input loop - forward input from source to controller
+        let to_controller_tx = self.to_controller_tx.clone();
+        self.runtime.block_on(async {
+            while let Some(input) = input_source.recv().await {
+                if let Err(e) = to_controller_tx.send(input).await {
+                    tracing::error!(error = %e, "Failed to send input to controller");
+                    break;
+                }
+            }
+        });
+
+        // Shutdown
+        self.shutdown();
+        tracing::info!("{} stopped", self.name);
+
+        Ok(())
+    }
+
     // ---- Accessors ----
 
     /// Returns a sender for sending messages to the controller.

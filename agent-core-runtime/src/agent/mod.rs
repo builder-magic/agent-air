@@ -43,12 +43,23 @@ mod config;
 mod core;
 mod environment;
 mod error;
+pub mod interface;
 mod logger;
 mod messages;
 mod providers;
 mod router;
 
 pub use config::{load_config, AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig, SimpleConfig};
+
+// Re-export commonly used interface types at agent level for convenience
+pub use interface::{
+    // Sink types
+    ChannelEventSink, EventSink, SendError, SimpleEventSink,
+    // Source types
+    ChannelInputSource, InputSource,
+    // Policy types
+    AutoApprovePolicy, DenyAllPolicy, InteractivePolicy, PermissionPolicy, PolicyDecision,
+};
 pub use environment::EnvironmentContext;
 pub use providers::{get_provider_info, is_known_provider, list_providers, ProviderInfo};
 pub use error::AgentError;
