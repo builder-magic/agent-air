@@ -25,7 +25,7 @@ pub use stateless::{
 pub use tools::{
     Answer, AskForPermissionsTool, AskUserQuestionsRequest, AskUserQuestionsResponse,
     AskUserQuestionsTool, BashTool, DisplayConfig, DisplayResult, EditFileTool, Executable,
-    GlobTool, GrepTool, GrepOutputMode, LsTool, MultiEditTool, PendingPermissionInfo,
+    GlobTool, GrepTool, GrepOutputMode, ListSkillsTool, LsTool, MultiEditTool, PendingPermissionInfo,
     PendingQuestionInfo, PermissionError, PermissionPanelResponse, PermissionRegistry, Question,
     ReadFileTool, ResultContentType, ToolBatchResult, ToolContext, ToolDefinition, ToolExecutor,
     ToolRegistry, ToolRequest, ToolResult, ToolResultStatus, ToolType, UserInteractionError,
@@ -36,6 +36,7 @@ pub use tools::{
     ASK_USER_QUESTIONS_TOOL_SCHEMA, BASH_TOOL_DESCRIPTION, BASH_TOOL_NAME, BASH_TOOL_SCHEMA,
     EDIT_FILE_TOOL_DESCRIPTION, EDIT_FILE_TOOL_NAME, EDIT_FILE_TOOL_SCHEMA, GLOB_TOOL_DESCRIPTION,
     GLOB_TOOL_NAME, GLOB_TOOL_SCHEMA, GREP_TOOL_DESCRIPTION, GREP_TOOL_NAME, GREP_TOOL_SCHEMA,
+    LIST_SKILLS_TOOL_DESCRIPTION, LIST_SKILLS_TOOL_NAME, LIST_SKILLS_TOOL_SCHEMA,
     LS_TOOL_DESCRIPTION, LS_TOOL_NAME, LS_TOOL_SCHEMA, MULTI_EDIT_TOOL_DESCRIPTION,
     MULTI_EDIT_TOOL_NAME, MULTI_EDIT_TOOL_SCHEMA, READ_FILE_TOOL_DESCRIPTION, READ_FILE_TOOL_NAME,
     READ_FILE_TOOL_SCHEMA, WEB_SEARCH_TOOL_DESCRIPTION, WEB_SEARCH_TOOL_NAME,

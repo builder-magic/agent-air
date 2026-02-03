@@ -11,9 +11,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::controller::{
-    ControllerEvent, ControllerInputPayload, LLMController, LLMSessionConfig, LLMTool,
-    PermissionRegistry, ToolRegistry, UserInteractionRegistry,
+    ControllerEvent, ControllerInputPayload, Executable, LLMController, LLMSessionConfig,
+    LLMTool, ListSkillsTool, PermissionRegistry, ToolRegistry, UserInteractionRegistry,
 };
+use crate::skills::{SkillDiscovery, SkillDiscoveryError, SkillRegistry, SkillReloadResult};
 
 use super::config::{load_config, AgentConfig, LLMRegistry};
 use super::error::AgentError;
@@ -120,6 +121,12 @@ pub struct AgentCore {
 
     /// Error message shown when user submits but no session exists
     error_no_session: Option<String>,
+
+    /// Skill registry for Agent Skills support
+    skill_registry: Arc<SkillRegistry>,
+
+    /// Skill discovery paths
+    skill_discovery: SkillDiscovery,
 }
 
 impl AgentCore {
@@ -235,6 +242,8 @@ impl AgentCore {
             permission_registry,
             tool_definitions: Vec::new(),
             error_no_session: None,
+            skill_registry: Arc::new(SkillRegistry::new()),
+            skill_discovery: SkillDiscovery::new(),
         })
     }
 
@@ -380,9 +389,19 @@ impl AgentCore {
     /// Internal helper to create a session and configure tools.
     async fn create_session_internal(
         controller: &Arc<LLMController>,
-        config: LLMSessionConfig,
+        mut config: LLMSessionConfig,
         tools: &[LLMTool],
+        skill_registry: &Arc<SkillRegistry>,
     ) -> Result<i64, crate::client::error::LlmError> {
+        // Inject skills XML into system prompt
+        let skills_xml = skill_registry.to_prompt_xml();
+        if !skills_xml.is_empty() {
+            config.system_prompt = Some(match config.system_prompt {
+                Some(prompt) => format!("{}\n\n{}", prompt, skills_xml),
+                None => skills_xml,
+            });
+        }
+
         let id = controller.create_session(config).await?;
 
         // Set tools on the session after creation
@@ -412,11 +431,13 @@ impl AgentCore {
 
         let controller = self.controller.clone();
         let tool_definitions = self.tool_definitions.clone();
+        let skill_registry = self.skill_registry.clone();
 
         let session_id = self.runtime.block_on(Self::create_session_internal(
             &controller,
             config.clone(),
             &tool_definitions,
+            &skill_registry,
         ))?;
 
         tracing::info!(
@@ -434,12 +455,14 @@ impl AgentCore {
     pub fn create_session(&self, config: LLMSessionConfig) -> Result<i64, AgentError> {
         let controller = self.controller.clone();
         let tool_definitions = self.tool_definitions.clone();
+        let skill_registry = self.skill_registry.clone();
 
         self.runtime
             .block_on(Self::create_session_internal(
                 &controller,
                 config,
                 &tool_definitions,
+                &skill_registry,
             ))
             .map_err(AgentError::from)
     }
@@ -558,6 +581,244 @@ impl AgentCore {
     pub fn tool_definitions(&self) -> &[LLMTool] {
         &self.tool_definitions
     }
+
+    // ---- Skills ----
+
+    /// Returns a reference to the skill registry.
+    pub fn skill_registry(&self) -> &Arc<SkillRegistry> {
+        &self.skill_registry
+    }
+
+    /// Register the ListSkillsTool, allowing the LLM to discover available skills.
+    ///
+    /// This registers the `list_skills` tool with the tool registry and adds its
+    /// definition to the tool list. Call this after `register_tools()` if you want
+    /// the LLM to be able to query available skills.
+    ///
+    /// Returns the LLM tool definition that was added.
+    pub fn register_list_skills_tool(&mut self) -> Result<LLMTool, AgentError> {
+        let tool = ListSkillsTool::new(self.skill_registry.clone());
+        let llm_tool = tool.to_llm_tool();
+
+        self.runtime.block_on(async {
+            self.controller
+                .tool_registry()
+                .register(Arc::new(tool))
+                .await
+        }).map_err(|e| AgentError::ToolRegistration(e.to_string()))?;
+
+        self.tool_definitions.push(llm_tool.clone());
+        tracing::info!("Registered list_skills tool");
+
+        Ok(llm_tool)
+    }
+
+    /// Add a custom skill search path.
+    ///
+    /// Skills are discovered from directories containing SKILL.md files.
+    /// By default, `$PWD/.skills/` and `~/.agent-core/skills/` are searched.
+    pub fn add_skill_path(&mut self, path: std::path::PathBuf) -> &mut Self {
+        self.skill_discovery.add_path(path);
+        self
+    }
+
+    /// Load skills from configured directories.
+    ///
+    /// This scans all configured skill paths and registers discovered skills
+    /// in the skill registry. Call this after configuring skill paths.
+    ///
+    /// Returns the number of skills loaded and any errors encountered.
+    pub fn load_skills(&mut self) -> (usize, Vec<SkillDiscoveryError>) {
+        let results = self.skill_discovery.discover();
+        self.register_discovered_skills(results)
+    }
+
+    /// Load skills from specific paths (one-shot, doesn't modify default discovery).
+    ///
+    /// This creates a temporary discovery instance with only the provided paths,
+    /// loads skills from them, and registers them in the skill registry.
+    /// Unlike `add_skill_path()` + `load_skills()`, this doesn't affect the
+    /// default discovery paths used by `reload_skills()`.
+    ///
+    /// Returns the number of skills loaded and any errors encountered.
+    pub fn load_skills_from(&self, paths: Vec<std::path::PathBuf>) -> (usize, Vec<SkillDiscoveryError>) {
+        let mut discovery = SkillDiscovery::empty();
+        for path in paths {
+            discovery.add_path(path);
+        }
+
+        let results = discovery.discover();
+        self.register_discovered_skills(results)
+    }
+
+    /// Helper to register discovered skills and collect errors.
+    ///
+    /// Logs a warning if a skill with the same name already exists (duplicate detection).
+    fn register_discovered_skills(
+        &self,
+        results: Vec<Result<crate::skills::Skill, SkillDiscoveryError>>,
+    ) -> (usize, Vec<SkillDiscoveryError>) {
+        let mut errors = Vec::new();
+        let mut count = 0;
+
+        for result in results {
+            match result {
+                Ok(skill) => {
+                    let skill_name = skill.metadata.name.clone();
+                    let skill_path = skill.path.clone();
+                    let replaced = self.skill_registry.register(skill);
+
+                    if let Some(old_skill) = replaced {
+                        tracing::warn!(
+                            skill_name = %skill_name,
+                            new_path = %skill_path.display(),
+                            old_path = %old_skill.path.display(),
+                            "Duplicate skill name detected - replaced existing skill"
+                        );
+                    }
+
+                    tracing::info!(
+                        skill_name = %skill_name,
+                        skill_path = %skill_path.display(),
+                        "Loaded skill"
+                    );
+                    count += 1;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = %e.path.display(),
+                        error = %e.message,
+                        "Failed to load skill"
+                    );
+                    errors.push(e);
+                }
+            }
+        }
+
+        tracing::info!("Loaded {} skill(s)", count);
+        (count, errors)
+    }
+
+    /// Reload skills from configured directories.
+    ///
+    /// This re-scans all configured skill paths and updates the registry:
+    /// - New skills are added
+    /// - Removed skills are unregistered
+    /// - Existing skills are re-registered (silently updated)
+    ///
+    /// Returns information about what changed (added/removed only).
+    pub fn reload_skills(&mut self) -> SkillReloadResult {
+        let current_names: std::collections::HashSet<String> =
+            self.skill_registry.names().into_iter().collect();
+
+        let results = self.skill_discovery.discover();
+        let mut discovered_names = std::collections::HashSet::new();
+        let mut result = SkillReloadResult::default();
+
+        // Process discovered skills
+        for discovery_result in results {
+            match discovery_result {
+                Ok(skill) => {
+                    let name = skill.metadata.name.clone();
+                    discovered_names.insert(name.clone());
+
+                    if !current_names.contains(&name) {
+                        tracing::info!(skill_name = %name, "Added new skill");
+                        result.added.push(name);
+                    }
+                    self.skill_registry.register(skill);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = %e.path.display(),
+                        error = %e.message,
+                        "Failed to load skill during reload"
+                    );
+                    result.errors.push(e);
+                }
+            }
+        }
+
+        // Find and remove skills that no longer exist
+        for name in &current_names {
+            if !discovered_names.contains(name) {
+                tracing::info!(skill_name = %name, "Removed skill");
+                self.skill_registry.unregister(name);
+                result.removed.push(name.clone());
+            }
+        }
+
+        tracing::info!(
+            added = result.added.len(),
+            removed = result.removed.len(),
+            errors = result.errors.len(),
+            "Skills reloaded"
+        );
+
+        result
+    }
+
+    /// Get skills XML for injection into system prompts.
+    ///
+    /// Returns an XML string listing all available skills that can be
+    /// included in the system prompt to inform the LLM about available capabilities.
+    pub fn skills_prompt_xml(&self) -> String {
+        self.skill_registry.to_prompt_xml()
+    }
+
+    /// Refresh a session's system prompt with current skills.
+    ///
+    /// This updates the session's system prompt to include the current
+    /// `<available_skills>` XML from the skill registry.
+    ///
+    /// Note: This appends the skills XML to the existing system prompt.
+    /// If skills were previously loaded, this may result in duplicate entries.
+    pub async fn refresh_session_skills(&self, session_id: i64) -> Result<(), AgentError> {
+        let skills_xml = self.skills_prompt_xml();
+        if skills_xml.is_empty() {
+            return Ok(());
+        }
+
+        let session = self
+            .controller
+            .get_session(session_id)
+            .await
+            .ok_or_else(|| AgentError::SessionNotFound(session_id))?;
+
+        let current_prompt = session.system_prompt().await.unwrap_or_default();
+
+        // Check if skills are already in the prompt to avoid duplicates
+        let new_prompt = if current_prompt.contains("<available_skills>") {
+            // Replace existing skills section
+            replace_skills_section(&current_prompt, &skills_xml)
+        } else if current_prompt.is_empty() {
+            // No existing prompt, just use skills
+            skills_xml
+        } else {
+            // Append skills section
+            format!("{}\n\n{}", current_prompt, skills_xml)
+        };
+
+        session.set_system_prompt(new_prompt).await;
+        tracing::debug!(session_id, "Refreshed session skills");
+        Ok(())
+    }
+}
+
+/// Replace the <available_skills> section in a system prompt.
+fn replace_skills_section(prompt: &str, new_skills_xml: &str) -> String {
+    if let Some(start) = prompt.find("<available_skills>") {
+        if let Some(end) = prompt.find("</available_skills>") {
+            let end = end + "</available_skills>".len();
+            let mut result = String::with_capacity(prompt.len());
+            result.push_str(&prompt[..start]);
+            result.push_str(new_skills_xml);
+            result.push_str(&prompt[end..]);
+            return result;
+        }
+    }
+    // Fallback: just append
+    format!("{}\n\n{}", prompt, new_skills_xml)
 }
 
 /// Converts a ControllerEvent to a UiMessage for the frontend.
@@ -755,5 +1016,54 @@ mod tests {
             }
             _ => panic!("Expected Error message"),
         }
+    }
+
+    #[test]
+    fn test_replace_skills_section_replaces_existing() {
+        let prompt = "System prompt.\n\n<available_skills>\n  <skill>old</skill>\n</available_skills>\n\nMore text.";
+        let new_xml = "<available_skills>\n  <skill>new</skill>\n</available_skills>";
+
+        let result = replace_skills_section(prompt, new_xml);
+
+        assert!(result.contains("<skill>new</skill>"));
+        assert!(!result.contains("<skill>old</skill>"));
+        assert!(result.contains("System prompt."));
+        assert!(result.contains("More text."));
+    }
+
+    #[test]
+    fn test_replace_skills_section_no_existing() {
+        let prompt = "System prompt without skills.";
+        let new_xml = "<available_skills>\n  <skill>new</skill>\n</available_skills>";
+
+        let result = replace_skills_section(prompt, new_xml);
+
+        // Falls back to appending
+        assert!(result.contains("System prompt without skills."));
+        assert!(result.contains("<skill>new</skill>"));
+    }
+
+    #[test]
+    fn test_replace_skills_section_malformed_no_closing_tag() {
+        let prompt = "System prompt.\n\n<available_skills>\n  <skill>old</skill>\n\nNo closing tag.";
+        let new_xml = "<available_skills>\n  <skill>new</skill>\n</available_skills>";
+
+        let result = replace_skills_section(prompt, new_xml);
+
+        // Falls back to appending since closing tag is missing
+        assert!(result.contains("<skill>old</skill>"));
+        assert!(result.contains("<skill>new</skill>"));
+    }
+
+    #[test]
+    fn test_replace_skills_section_at_end() {
+        let prompt = "System prompt.\n\n<available_skills>\n  <skill>old</skill>\n</available_skills>";
+        let new_xml = "<available_skills>\n  <skill>new</skill>\n</available_skills>";
+
+        let result = replace_skills_section(prompt, new_xml);
+
+        assert!(result.contains("<skill>new</skill>"));
+        assert!(!result.contains("<skill>old</skill>"));
+        assert!(result.starts_with("System prompt."));
     }
 }

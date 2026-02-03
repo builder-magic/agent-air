@@ -22,4 +22,8 @@ pub enum AgentError {
     /// No LLM configuration found for provider.
     #[error("No LLM configuration found for provider: {0}")]
     NoConfiguration(String),
+
+    /// Session not found.
+    #[error("Session not found: {0}")]
+    SessionNotFound(i64),
 }

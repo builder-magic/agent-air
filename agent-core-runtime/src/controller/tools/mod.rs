@@ -7,6 +7,7 @@ mod edit_file;
 mod executor;
 mod glob;
 mod grep;
+mod list_skills;
 mod ls;
 mod multi_edit;
 mod read_file;
@@ -60,4 +61,7 @@ pub use edit_file::{
 };
 pub use multi_edit::{
     MultiEditTool, MULTI_EDIT_TOOL_DESCRIPTION, MULTI_EDIT_TOOL_NAME, MULTI_EDIT_TOOL_SCHEMA,
+};
+pub use list_skills::{
+    ListSkillsTool, LIST_SKILLS_TOOL_DESCRIPTION, LIST_SKILLS_TOOL_NAME, LIST_SKILLS_TOOL_SCHEMA,
 };

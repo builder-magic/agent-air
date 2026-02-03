@@ -36,3 +36,5 @@ pub mod client;
 pub mod controller;
 /// Permission system for controlling agent access to resources.
 pub mod permissions;
+/// Agent Skills support for extended capabilities.
+pub mod skills;
