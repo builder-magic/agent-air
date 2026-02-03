@@ -48,7 +48,7 @@ mod messages;
 mod providers;
 mod router;
 
-pub use config::{load_config, AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig};
+pub use config::{load_config, AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig, SimpleConfig};
 pub use environment::EnvironmentContext;
 pub use providers::{get_provider_info, is_known_provider, list_providers, ProviderInfo};
 pub use error::AgentError;

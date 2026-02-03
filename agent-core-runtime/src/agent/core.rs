@@ -247,6 +247,35 @@ impl AgentCore {
         })
     }
 
+    /// Create a new AgentCore with simple configuration parameters.
+    ///
+    /// This is a convenience constructor for quick agent setup without
+    /// defining a custom config struct.
+    ///
+    /// # Arguments
+    /// * `name` - Agent name for display (e.g., "my-agent")
+    /// * `config_path` - Path to config file (e.g., "~/.config/my-agent/config.yaml")
+    /// * `system_prompt` - Default system prompt for the agent
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use agent_core::agent::AgentCore;
+    /// use agent_core::tui::AgentCoreExt;
+    ///
+    /// AgentCore::with_config("my-agent", "~/.config/my-agent/config.yaml", "You are helpful.")?
+    ///     .into_tui()
+    ///     .run()
+    /// ```
+    pub fn with_config(
+        name: impl Into<String>,
+        config_path: impl Into<String>,
+        system_prompt: impl Into<String>,
+    ) -> io::Result<Self> {
+        let config = super::config::SimpleConfig::new(name, config_path, system_prompt);
+        Self::new(&config)
+    }
+
     /// Set the error message shown when user submits but no session exists.
     ///
     /// This overrides the default message "No active session. Use /new-session to create one."

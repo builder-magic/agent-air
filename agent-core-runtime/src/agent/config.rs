@@ -42,6 +42,69 @@ pub trait AgentConfig {
     }
 }
 
+/// A simple configuration for quick agent setup.
+///
+/// Use this when you don't need a custom config struct. Created via
+/// `AgentCore::with_config()`.
+///
+/// # Example
+///
+/// ```ignore
+/// let agent = AgentCore::with_config(
+///     "my-agent",
+///     "~/.config/my-agent/config.yaml",
+///     "You are a helpful assistant."
+/// )?;
+/// ```
+pub struct SimpleConfig {
+    name: String,
+    config_path: String,
+    system_prompt: String,
+    log_prefix: String,
+}
+
+impl SimpleConfig {
+    /// Create a new simple configuration.
+    ///
+    /// # Arguments
+    /// * `name` - Agent name for display (e.g., "my-agent")
+    /// * `config_path` - Path to config file (e.g., "~/.config/my-agent/config.yaml")
+    /// * `system_prompt` - Default system prompt for the agent
+    pub fn new(name: impl Into<String>, config_path: impl Into<String>, system_prompt: impl Into<String>) -> Self {
+        let name = name.into();
+        // Derive log prefix from name: lowercase, replace non-alphanumeric with underscores
+        let log_prefix = name
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+            .collect();
+
+        Self {
+            name,
+            config_path: config_path.into(),
+            system_prompt: system_prompt.into(),
+            log_prefix,
+        }
+    }
+}
+
+impl AgentConfig for SimpleConfig {
+    fn config_path(&self) -> &str {
+        &self.config_path
+    }
+
+    fn default_system_prompt(&self) -> &str {
+        &self.system_prompt
+    }
+
+    fn log_prefix(&self) -> &str {
+        &self.log_prefix
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 /// Provider configuration from YAML
 ///
 /// Supported providers:
