@@ -180,7 +180,7 @@ macro_rules! register_themes {
 
         /// Get default theme name
         pub fn default_theme_name() -> &'static str {
-            "henna"
+            "dark"
         }
     };
 }
