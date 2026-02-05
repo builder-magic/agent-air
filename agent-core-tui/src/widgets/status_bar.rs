@@ -37,11 +37,11 @@
 
 use crossterm::event::KeyEvent;
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 use std::any::Any;
 use std::time::Duration;
@@ -248,13 +248,19 @@ impl StatusBar {
                 .unwrap_or_else(|| "0s".to_string());
             format!(" escape to interrupt ({})", elapsed_str)
         } else if data.session_id == 0 {
-            config.hint_unconfigured.clone()
+            config
+                .hint_unconfigured
+                .clone()
                 .unwrap_or_else(|| " No session - type /new-session to start".to_string())
         } else if data.input_empty {
-            config.hint_ready.clone()
+            config
+                .hint_ready
+                .clone()
                 .unwrap_or_else(|| " esc to exit".to_string())
         } else {
-            config.hint_typing.clone()
+            config
+                .hint_typing
+                .clone()
                 .unwrap_or_else(|| " enter to send · shift-enter for new line".to_string())
         };
 

@@ -12,11 +12,11 @@ use crate::controller::{PermissionPanelResponse, TurnId};
 use crate::permissions::{Grant, GrantTarget, PermissionLevel, PermissionRequest};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::Modifier,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::themes::Theme;
@@ -319,12 +319,8 @@ impl PermissionPanel {
     pub fn deactivate(&mut self) {
         self.active = false;
         self.tool_use_id.clear();
-        self.request = PermissionRequest::new(
-            "",
-            GrantTarget::path("/", false),
-            PermissionLevel::None,
-            "",
-        );
+        self.request =
+            PermissionRequest::new("", GrantTarget::path("/", false), PermissionLevel::None, "");
         self.turn_id = None;
         self.selected_idx = 0;
     }
@@ -460,7 +456,9 @@ impl PermissionPanel {
         lines += 2; // Borders
 
         let max_from_percent = (max_height * self.config.max_panel_percent) / 100;
-        lines.min(max_from_percent).min(max_height.saturating_sub(6))
+        lines
+            .min(max_from_percent)
+            .min(max_height.saturating_sub(6))
     }
 
     /// Render the panel
@@ -493,16 +491,12 @@ impl PermissionPanel {
                     format!("{}{}", path.display(), rec_suffix),
                 )
             }
-            GrantTarget::Domain { pattern } => (
-                &self.config.icon_domain,
-                "Access Domain",
-                pattern.clone(),
-            ),
-            GrantTarget::Command { pattern } => (
-                &self.config.icon_command,
-                "Execute",
-                pattern.clone(),
-            ),
+            GrantTarget::Domain { pattern } => {
+                (&self.config.icon_domain, "Access Domain", pattern.clone())
+            }
+            GrantTarget::Command { pattern } => {
+                (&self.config.icon_command, "Execute", pattern.clone())
+            }
         };
 
         lines.push(Line::from(vec![
@@ -602,7 +596,7 @@ fn truncate_text(text: &str, max_width: usize) -> String {
 
 // --- Widget trait implementation ---
 
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
+use super::{Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use std::any::Any;
 
 impl Widget for PermissionPanel {

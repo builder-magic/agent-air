@@ -70,12 +70,22 @@ impl SimpleConfig {
     /// * `name` - Agent name for display (e.g., "my-agent")
     /// * `config_path` - Path to config file (e.g., "~/.config/my-agent/config.yaml")
     /// * `system_prompt` - Default system prompt for the agent
-    pub fn new(name: impl Into<String>, config_path: impl Into<String>, system_prompt: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        config_path: impl Into<String>,
+        system_prompt: impl Into<String>,
+    ) -> Self {
         let name = name.into();
         // Derive log prefix from name: lowercase, replace non-alphanumeric with underscores
         let log_prefix = name
             .chars()
-            .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
             .collect();
 
         Self {
@@ -162,7 +172,10 @@ impl LLMRegistry {
     }
 
     /// Load configuration from the specified config file path
-    pub fn load_from_file(path: &PathBuf, default_system_prompt: &str) -> Result<Self, ConfigError> {
+    pub fn load_from_file(
+        path: &PathBuf,
+        default_system_prompt: &str,
+    ) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path).map_err(|e| ConfigError::ReadError {
             path: path.display().to_string(),
             source: e.to_string(),
@@ -178,7 +191,8 @@ impl LLMRegistry {
         registry.default_provider = config_file.default_provider;
 
         for provider_config in config_file.providers {
-            let session_config = Self::create_session_config(&provider_config, default_system_prompt)?;
+            let session_config =
+                Self::create_session_config(&provider_config, default_system_prompt)?;
             registry
                 .configs
                 .insert(provider_config.provider.clone(), session_config);
@@ -193,7 +207,10 @@ impl LLMRegistry {
     }
 
     /// Create session config from provider config
-    fn create_session_config(config: &ProviderConfig, default_system_prompt: &str) -> Result<LLMSessionConfig, ConfigError> {
+    fn create_session_config(
+        config: &ProviderConfig,
+        default_system_prompt: &str,
+    ) -> Result<LLMSessionConfig, ConfigError> {
         use super::providers::get_provider_info;
 
         let provider_name = config.provider.to_lowercase();
@@ -243,7 +260,7 @@ impl LLMRegistry {
                 other => {
                     return Err(ConfigError::UnknownProvider {
                         provider: other.to_string(),
-                    })
+                    });
                 }
             }
         };
@@ -470,9 +487,14 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
         let model =
             std::env::var(info.model_env_var).unwrap_or_else(|_| info.default_model.to_string());
 
-        let config = LLMSessionConfig::openai_compatible(&api_key, &model, info.base_url, info.context_limit)
-            .with_system_prompt(default_prompt)
-            .with_threshold_compaction(compaction.clone());
+        let config = LLMSessionConfig::openai_compatible(
+            &api_key,
+            &model,
+            info.base_url,
+            info.context_limit,
+        )
+        .with_system_prompt(default_prompt)
+        .with_threshold_compaction(compaction.clone());
 
         registry.configs.insert(name.to_string(), config);
         if registry.default_provider.is_none() {
@@ -526,12 +548,19 @@ providers:
             model: String::new(), // Empty model
         };
 
-        let session_config = LLMRegistry::create_session_config(&provider_config, "test prompt").unwrap();
+        let session_config =
+            LLMRegistry::create_session_config(&provider_config, "test prompt").unwrap();
         // Should use groq's default model
         assert_eq!(session_config.model, "llama-3.3-70b-versatile");
         // Should have groq's base_url set
         assert!(session_config.base_url.is_some());
-        assert!(session_config.base_url.as_ref().unwrap().contains("groq.com"));
+        assert!(
+            session_config
+                .base_url
+                .as_ref()
+                .unwrap()
+                .contains("groq.com")
+        );
     }
 
     #[test]

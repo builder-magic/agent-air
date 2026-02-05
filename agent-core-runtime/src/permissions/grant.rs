@@ -321,8 +321,11 @@ mod tests {
         fn test_expired_grant() {
             use std::time::Duration;
             let expired = Instant::now() - Duration::from_secs(1);
-            let grant =
-                Grant::with_expiration(GrantTarget::path("/project", true), PermissionLevel::Read, expired);
+            let grant = Grant::with_expiration(
+                GrantTarget::path("/project", true),
+                PermissionLevel::Read,
+                expired,
+            );
 
             let request = PermissionRequest::file_read("1", "/project/file.rs");
             assert!(!grant.satisfies(&request));

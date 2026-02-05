@@ -11,8 +11,8 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph},
 };
 
-use crate::themes::theme as app_theme;
 use crate::markdown::{render_markdown_with_prefix, wrap_with_prefix};
+use crate::themes::theme as app_theme;
 
 /// Default configuration values for ChatView
 pub mod defaults {
@@ -25,7 +25,10 @@ pub mod defaults {
     /// Default continuation line prefix (spaces to align with text after symbol)
     pub const CONTINUATION: &str = "  ";
     /// Default spinner characters for pending status animation
-    pub const SPINNER_CHARS: &[char] = &['\u{280B}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283C}', '\u{2834}', '\u{2826}', '\u{2827}', '\u{2807}', '\u{280F}'];
+    pub const SPINNER_CHARS: &[char] = &[
+        '\u{280B}', '\u{2819}', '\u{2839}', '\u{2838}', '\u{283C}', '\u{2834}', '\u{2826}',
+        '\u{2827}', '\u{2807}', '\u{280F}',
+    ];
     /// Default title for the chat view
     pub const DEFAULT_TITLE: &str = "Chat";
     /// Default empty state message
@@ -233,7 +236,11 @@ impl Message {
     }
 
     /// Get or render cached lines for this message
-    fn get_rendered_lines(&mut self, available_width: usize, config: &ChatViewConfig) -> &[Line<'static>] {
+    fn get_rendered_lines(
+        &mut self,
+        available_width: usize,
+        config: &ChatViewConfig,
+    ) -> &[Line<'static>] {
         // Invalidate cache if width changed
         if self.cached_width != available_width {
             self.cached_lines = None;
@@ -466,12 +473,7 @@ impl ChatView {
     }
 
     /// Add a tool execution message
-    pub fn add_tool_message(
-        &mut self,
-        tool_use_id: &str,
-        display_name: &str,
-        display_title: &str,
-    ) {
+    pub fn add_tool_message(&mut self, tool_use_id: &str, display_name: &str, display_title: &str) {
         let index = self.messages.len();
 
         let tool_data = ToolMessageData {
@@ -596,7 +598,8 @@ impl ChatView {
         };
 
         // Check if we're in initial state (no messages yet)
-        let is_initial_state = self.messages.is_empty() && self.streaming_buffer.is_none() && pending_status.is_none();
+        let is_initial_state =
+            self.messages.is_empty() && self.streaming_buffer.is_none() && pending_status.is_none();
 
         // If we have custom initial content renderer, use it and return early
         if is_initial_state {
@@ -653,12 +656,16 @@ impl ChatView {
 
             // Add cursor on last line
             if let Some(last) = message_lines.last_mut() {
-                last.spans
-                    .push(Span::styled("\u{2588}", theme.cursor));
+                last.spans.push(Span::styled("\u{2588}", theme.cursor));
             }
         } else if let Some(status) = pending_status {
             // Show pending status with spinner when not streaming
-            let spinner_char = self.config.spinner_chars.get(self.spinner_index).copied().unwrap_or(' ');
+            let spinner_char = self
+                .config
+                .spinner_chars
+                .get(self.spinner_index)
+                .copied()
+                .unwrap_or(' ');
             message_lines.push(Line::from(vec![
                 Span::styled(format!("{} ", spinner_char), theme.throbber_spinner),
                 Span::styled(status, theme.throbber_label),
@@ -709,7 +716,10 @@ fn render_tool_message(
     let header = if data.display_title.is_empty() {
         format!("{} {}", config.tool_icon, data.display_name)
     } else {
-        format!("{} {}({})", config.tool_icon, data.display_name, data.display_title)
+        format!(
+            "{} {}({})",
+            config.tool_icon, data.display_name, data.display_title
+        )
     };
     lines.push(Line::from(Span::styled(header, theme.tool_header)));
 
@@ -856,7 +866,13 @@ impl ConversationView for ChatView {
         ChatView::enable_auto_scroll(self);
     }
 
-    fn render(&mut self, frame: &mut Frame, area: Rect, _theme: &Theme, pending_status: Option<&str>) {
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        _theme: &Theme,
+        pending_status: Option<&str>,
+    ) {
         self.render_chat(frame, area, pending_status);
     }
 
@@ -910,9 +926,9 @@ impl ConversationView for ChatView {
 
 // --- Widget trait implementation ---
 
-use std::any::Any;
+use super::{Widget, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use crossterm::event::KeyEvent;
-use super::{widget_ids, Widget, WidgetKeyContext, WidgetKeyResult};
+use std::any::Any;
 
 impl Widget for ChatView {
     fn id(&self) -> &'static str {
@@ -963,4 +979,3 @@ impl Widget for ChatView {
         self
     }
 }
-

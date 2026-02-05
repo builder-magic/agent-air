@@ -133,7 +133,12 @@ pub mod channels {
     /// * `channel_size` - Optional buffer size for channels. Uses DEFAULT_CHANNEL_SIZE if None.
     pub fn create_channels(
         channel_size: Option<usize>,
-    ) -> (ToControllerTx, ToControllerRx, FromControllerTx, FromControllerRx) {
+    ) -> (
+        ToControllerTx,
+        ToControllerRx,
+        FromControllerTx,
+        FromControllerRx,
+    ) {
         let size = channel_size.unwrap_or(DEFAULT_CHANNEL_SIZE);
         let (to_ctrl_tx, to_ctrl_rx) = mpsc::channel(size);
         let (from_ctrl_tx, from_ctrl_rx) = mpsc::channel(size);

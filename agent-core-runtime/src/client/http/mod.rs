@@ -12,8 +12,10 @@ use hyper_util::rt::TokioExecutor;
 
 use crate::client::error::LlmError;
 
-type HttpsClient =
-    Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, Full<Bytes>>;
+type HttpsClient = Client<
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+    Full<Bytes>,
+>;
 
 /// Maximum number of retries for rate limit errors
 const MAX_RETRIES: u32 = 5;

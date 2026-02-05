@@ -68,7 +68,11 @@ impl ToolPermissions {
     }
 
     /// Creates a permission request for writing a file.
-    pub fn file_write(tool_use_id: &str, path: impl AsRef<Path>, is_create: bool) -> PermissionRequest {
+    pub fn file_write(
+        tool_use_id: &str,
+        path: impl AsRef<Path>,
+        is_create: bool,
+    ) -> PermissionRequest {
         let path = path.as_ref();
         let action = if is_create { "Create" } else { "Write" };
         PermissionRequest::new(
@@ -227,9 +231,33 @@ fn classify_bash_command(command: &str) -> PermissionLevel {
 
     // Read-only commands
     let readonly_commands = [
-        "ls", "cat", "head", "tail", "less", "more", "pwd", "whoami", "echo", "printf", "date",
-        "which", "whereis", "file", "stat", "wc", "grep", "find", "locate", "tree", "df", "du",
-        "git status", "git log", "git diff", "git show", "git branch",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "more",
+        "pwd",
+        "whoami",
+        "echo",
+        "printf",
+        "date",
+        "which",
+        "whereis",
+        "file",
+        "stat",
+        "wc",
+        "grep",
+        "find",
+        "locate",
+        "tree",
+        "df",
+        "du",
+        "git status",
+        "git log",
+        "git diff",
+        "git show",
+        "git branch",
     ];
 
     for readonly in readonly_commands {

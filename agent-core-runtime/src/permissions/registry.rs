@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 /// Maximum number of pending requests before triggering cleanup.
 const PENDING_CLEANUP_THRESHOLD: usize = 50;
@@ -528,10 +528,8 @@ impl PermissionRegistry {
         // If all auto-approved, return immediately
         if needs_approval.is_empty() {
             let (tx, rx) = oneshot::channel();
-            let response = BatchPermissionResponse::with_auto_approved(
-                generate_batch_id(),
-                auto_approved,
-            );
+            let response =
+                BatchPermissionResponse::with_auto_approved(generate_batch_id(), auto_approved);
             let _ = tx.send(response);
             return Ok(rx);
         }
@@ -602,9 +600,7 @@ impl PermissionRegistry {
     ) -> Result<(), PermissionError> {
         let pending = {
             let mut pending = self.pending_batches.lock().await;
-            pending
-                .remove(batch_id)
-                .ok_or(PermissionError::NotFound)?
+            pending.remove(batch_id).ok_or(PermissionError::NotFound)?
         };
 
         // Add approved grants to session
@@ -883,7 +879,10 @@ mod tests {
             grant: Some(grant),
             message: None,
         };
-        registry.respond_to_request("req-1", response).await.unwrap();
+        registry
+            .respond_to_request("req-1", response)
+            .await
+            .unwrap();
 
         // Should receive approval
         let response = result_rx.await.unwrap();
@@ -911,7 +910,10 @@ mod tests {
             grant: None,
             message: None,
         };
-        registry.respond_to_request("req-1", response).await.unwrap();
+        registry
+            .respond_to_request("req-1", response)
+            .await
+            .unwrap();
 
         // Should receive denial
         let response = result_rx.await.unwrap();
@@ -943,7 +945,10 @@ mod tests {
         // Respond with approval using the actual batch ID
         let grant = Grant::read_path("/project/src", true);
         let response = BatchPermissionResponse::all_granted(&batch_id, vec![grant]);
-        registry.respond_to_batch(&batch_id, response).await.unwrap();
+        registry
+            .respond_to_batch(&batch_id, response)
+            .await
+            .unwrap();
 
         // Should receive response
         let result = result_rx.await.unwrap();
@@ -979,7 +984,10 @@ mod tests {
         // Respond with approval for the remaining request
         let grant = Grant::read_path("/project/tests", true);
         let response = BatchPermissionResponse::all_granted(&batch_id, vec![grant]);
-        registry.respond_to_batch(&batch_id, response).await.unwrap();
+        registry
+            .respond_to_batch(&batch_id, response)
+            .await
+            .unwrap();
 
         let _ = result_rx.await.unwrap();
     }

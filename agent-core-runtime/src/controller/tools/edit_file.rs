@@ -13,10 +13,10 @@ use std::sync::Arc;
 
 use strsim::normalized_levenshtein;
 
-use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 
 /// EditFile tool name constant.
 pub const EDIT_FILE_TOOL_NAME: &str = "edit_file";
@@ -113,7 +113,11 @@ impl EditFileTool {
     }
 
     /// Build a permission request for editing a file.
-    fn build_permission_request(tool_use_id: &str, file_path: &str, old_string: &str) -> PermissionRequest {
+    fn build_permission_request(
+        tool_use_id: &str,
+        file_path: &str,
+        old_string: &str,
+    ) -> PermissionRequest {
         let path = file_path;
         let truncated_old = truncate_string(old_string, 30);
         let reason = format!("Replace '{}' in file", truncated_old);
@@ -354,9 +358,14 @@ impl Executable for EditFileTool {
 
             // Request permission if not pre-approved by batch executor
             if !context.permissions_pre_approved {
-                let permission_request = Self::build_permission_request(&context.tool_use_id, file_path, old_string);
+                let permission_request =
+                    Self::build_permission_request(&context.tool_use_id, file_path, old_string);
                 let response_rx = permission_registry
-                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
+                    .request_permission(
+                        context.session_id,
+                        permission_request,
+                        context.turn_id.clone(),
+                    )
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
@@ -489,11 +498,7 @@ impl Executable for EditFileTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, result: &str) -> String {
         let filename = input
             .get("file_path")
             .and_then(|v| v.as_str())
@@ -520,9 +525,7 @@ impl Executable for EditFileTool {
         input: &HashMap<String, serde_json::Value>,
     ) -> Option<Vec<PermissionRequest>> {
         // Extract file_path from input
-        let file_path = input
-            .get("file_path")
-            .and_then(|v| v.as_str())?;
+        let file_path = input.get("file_path").and_then(|v| v.as_str())?;
 
         // Extract old_string for permission request context
         let old_string = input
@@ -537,11 +540,8 @@ impl Executable for EditFileTool {
         }
 
         // Build the permission request using the existing helper method
-        let permission_request = Self::build_permission_request(
-            &context.tool_use_id,
-            file_path,
-            old_string,
-        );
+        let permission_request =
+            Self::build_permission_request(&context.tool_use_id, file_path, old_string);
 
         Some(vec![permission_request])
     }
@@ -559,9 +559,9 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::PermissionPanelResponse;
     use crate::controller::types::ControllerEvent;
     use crate::permissions::PermissionLevel;
+    use crate::permissions::PermissionPanelResponse;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
@@ -572,11 +572,19 @@ mod tests {
     }
 
     fn grant_once() -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: true, grant: None, message: None }
+        PermissionPanelResponse {
+            granted: true,
+            grant: None,
+            message: None,
+        }
     }
 
     fn deny(reason: &str) -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
+        PermissionPanelResponse {
+            granted: false,
+            grant: None,
+            message: Some(reason.to_string()),
+        }
     }
 
     #[tokio::test]
@@ -674,7 +682,10 @@ mod tests {
         let result = tool.execute(context, input).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("3 replacement"));
-        assert_eq!(fs::read_to_string(&file_path).unwrap(), "qux bar qux baz qux");
+        assert_eq!(
+            fs::read_to_string(&file_path).unwrap(),
+            "qux bar qux baz qux"
+        );
     }
 
     #[tokio::test]
@@ -925,10 +936,7 @@ mod tests {
             EditFileTool::normalize_whitespace("  hello   world  "),
             "hello world"
         );
-        assert_eq!(
-            EditFileTool::normalize_whitespace("a\n\nb\tc"),
-            "a b c"
-        );
+        assert_eq!(EditFileTool::normalize_whitespace("a\n\nb\tc"), "a b c");
     }
 
     #[test]
@@ -959,7 +967,11 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = EditFileTool::build_permission_request("test-tool-use-id", "/path/to/file.rs", "old code");
+        let request = EditFileTool::build_permission_request(
+            "test-tool-use-id",
+            "/path/to/file.rs",
+            "old code",
+        );
         assert_eq!(request.description, "Edit file: /path/to/file.rs");
         assert!(request.reason.unwrap().contains("old code"));
         assert_eq!(request.target, GrantTarget::path("/path/to/file.rs", false));

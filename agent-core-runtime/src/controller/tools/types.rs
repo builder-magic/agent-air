@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::controller::types::TurnId;
 use crate::client::models::Tool as LLMTool;
+use crate::controller::types::TurnId;
 use crate::permissions::PermissionRequest;
 
 /// Tool type classification.
@@ -356,10 +356,7 @@ pub trait Executable: Send + Sync {
     /// * `session_id` - The session being removed
     ///
     /// Default: no-op (no session state to clean up)
-    fn cleanup_session(
-        &self,
-        _session_id: i64,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+    fn cleanup_session(&self, _session_id: i64) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(async {})
     }
 }

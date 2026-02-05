@@ -8,15 +8,16 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use super::types::{
+    DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
+};
 use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
-use super::types::{DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType};
 
 /// AskForPermissions tool name constant.
 pub const ASK_FOR_PERMISSIONS_TOOL_NAME: &str = "ask_for_permissions";
 
 /// AskForPermissions tool description constant.
-pub const ASK_FOR_PERMISSIONS_TOOL_DESCRIPTION: &str =
-    "Request permission from the user before performing sensitive actions like file writes, \
+pub const ASK_FOR_PERMISSIONS_TOOL_DESCRIPTION: &str = "Request permission from the user before performing sensitive actions like file writes, \
      deletions, network operations, or system commands. The user can grant permission for \
      this request only (once) or for the remainder of the session.";
 
@@ -122,7 +123,12 @@ impl Executable for AskForPermissionsTool {
                 "write" => PermissionLevel::Write,
                 "execute" => PermissionLevel::Execute,
                 "admin" => PermissionLevel::Admin,
-                _ => return Err(format!("Invalid level '{}': must be read, write, execute, or admin", level_str)),
+                _ => {
+                    return Err(format!(
+                        "Invalid level '{}': must be read, write, execute, or admin",
+                        level_str
+                    ));
+                }
             };
 
             // Parse recursive (optional, defaults to false)
@@ -152,18 +158,23 @@ impl Executable for AskForPermissionsTool {
             // Build the grant target based on target_type
             let target = match target_type {
                 "path" => GrantTarget::path(&target_value, recursive),
-                "domain" => GrantTarget::Domain { pattern: target_value },
-                "command" => GrantTarget::Command { pattern: target_value },
-                _ => return Err(format!("Invalid target_type '{}': must be path, domain, or command", target_type)),
+                "domain" => GrantTarget::Domain {
+                    pattern: target_value,
+                },
+                "command" => GrantTarget::Command {
+                    pattern: target_value,
+                },
+                _ => {
+                    return Err(format!(
+                        "Invalid target_type '{}': must be path, domain, or command",
+                        target_type
+                    ));
+                }
             };
 
             // Build the permission request using the new types directly
-            let mut request = PermissionRequest::new(
-                &context.tool_use_id,
-                target,
-                level,
-                &description,
-            );
+            let mut request =
+                PermissionRequest::new(&context.tool_use_id, target, level, &description);
             if let Some(r) = reason {
                 request = request.with_reason(&r);
             }
@@ -199,7 +210,8 @@ impl Executable for AskForPermissionsTool {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
 
-                format!("{} {}",
+                format!(
+                    "{} {}",
                     capitalize(level),
                     match target_type {
                         "path" => "Path",
@@ -239,11 +251,7 @@ impl Executable for AskForPermissionsTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, result: &str) -> String {
         let target_type = input
             .get("target_type")
             .and_then(|v| v.as_str())
@@ -280,7 +288,8 @@ mod tests {
 
     #[test]
     fn test_schema_has_required_fields() {
-        let schema: serde_json::Value = serde_json::from_str(ASK_FOR_PERMISSIONS_TOOL_SCHEMA).unwrap();
+        let schema: serde_json::Value =
+            serde_json::from_str(ASK_FOR_PERMISSIONS_TOOL_SCHEMA).unwrap();
 
         let required = schema.get("required").unwrap().as_array().unwrap();
         assert!(required.contains(&serde_json::Value::String("target_type".to_string())));
@@ -291,13 +300,18 @@ mod tests {
 
     #[test]
     fn test_schema_target_type_enum() {
-        let schema: serde_json::Value = serde_json::from_str(ASK_FOR_PERMISSIONS_TOOL_SCHEMA).unwrap();
+        let schema: serde_json::Value =
+            serde_json::from_str(ASK_FOR_PERMISSIONS_TOOL_SCHEMA).unwrap();
 
         let target_type_enum = schema
-            .get("properties").unwrap()
-            .get("target_type").unwrap()
-            .get("enum").unwrap()
-            .as_array().unwrap();
+            .get("properties")
+            .unwrap()
+            .get("target_type")
+            .unwrap()
+            .get("enum")
+            .unwrap()
+            .as_array()
+            .unwrap();
 
         assert!(target_type_enum.contains(&serde_json::Value::String("path".to_string())));
         assert!(target_type_enum.contains(&serde_json::Value::String("domain".to_string())));
@@ -306,13 +320,18 @@ mod tests {
 
     #[test]
     fn test_schema_level_enum() {
-        let schema: serde_json::Value = serde_json::from_str(ASK_FOR_PERMISSIONS_TOOL_SCHEMA).unwrap();
+        let schema: serde_json::Value =
+            serde_json::from_str(ASK_FOR_PERMISSIONS_TOOL_SCHEMA).unwrap();
 
         let level_enum = schema
-            .get("properties").unwrap()
-            .get("level").unwrap()
-            .get("enum").unwrap()
-            .as_array().unwrap();
+            .get("properties")
+            .unwrap()
+            .get("level")
+            .unwrap()
+            .get("enum")
+            .unwrap()
+            .as_array()
+            .unwrap();
 
         assert!(level_enum.contains(&serde_json::Value::String("read".to_string())));
         assert!(level_enum.contains(&serde_json::Value::String("write".to_string())));
@@ -330,9 +349,9 @@ mod tests {
 
     #[test]
     fn test_compact_summary_format() {
-        let tool = AskForPermissionsTool::new(Arc::new(
-            PermissionRegistry::new(tokio::sync::mpsc::channel(1).0)
-        ));
+        let tool = AskForPermissionsTool::new(Arc::new(PermissionRegistry::new(
+            tokio::sync::mpsc::channel(1).0,
+        )));
 
         let mut input = HashMap::new();
         input.insert("target_type".to_string(), serde_json::json!("path"));

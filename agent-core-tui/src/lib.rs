@@ -42,9 +42,9 @@ mod runner;
 // Re-export runtime modules so crate:: paths in TUI code continue to work
 // This allows the TUI code to use `crate::controller`, `crate::permissions`, etc.
 pub use agent_core_runtime::agent;
+pub use agent_core_runtime::client;
 pub use agent_core_runtime::controller;
 pub use agent_core_runtime::permissions;
-pub use agent_core_runtime::client;
 
 // Re-export runner types
 pub use runner::{AgentCoreExt, TuiRunner};

@@ -46,10 +46,8 @@ impl LlmProvider for AnthropicProvider {
 
             // Get headers
             let headers = types::get_request_headers(&api_key);
-            let headers_ref: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (*k, v.as_str()))
-                .collect();
+            let headers_ref: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
             // Make the API call
             let response = client
@@ -66,7 +64,16 @@ impl LlmProvider for AnthropicProvider {
         client: &HttpClient,
         messages: &[Message],
         options: &MessageOptions,
-    ) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>, LlmError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>,
+                        LlmError,
+                    >,
+                > + Send,
+        >,
+    > {
         // Clone data for the async block
         let client = client.clone();
         let api_key = self.api_key.clone();
@@ -80,10 +87,8 @@ impl LlmProvider for AnthropicProvider {
 
             // Get headers
             let headers = types::get_request_headers(&api_key);
-            let headers_ref: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (*k, v.as_str()))
-                .collect();
+            let headers_ref: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
             // Make the streaming API call
             let byte_stream = client
@@ -131,7 +136,10 @@ impl LlmProvider for AnthropicProvider {
                 }
             };
 
-            Ok(Box::pin(event_stream) as Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>)
+            Ok(Box::pin(event_stream)
+                as Pin<
+                    Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>,
+                >)
         })
     }
 }

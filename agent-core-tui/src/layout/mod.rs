@@ -37,13 +37,13 @@
 //! }));
 //! ```
 
-mod types;
-mod template;
-mod standard;
+pub mod helpers;
+mod minimal;
 mod sidebar;
 mod split;
-mod minimal;
-pub mod helpers;
+mod standard;
+mod template;
+mod types;
 
 // Re-export shared types
 pub use types::{LayoutContext, LayoutFn, LayoutProvider, LayoutResult, WidgetSizes};
@@ -52,7 +52,7 @@ pub use types::{LayoutContext, LayoutFn, LayoutProvider, LayoutResult, WidgetSiz
 pub use template::LayoutTemplate;
 
 // Re-export layout options
-pub use standard::StandardOptions;
+pub use minimal::MinimalOptions;
 pub use sidebar::{SidebarOptions, SidebarPosition, SidebarWidth};
 pub use split::{SplitOptions, SplitRatio};
-pub use minimal::MinimalOptions;
+pub use standard::StandardOptions;

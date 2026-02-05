@@ -191,8 +191,16 @@ pub fn wrap_with_prefix(
 
         if would_be_len > text_width && current_line_len > 0 {
             // Emit current line
-            let prefix = if is_first_line { first_prefix } else { cont_prefix };
-            let prefix_style = if is_first_line { first_prefix_style } else { Style::default() };
+            let prefix = if is_first_line {
+                first_prefix
+            } else {
+                cont_prefix
+            };
+            let prefix_style = if is_first_line {
+                first_prefix_style
+            } else {
+                Style::default()
+            };
             let mut line_spans = vec![Span::styled(prefix.to_string(), prefix_style)];
             line_spans.extend(current_line_spans.drain(..));
             lines.push(Line::from(line_spans));
@@ -212,8 +220,16 @@ pub fn wrap_with_prefix(
 
     // Emit remaining text
     if !current_line_spans.is_empty() || is_first_line {
-        let prefix = if is_first_line { first_prefix } else { cont_prefix };
-        let prefix_style = if is_first_line { first_prefix_style } else { Style::default() };
+        let prefix = if is_first_line {
+            first_prefix
+        } else {
+            cont_prefix
+        };
+        let prefix_style = if is_first_line {
+            first_prefix_style
+        } else {
+            Style::default()
+        };
         let mut line_spans = vec![Span::styled(prefix.to_string(), prefix_style)];
         line_spans.extend(current_line_spans);
         lines.push(Line::from(line_spans));
@@ -279,7 +295,11 @@ pub fn split_content_segments(content: &str) -> Vec<ContentSegment> {
                 current_text = String::new();
             }
 
-            let language = if lang.is_empty() { None } else { Some(lang.to_string()) };
+            let language = if lang.is_empty() {
+                None
+            } else {
+                Some(lang.to_string())
+            };
             i += 1; // Skip the opening fence
 
             // Collect code block content until closing fence
@@ -297,10 +317,14 @@ pub fn split_content_segments(content: &str) -> Vec<ContentSegment> {
                 i += 1;
             }
 
-            segments.push(ContentSegment::CodeBlock { code: code_content, language });
+            segments.push(ContentSegment::CodeBlock {
+                code: code_content,
+                language,
+            });
         }
         // Check if this might be a table (line with | and next line is separator)
-        else if is_table_line(lines[i]) && i + 1 < lines.len() && is_table_separator(lines[i + 1]) {
+        else if is_table_line(lines[i]) && i + 1 < lines.len() && is_table_separator(lines[i + 1])
+        {
             // Found a table! First, save any accumulated text
             if !current_text.is_empty() {
                 segments.push(ContentSegment::Text(current_text));
@@ -333,7 +357,11 @@ pub fn split_content_segments(content: &str) -> Vec<ContentSegment> {
 }
 
 /// Render markdown content with diamond prefix and manual wrapping
-pub fn render_markdown_with_prefix(content: &str, max_width: usize, theme: &Theme) -> Vec<Line<'static>> {
+pub fn render_markdown_with_prefix(
+    content: &str,
+    max_width: usize,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     let segments = split_content_segments(content);
 
     let mut all_lines = Vec::new();
@@ -355,7 +383,11 @@ pub fn render_markdown_with_prefix(content: &str, max_width: usize, theme: &Them
                     if let Some(level) = detect_heading_level(line) {
                         let heading_text = line.trim_start_matches('#').trim();
                         let base_style = heading_style(level, theme);
-                        let prefix = if is_first_line { ASSISTANT_PREFIX } else { CONTINUATION };
+                        let prefix = if is_first_line {
+                            ASSISTANT_PREFIX
+                        } else {
+                            CONTINUATION
+                        };
                         let prefix_style = if is_first_line {
                             theme.assistant_prefix()
                         } else {
@@ -372,7 +404,8 @@ pub fn render_markdown_with_prefix(content: &str, max_width: usize, theme: &Them
                             for span in parsed_spans {
                                 // Merge base heading style with inline style
                                 let merged_style = base_style.patch(span.style);
-                                line_spans.push(Span::styled(span.content.to_string(), merged_style));
+                                line_spans
+                                    .push(Span::styled(span.content.to_string(), merged_style));
                             }
                         }
 
@@ -382,7 +415,11 @@ pub fn render_markdown_with_prefix(content: &str, max_width: usize, theme: &Them
                     }
 
                     // Regular line - wrap with prefix
-                    let prefix = if is_first_line { ASSISTANT_PREFIX } else { CONTINUATION };
+                    let prefix = if is_first_line {
+                        ASSISTANT_PREFIX
+                    } else {
+                        CONTINUATION
+                    };
                     let prefix_style = if is_first_line {
                         theme.assistant_prefix()
                     } else {
@@ -528,7 +565,9 @@ mod tests {
             "Should contain link text"
         );
         assert!(
-            spans.iter().any(|s| s.content.contains("doc.rust-lang.org")),
+            spans
+                .iter()
+                .any(|s| s.content.contains("doc.rust-lang.org")),
             "Should contain URL"
         );
     }
@@ -559,7 +598,10 @@ mod tests {
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect();
 
-        assert!(all_text.contains("The Rust Book"), "Should contain link text");
+        assert!(
+            all_text.contains("The Rust Book"),
+            "Should contain link text"
+        );
         assert!(
             !all_text.contains("](https://"),
             "URL should not appear in literal markdown syntax"

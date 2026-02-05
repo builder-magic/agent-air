@@ -12,7 +12,7 @@ use crate::app::{App, AppConfig};
 use crate::commands::SlashCommand;
 use crate::keys::{DefaultKeyHandler, ExitHandler, KeyBindings, KeyHandler};
 use crate::layout::LayoutTemplate;
-use crate::widgets::{widget_ids, ConversationView, ConversationViewFactory, SessionInfo, Widget};
+use crate::widgets::{ConversationView, ConversationViewFactory, SessionInfo, Widget, widget_ids};
 
 /// TUI configuration that extends AgentCore with TUI-specific settings.
 ///
@@ -137,7 +137,10 @@ impl TuiRunner {
     /// Set extension data available to custom commands.
     ///
     /// Commands can access this via `ctx.extension::<T>()`.
-    pub fn set_command_extension<T: std::any::Any + Send + 'static>(&mut self, ext: T) -> &mut Self {
+    pub fn set_command_extension<T: std::any::Any + Send + 'static>(
+        &mut self,
+        ext: T,
+    ) -> &mut Self {
         self.command_extension = Some(Box::new(ext));
         self
     }
@@ -201,7 +204,8 @@ impl TuiRunner {
             app.widgets.remove(widget_ids::STATUS_BAR);
         } else if let Some(custom_status_bar) = self.custom_status_bar.take() {
             // Replace default status bar with custom one
-            app.widgets.insert(widget_ids::STATUS_BAR, custom_status_bar);
+            app.widgets
+                .insert(widget_ids::STATUS_BAR, custom_status_bar);
         }
 
         // Register widgets with the App

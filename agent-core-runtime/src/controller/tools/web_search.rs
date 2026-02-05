@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use super::types::{DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType};
+use super::types::{
+    DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
+};
 
 /// Web Search tool name constant.
 pub const WEB_SEARCH_TOOL_NAME: &str = "web_search";
@@ -96,11 +98,7 @@ impl Executable for WebSearchTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        _result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, _result: &str) -> String {
         let query = input
             .get("query")
             .and_then(|v| v.as_str())

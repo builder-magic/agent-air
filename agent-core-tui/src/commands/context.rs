@@ -133,7 +133,8 @@ impl<'a> CommandContext<'a> {
     ///
     /// This is deferred until after the command returns.
     pub fn compact_conversation(&mut self) {
-        self.pending_actions.push(PendingAction::CompactConversation);
+        self.pending_actions
+            .push(PendingAction::CompactConversation);
     }
 
     /// Request to open the theme picker.

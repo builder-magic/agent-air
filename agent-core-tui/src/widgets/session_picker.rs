@@ -5,10 +5,10 @@
 
 use chrono::{DateTime, Local};
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::themes::Theme;
@@ -26,7 +26,8 @@ pub mod defaults {
     /// Block title
     pub const TITLE: &str = " Sessions ";
     /// Help text
-    pub const HELP_TEXT: &str = " Arrow keys to navigate | Enter to switch | Esc to cancel | * = current session";
+    pub const HELP_TEXT: &str =
+        " Arrow keys to navigate | Enter to switch | Esc to cancel | * = current session";
     /// No sessions message
     pub const NO_SESSIONS_MESSAGE: &str = "   No sessions available";
 }
@@ -233,9 +234,9 @@ impl Default for SessionPickerState {
 
 // --- Widget trait implementation ---
 
-use std::any::Any;
+use super::{Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
+use std::any::Any;
 
 /// Result of handling a key event in the session picker
 #[derive(Debug, Clone, PartialEq)]
@@ -362,7 +363,12 @@ impl Widget for SessionPickerState {
 }
 
 /// Render the session picker
-pub fn render_session_picker(state: &SessionPickerState, frame: &mut Frame, area: Rect, theme: &Theme) {
+pub fn render_session_picker(
+    state: &SessionPickerState,
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+) {
     if !state.active {
         return;
     }
@@ -371,8 +377,7 @@ pub fn render_session_picker(state: &SessionPickerState, frame: &mut Frame, area
     frame.render_widget(Clear, area);
 
     // Split into main area and bottom help bar
-    let main_chunks =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).split(area);
+    let main_chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).split(area);
 
     // Session list (single pane with all info per line)
     render_session_list(state, frame, main_chunks[0], theme);
@@ -382,12 +387,7 @@ pub fn render_session_picker(state: &SessionPickerState, frame: &mut Frame, area
 }
 
 /// Render the session list with all info on each line
-fn render_session_list(
-    state: &SessionPickerState,
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-) {
+fn render_session_list(state: &SessionPickerState, frame: &mut Frame, area: Rect, theme: &Theme) {
     let mut lines = Vec::new();
 
     // Header
@@ -411,8 +411,16 @@ fn render_session_list(
             let is_selected = idx == state.selected_index;
             let is_current = session.id == state.current_session_id;
 
-            let marker = if is_current { &state.config.current_marker } else { &state.config.no_marker };
-            let prefix = if is_selected { &state.config.selection_prefix } else { &state.config.no_selection_prefix };
+            let marker = if is_current {
+                &state.config.current_marker
+            } else {
+                &state.config.no_marker
+            };
+            let prefix = if is_selected {
+                &state.config.selection_prefix
+            } else {
+                &state.config.no_selection_prefix
+            };
             let context_str = format_context(session.context_used, session.context_limit);
             let time_str = session.created_at.format("%H:%M:%S").to_string();
 

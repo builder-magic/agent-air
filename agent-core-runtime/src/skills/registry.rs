@@ -100,7 +100,10 @@ impl SkillRegistry {
 
         for skill in sorted_skills {
             xml.push_str("  <skill>\n");
-            xml.push_str(&format!("    <name>{}</name>\n", escape_xml(&skill.metadata.name)));
+            xml.push_str(&format!(
+                "    <name>{}</name>\n",
+                escape_xml(&skill.metadata.name)
+            ));
             xml.push_str(&format!(
                 "    <description>{}</description>\n",
                 escape_xml(&skill.metadata.description)

@@ -140,7 +140,10 @@ pub fn build_request_body(
     }
 
     if !inference_items.is_empty() {
-        json.push_str(&format!(r#","inferenceConfig":{{{}}}"#, inference_items.join(",")));
+        json.push_str(&format!(
+            r#","inferenceConfig":{{{}}}"#,
+            inference_items.join(",")
+        ));
     }
 
     // Tool config (optional)
@@ -194,7 +197,12 @@ fn format_message(msg: &Message) -> Result<String, LlmError> {
     let role = match msg.role {
         Role::User => "user",
         Role::Assistant => "assistant",
-        Role::System => return Err(LlmError::new(ERROR_INVALID_REQUEST, "System messages should be handled separately")),
+        Role::System => {
+            return Err(LlmError::new(
+                ERROR_INVALID_REQUEST,
+                "System messages should be handled separately",
+            ));
+        }
     };
 
     let mut json = format!(r#"{{"role":"{}","content":["#, role);
@@ -228,7 +236,11 @@ fn format_message(msg: &Message) -> Result<String, LlmError> {
             }
             Content::ToolResult(tool_result) => {
                 // Bedrock format for tool results in user messages
-                let status = if tool_result.is_error { "error" } else { "success" };
+                let status = if tool_result.is_error {
+                    "error"
+                } else {
+                    "success"
+                };
                 json.push_str(&format!(
                     r#"{{"toolResult":{{"toolUseId":"{}","content":[{{"text":"{}"}}],"status":"{}"}}}}"#,
                     escape_json_string(&tool_result.tool_use_id),
@@ -375,7 +387,10 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert!(parsed["toolConfig"]["tools"].is_array());
-        assert_eq!(parsed["toolConfig"]["tools"][0]["toolSpec"]["name"], "get_weather");
+        assert_eq!(
+            parsed["toolConfig"]["tools"][0]["toolSpec"]["name"],
+            "get_weather"
+        );
     }
 
     #[test]

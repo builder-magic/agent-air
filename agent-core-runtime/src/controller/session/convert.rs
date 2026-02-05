@@ -1,11 +1,13 @@
 // Type conversion between controller types and LLM client types
 
 use crate::client::models::{
-    Content as LLMContent, Message as LLMMessage, Role as LLMRole,
-    ToolResult as LLMToolResult, ToolUse as LLMToolUse,
+    Content as LLMContent, Message as LLMMessage, Role as LLMRole, ToolResult as LLMToolResult,
+    ToolUse as LLMToolUse,
 };
 
-use crate::controller::types::{ContentBlock, Message, MessageRole, TextBlock, ToolResultBlock, ToolUseBlock};
+use crate::controller::types::{
+    ContentBlock, Message, MessageRole, TextBlock, ToolResultBlock, ToolUseBlock,
+};
 
 /// Convert our Message to LLM client Message
 pub fn to_llm_message(msg: &Message) -> LLMMessage {
@@ -35,13 +37,11 @@ pub fn to_llm_content(block: &ContentBlock) -> Option<LLMContent> {
                 input: serde_json::to_string(&tool_use.input).unwrap_or_default(),
             }))
         }
-        ContentBlock::ToolResult(tool_result) => {
-            Some(LLMContent::ToolResult(LLMToolResult {
-                tool_use_id: tool_result.tool_use_id.clone(),
-                content: tool_result.content.clone(),
-                is_error: tool_result.is_error,
-            }))
-        }
+        ContentBlock::ToolResult(tool_result) => Some(LLMContent::ToolResult(LLMToolResult {
+            tool_use_id: tool_result.tool_use_id.clone(),
+            content: tool_result.content.clone(),
+            is_error: tool_result.is_error,
+        })),
     }
 }
 

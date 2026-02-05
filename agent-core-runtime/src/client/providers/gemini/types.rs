@@ -53,7 +53,6 @@ const ERROR_PARSE: &str = "PARSE_ERROR";
 /// Prefix for Gemini API error codes.
 const ERROR_PREFIX_GEMINI: &str = "GEMINI_ERROR_";
 
-
 /// Default error message when error details are unavailable.
 const MSG_UNKNOWN_ERROR: &str = "Unknown error";
 
@@ -305,7 +304,7 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
                 let name = function_call["name"].as_str().unwrap_or("").to_string();
                 let args = function_call["args"].to_string();
                 content_blocks.push(Content::ToolUse(ToolUse {
-                    id: name.clone(),  // Use function name as ID for Gemini
+                    id: name.clone(), // Use function name as ID for Gemini
                     name,
                     input: args,
                 }));

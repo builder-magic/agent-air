@@ -3,7 +3,7 @@
 //! This trait defines the interface for widgets that display conversation history,
 //! supporting streaming, tool messages, and session state management.
 
-use ratatui::{layout::Rect, Frame};
+use ratatui::{Frame, layout::Rect};
 use std::any::Any;
 
 use super::ToolStatus;
@@ -86,7 +86,13 @@ pub trait ConversationView: Send + 'static {
     /// * `area` - The area to render within
     /// * `theme` - The current theme
     /// * `pending_status` - Optional pending status message (e.g., "running tools...")
-    fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, pending_status: Option<&str>);
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        pending_status: Option<&str>,
+    );
 
     // --- Animation ---
 

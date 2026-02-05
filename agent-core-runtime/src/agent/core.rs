@@ -11,16 +11,16 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::controller::{
-    ControllerEvent, ControllerInputPayload, Executable, LLMController, LLMSessionConfig,
-    LLMTool, ListSkillsTool, PermissionRegistry, ToolRegistry, UserInteractionRegistry,
+    ControllerEvent, ControllerInputPayload, Executable, LLMController, LLMSessionConfig, LLMTool,
+    ListSkillsTool, PermissionRegistry, ToolRegistry, UserInteractionRegistry,
 };
 use crate::skills::{SkillDiscovery, SkillDiscoveryError, SkillRegistry, SkillReloadResult};
 
-use super::config::{load_config, AgentConfig, LLMRegistry};
+use super::config::{AgentConfig, LLMRegistry, load_config};
 use super::error::AgentError;
 use super::logger::Logger;
-use super::messages::channels::DEFAULT_CHANNEL_SIZE;
 use super::messages::UiMessage;
+use super::messages::channels::DEFAULT_CHANNEL_SIZE;
 use super::router::InputRouter;
 
 /// Sender for messages from frontend to controller
@@ -173,8 +173,7 @@ impl AgentCore {
         // Create communication channels
         let (to_controller_tx, to_controller_rx) =
             mpsc::channel::<ControllerInputPayload>(channel_size);
-        let (from_controller_tx, from_controller_rx) =
-            mpsc::channel::<UiMessage>(channel_size);
+        let (from_controller_tx, from_controller_rx) = mpsc::channel::<UiMessage>(channel_size);
 
         // Create channel for user interaction events
         let (interaction_event_tx, mut interaction_event_rx) =
@@ -377,12 +376,14 @@ impl AgentCore {
         F: FnOnce(Arc<ToolRegistry>, Arc<UserInteractionRegistry>, Arc<PermissionRegistry>) -> Fut,
         Fut: std::future::Future<Output = Result<Vec<LLMTool>, String>>,
     {
-        let tool_defs = self.runtime.block_on(f(
-            self.controller.tool_registry().clone(),
-            self.user_interaction_registry.clone(),
-            self.permission_registry.clone(),
-        ))
-        .map_err(AgentError::ToolRegistration)?;
+        let tool_defs = self
+            .runtime
+            .block_on(f(
+                self.controller.tool_registry().clone(),
+                self.user_interaction_registry.clone(),
+                self.permission_registry.clone(),
+            ))
+            .map_err(AgentError::ToolRegistration)?;
         self.tool_definitions = tool_defs;
         Ok(())
     }
@@ -447,9 +448,10 @@ impl AgentCore {
     ///
     /// Returns the session ID, model name, and context limit.
     pub fn create_initial_session(&mut self) -> Result<(i64, String, i32), AgentError> {
-        let registry = self.llm_registry.as_ref().ok_or_else(|| {
-            AgentError::NoConfiguration("No LLM registry available".to_string())
-        })?;
+        let registry = self
+            .llm_registry
+            .as_ref()
+            .ok_or_else(|| AgentError::NoConfiguration("No LLM registry available".to_string()))?;
 
         let config = registry.get_default().ok_or_else(|| {
             AgentError::NoConfiguration("No default LLM provider configured".to_string())
@@ -560,9 +562,9 @@ impl AgentCore {
         I: super::interface::InputSource,
         P: super::interface::PermissionPolicy,
     {
-        use std::sync::Arc;
         use super::interface::PolicyDecision;
         use crate::permissions::{BatchPermissionResponse, PermissionPanelResponse};
+        use std::sync::Arc;
 
         tracing::info!("{} starting with custom frontend", self.name);
 
@@ -590,7 +592,11 @@ impl AgentCore {
                 while let Some(event) = from_controller_rx.recv().await {
                     // Check if this is a permission request that should be handled by policy
                     match &event {
-                        UiMessage::PermissionRequired { tool_use_id, request, .. } => {
+                        UiMessage::PermissionRequired {
+                            tool_use_id,
+                            request,
+                            ..
+                        } => {
                             match policy_clone.decide(request) {
                                 PolicyDecision::AskUser => {
                                     // Fall through to forward to sink
@@ -602,23 +608,30 @@ impl AgentCore {
                                             grant: None,
                                             message: None,
                                         },
-                                        PolicyDecision::AllowWithGrant(grant) => PermissionPanelResponse {
-                                            granted: true,
-                                            grant: Some(grant),
-                                            message: None,
-                                        },
-                                        PolicyDecision::Deny { reason } => PermissionPanelResponse {
-                                            granted: false,
-                                            grant: None,
-                                            message: reason,
-                                        },
+                                        PolicyDecision::AllowWithGrant(grant) => {
+                                            PermissionPanelResponse {
+                                                granted: true,
+                                                grant: Some(grant),
+                                                message: None,
+                                            }
+                                        }
+                                        PolicyDecision::Deny { reason } => {
+                                            PermissionPanelResponse {
+                                                granted: false,
+                                                grant: None,
+                                                message: reason,
+                                            }
+                                        }
                                         PolicyDecision::AskUser => unreachable!(),
                                     };
                                     if let Err(e) = permission_registry
                                         .respond_to_request(tool_use_id, response)
                                         .await
                                     {
-                                        tracing::warn!("Failed to respond to permission request: {}", e);
+                                        tracing::warn!(
+                                            "Failed to respond to permission request: {}",
+                                            e
+                                        );
                                     }
                                     continue; // Don't forward to sink
                                 }
@@ -651,7 +664,10 @@ impl AgentCore {
                             if all_handled {
                                 // Respond to batch with policy decisions
                                 let response = if denied_ids.is_empty() {
-                                    BatchPermissionResponse::all_granted(&batch.batch_id, approved_grants)
+                                    BatchPermissionResponse::all_granted(
+                                        &batch.batch_id,
+                                        approved_grants,
+                                    )
                                 } else {
                                     BatchPermissionResponse::all_denied(&batch.batch_id, denied_ids)
                                 };
@@ -659,7 +675,10 @@ impl AgentCore {
                                     .respond_to_batch(&batch.batch_id, response)
                                     .await
                                 {
-                                    tracing::warn!("Failed to respond to batch permission request: {}", e);
+                                    tracing::warn!(
+                                        "Failed to respond to batch permission request: {}",
+                                        e
+                                    );
                                 }
                                 continue; // Don't forward to sink
                             }
@@ -668,7 +687,8 @@ impl AgentCore {
                         UiMessage::UserInteractionRequired { tool_use_id, .. } => {
                             if !policy_clone.supports_interaction() {
                                 // Headless mode - auto-cancel the interaction
-                                if let Err(e) = user_interaction_registry.cancel(tool_use_id).await {
+                                if let Err(e) = user_interaction_registry.cancel(tool_use_id).await
+                                {
                                     tracing::warn!("Failed to cancel user interaction: {}", e);
                                 }
                                 tracing::debug!("Auto-cancelled user interaction in headless mode");
@@ -773,10 +793,15 @@ impl AgentCore {
         self.permission_registry.cancel_session(session_id).await;
 
         // Clean up pending user interactions for this session
-        self.user_interaction_registry.cancel_session(session_id).await;
+        self.user_interaction_registry
+            .cancel_session(session_id)
+            .await;
 
         // Clean up per-session state in tools (e.g., bash working directories)
-        self.controller.tool_registry().cleanup_session(session_id).await;
+        self.controller
+            .tool_registry()
+            .cleanup_session(session_id)
+            .await;
 
         if removed {
             tracing::info!(session_id, "Session removed with full cleanup");
@@ -835,12 +860,14 @@ impl AgentCore {
         let tool = ListSkillsTool::new(self.skill_registry.clone());
         let llm_tool = tool.to_llm_tool();
 
-        self.runtime.block_on(async {
-            self.controller
-                .tool_registry()
-                .register(Arc::new(tool))
-                .await
-        }).map_err(|e| AgentError::ToolRegistration(e.to_string()))?;
+        self.runtime
+            .block_on(async {
+                self.controller
+                    .tool_registry()
+                    .register(Arc::new(tool))
+                    .await
+            })
+            .map_err(|e| AgentError::ToolRegistration(e.to_string()))?;
 
         self.tool_definitions.push(llm_tool.clone());
         tracing::info!("Registered list_skills tool");
@@ -876,7 +903,10 @@ impl AgentCore {
     /// default discovery paths used by `reload_skills()`.
     ///
     /// Returns the number of skills loaded and any errors encountered.
-    pub fn load_skills_from(&self, paths: Vec<std::path::PathBuf>) -> (usize, Vec<SkillDiscoveryError>) {
+    pub fn load_skills_from(
+        &self,
+        paths: Vec<std::path::PathBuf>,
+    ) -> (usize, Vec<SkillDiscoveryError>) {
         let mut discovery = SkillDiscovery::empty();
         for path in paths {
             discovery.add_path(path);
@@ -1280,7 +1310,8 @@ mod tests {
 
     #[test]
     fn test_replace_skills_section_malformed_no_closing_tag() {
-        let prompt = "System prompt.\n\n<available_skills>\n  <skill>old</skill>\n\nNo closing tag.";
+        let prompt =
+            "System prompt.\n\n<available_skills>\n  <skill>old</skill>\n\nNo closing tag.";
         let new_xml = "<available_skills>\n  <skill>new</skill>\n</available_skills>";
 
         let result = replace_skills_section(prompt, new_xml);
@@ -1292,7 +1323,8 @@ mod tests {
 
     #[test]
     fn test_replace_skills_section_at_end() {
-        let prompt = "System prompt.\n\n<available_skills>\n  <skill>old</skill>\n</available_skills>";
+        let prompt =
+            "System prompt.\n\n<available_skills>\n  <skill>old</skill>\n</available_skills>";
         let new_xml = "<available_skills>\n  <skill>new</skill>\n</available_skills>";
 
         let result = replace_skills_section(prompt, new_xml);

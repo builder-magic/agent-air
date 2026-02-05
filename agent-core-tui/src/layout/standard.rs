@@ -38,10 +38,7 @@ impl Default for StandardOptions {
                 widget_ids::QUESTION_PANEL,
             ],
             popup_widget_ids: vec![widget_ids::SLASH_POPUP],
-            overlay_widget_ids: vec![
-                widget_ids::THEME_PICKER,
-                widget_ids::SESSION_PICKER,
-            ],
+            overlay_widget_ids: vec![widget_ids::THEME_PICKER, widget_ids::SESSION_PICKER],
             min_main_height: 5,
             fixed_input_height: None,
             status_bar_widget_id: Some(widget_ids::STATUS_BAR),
@@ -109,7 +106,9 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &StandardOptions)
     let mut chunk_idx = 0;
 
     // Main content
-    result.widget_areas.insert(opts.main_widget_id, chunks[chunk_idx]);
+    result
+        .widget_areas
+        .insert(opts.main_widget_id, chunks[chunk_idx]);
     result.render_order.push(opts.main_widget_id);
     chunk_idx += 1;
 
@@ -122,7 +121,9 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &StandardOptions)
             .collect();
 
         if active_panels.len() == 1 {
-            result.widget_areas.insert(active_panels[0], chunks[chunk_idx]);
+            result
+                .widget_areas
+                .insert(active_panels[0], chunks[chunk_idx]);
             result.render_order.push(active_panels[0]);
         } else if !active_panels.is_empty() {
             // Split panel area among active panels
@@ -159,7 +160,9 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &StandardOptions)
     }
 
     // Input
-    result.widget_areas.insert(opts.input_widget_id, chunks[chunk_idx]);
+    result
+        .widget_areas
+        .insert(opts.input_widget_id, chunks[chunk_idx]);
     result.input_area = Some(chunks[chunk_idx]);
     result.render_order.push(opts.input_widget_id);
     chunk_idx += 1;

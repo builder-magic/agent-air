@@ -14,11 +14,11 @@ use crate::permissions::{
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 use std::collections::HashSet;
 
@@ -332,7 +332,9 @@ impl BatchPermissionPanel {
             }
             BatchPermissionOption::GrantAllSimilar => {
                 // Create broad grant for all paths with same level
-                let level = self.homogeneous_file_level().unwrap_or(PermissionLevel::Read);
+                let level = self
+                    .homogeneous_file_level()
+                    .unwrap_or(PermissionLevel::Read);
                 let broad_grant = Grant::new(GrantTarget::path("/", true), level);
                 BatchPermissionResponse::all_granted(&self.batch_id, vec![broad_grant])
             }
@@ -396,7 +398,9 @@ impl BatchPermissionPanel {
         lines += 2; // Borders
 
         let max_from_percent = (max_height * self.config.max_panel_percent) / 100;
-        lines.min(max_from_percent).min(max_height.saturating_sub(6))
+        lines
+            .min(max_from_percent)
+            .min(max_height.saturating_sub(6))
     }
 
     /// Render the panel
@@ -447,10 +451,7 @@ impl BatchPermissionPanel {
                 let remaining = self.batch.requests.len() - max_requests;
                 lines.push(Line::from(vec![
                     Span::styled("   ", Style::default()),
-                    Span::styled(
-                        format!("   ... and {} more", remaining),
-                        theme.muted_text(),
-                    ),
+                    Span::styled(format!("   ... and {} more", remaining), theme.muted_text()),
                 ]));
             }
         }
@@ -556,7 +557,7 @@ fn truncate_text(text: &str, max_width: usize) -> String {
 
 // --- Widget trait implementation ---
 
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
+use super::{Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use std::any::Any;
 
 impl Widget for BatchPermissionPanel {
@@ -721,10 +722,7 @@ mod tests {
         let batch = create_write_batch();
         panel.activate(1, batch, None);
 
-        assert_eq!(
-            panel.homogeneous_file_level(),
-            Some(PermissionLevel::Write)
-        );
+        assert_eq!(panel.homogeneous_file_level(), Some(PermissionLevel::Write));
         assert_eq!(panel.available_options().len(), 4); // Includes GrantAllSimilar
     }
 
@@ -759,10 +757,7 @@ mod tests {
 
         // Move down
         panel.select_next();
-        assert_eq!(
-            panel.selected_option(),
-            BatchPermissionOption::GrantSession
-        );
+        assert_eq!(panel.selected_option(), BatchPermissionOption::GrantSession);
 
         panel.select_next();
         assert_eq!(
@@ -857,10 +852,7 @@ mod tests {
             option.description(2, Some(PermissionLevel::Write)),
             "Allow writing these 2 files"
         );
-        assert_eq!(
-            option.description(5, None),
-            "Allow these for the session"
-        );
+        assert_eq!(option.description(5, None), "Allow these for the session");
 
         let option = BatchPermissionOption::GrantAllSimilar;
         assert_eq!(

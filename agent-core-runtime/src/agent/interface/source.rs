@@ -44,7 +44,8 @@ pub trait InputSource: Send + 'static {
     ///
     /// Returns `None` when the consumer is closed and no more input
     /// will arrive. The engine will shut down when this returns `None`.
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Option<ControllerInputPayload>> + Send + '_>>;
+    fn recv(&mut self)
+    -> Pin<Box<dyn Future<Output = Option<ControllerInputPayload>> + Send + '_>>;
 }
 
 /// Input source backed by an async channel.
@@ -72,7 +73,9 @@ impl ChannelInputSource {
 }
 
 impl InputSource for ChannelInputSource {
-    fn recv(&mut self) -> Pin<Box<dyn Future<Output = Option<ControllerInputPayload>> + Send + '_>> {
+    fn recv(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Option<ControllerInputPayload>> + Send + '_>> {
         Box::pin(async move { self.rx.recv().await })
     }
 }
@@ -112,7 +115,11 @@ mod tests {
 
         // Send multiple messages
         for i in 0..3 {
-            let payload = ControllerInputPayload::data(1, format!("msg {}", i), TurnId::new_user_turn(i as i64));
+            let payload = ControllerInputPayload::data(
+                1,
+                format!("msg {}", i),
+                TurnId::new_user_turn(i as i64),
+            );
             tx.send(payload).await.unwrap();
         }
 

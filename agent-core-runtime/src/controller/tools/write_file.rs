@@ -12,10 +12,10 @@ use std::sync::Arc;
 
 use tokio::fs;
 
-use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 
 /// WriteFile tool name constant.
 pub const WRITE_FILE_TOOL_NAME: &str = "write_file";
@@ -65,7 +65,9 @@ impl WriteFileTool {
     /// # Arguments
     /// * `permission_registry` - The registry used to request and cache permissions.
     pub fn new(permission_registry: Arc<PermissionRegistry>) -> Self {
-        Self { permission_registry }
+        Self {
+            permission_registry,
+        }
     }
 
     /// Builds a permission request for writing to a file.
@@ -166,8 +168,8 @@ impl Executable for WriteFileTool {
             // ─────────────────────────────────────────────────────────────
             // Step 2: Determine if directories will be created
             // ─────────────────────────────────────────────────────────────
-            let will_create_directories = create_directories
-                && path.parent().map(|p| !p.exists()).unwrap_or(false);
+            let will_create_directories =
+                create_directories && path.parent().map(|p| !p.exists()).unwrap_or(false);
 
             // ─────────────────────────────────────────────────────────────
             // Step 3: Request permission if not pre-approved by batch executor
@@ -182,7 +184,11 @@ impl Executable for WriteFileTool {
                 );
 
                 let response_rx = permission_registry
-                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
+                    .request_permission(
+                        context.session_id,
+                        permission_request,
+                        context.turn_id.clone(),
+                    )
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
@@ -207,9 +213,9 @@ impl Executable for WriteFileTool {
             if create_directories {
                 if let Some(parent) = path.parent() {
                     if !parent.exists() {
-                        fs::create_dir_all(parent).await.map_err(|e| {
-                            format!("Failed to create parent directories: {}", e)
-                        })?;
+                        fs::create_dir_all(parent)
+                            .await
+                            .map_err(|e| format!("Failed to create parent directories: {}", e))?;
                     }
                 }
             }
@@ -218,9 +224,9 @@ impl Executable for WriteFileTool {
             // Step 8: Perform the write operation
             // ─────────────────────────────────────────────────────────────
             let bytes_written = content.len();
-            fs::write(path, content).await.map_err(|e| {
-                format!("Failed to write file '{}': {}", file_path, e)
-            })?;
+            fs::write(path, content)
+                .await
+                .map_err(|e| format!("Failed to write file '{}': {}", file_path, e))?;
 
             let action = if is_overwrite { "overwrote" } else { "created" };
             Ok(format!(
@@ -278,11 +284,7 @@ impl Executable for WriteFileTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        _result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, _result: &str) -> String {
         let filename = input
             .get("file_path")
             .and_then(|v| v.as_str())
@@ -362,11 +364,19 @@ mod tests {
     }
 
     fn grant_once() -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: true, grant: None, message: None }
+        PermissionPanelResponse {
+            granted: true,
+            grant: None,
+            message: None,
+        }
     }
 
     fn deny(reason: &str) -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
+        PermissionPanelResponse {
+            granted: false,
+            grant: None,
+            message: Some(reason.to_string()),
+        }
     }
 
     #[tokio::test]
@@ -450,10 +460,7 @@ mod tests {
             {
                 // Deny permission
                 registry_clone
-                    .respond_to_request(
-                        &tool_use_id,
-                        deny("Not allowed"),
-                    )
+                    .respond_to_request(&tool_use_id, deny("Not allowed"))
                     .await
                     .unwrap();
             }
@@ -498,10 +505,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond_to_request(
-                        &tool_use_id,
-                        grant_once(),
-                    )
+                    .respond_to_request(&tool_use_id, grant_once())
                     .await
                     .unwrap();
             }
@@ -705,8 +709,13 @@ mod tests {
 
     #[test]
     fn test_build_permission_request_create() {
-        let request =
-            WriteFileTool::build_permission_request("test-id", "/path/to/new.txt", 100, false, false);
+        let request = WriteFileTool::build_permission_request(
+            "test-id",
+            "/path/to/new.txt",
+            100,
+            false,
+            false,
+        );
 
         assert_eq!(request.description, "Write file: /path/to/new.txt");
         assert_eq!(
@@ -719,8 +728,13 @@ mod tests {
 
     #[test]
     fn test_build_permission_request_overwrite() {
-        let request =
-            WriteFileTool::build_permission_request("test-id", "/path/to/existing.txt", 500, true, false);
+        let request = WriteFileTool::build_permission_request(
+            "test-id",
+            "/path/to/existing.txt",
+            500,
+            true,
+            false,
+        );
 
         assert_eq!(request.description, "Write file: /path/to/existing.txt");
         assert_eq!(
@@ -736,13 +750,21 @@ mod tests {
 
     #[test]
     fn test_build_permission_request_with_directory_creation() {
-        let request =
-            WriteFileTool::build_permission_request("test-id", "/new/path/file.txt", 200, false, true);
+        let request = WriteFileTool::build_permission_request(
+            "test-id",
+            "/new/path/file.txt",
+            200,
+            false,
+            true,
+        );
 
         assert_eq!(request.description, "Write file: /new/path/file.txt");
         assert_eq!(
             request.reason,
-            Some("create file with 200 bytes of content (will create parent directories)".to_string())
+            Some(
+                "create file with 200 bytes of content (will create parent directories)"
+                    .to_string()
+            )
         );
         assert_eq!(
             request.target,

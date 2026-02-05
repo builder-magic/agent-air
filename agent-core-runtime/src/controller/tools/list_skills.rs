@@ -4,7 +4,7 @@ use crate::controller::tools::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
 use crate::skills::SkillRegistry;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -14,8 +14,7 @@ use std::sync::Arc;
 pub const LIST_SKILLS_TOOL_NAME: &str = "list_skills";
 
 /// Tool description constant.
-pub const LIST_SKILLS_TOOL_DESCRIPTION: &str =
-    "List all available skills. Returns name, description, and SKILL.md path for each skill. Use this to discover what capabilities are available.";
+pub const LIST_SKILLS_TOOL_DESCRIPTION: &str = "List all available skills. Returns name, description, and SKILL.md path for each skill. Use this to discover what capabilities are available.";
 
 /// Tool input schema (JSON Schema).
 pub const LIST_SKILLS_TOOL_SCHEMA: &str = r#"{
@@ -99,11 +98,7 @@ impl Executable for ListSkillsTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        _input: &HashMap<String, Value>,
-        result: &str,
-    ) -> String {
+    fn compact_summary(&self, _input: &HashMap<String, Value>, result: &str) -> String {
         // Count skills from JSON array
         let count = serde_json::from_str::<Vec<Value>>(result)
             .map(|v| v.len())

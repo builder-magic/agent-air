@@ -83,7 +83,9 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &SplitOptions) ->
 
     let content_area = v_chunks[0];
     result.input_area = Some(v_chunks[1]);
-    result.widget_areas.insert(opts.input_widget_id, v_chunks[1]);
+    result
+        .widget_areas
+        .insert(opts.input_widget_id, v_chunks[1]);
 
     if let Some(status_id) = opts.status_bar_widget_id {
         if sizes.is_active(status_id) && status_height > 0 {
@@ -110,8 +112,12 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &SplitOptions) ->
         .constraints([split_constraint, second_constraint])
         .split(content_area);
 
-    result.widget_areas.insert(opts.first_widget_id, content_chunks[0]);
-    result.widget_areas.insert(opts.second_widget_id, content_chunks[1]);
+    result
+        .widget_areas
+        .insert(opts.first_widget_id, content_chunks[0]);
+    result
+        .widget_areas
+        .insert(opts.second_widget_id, content_chunks[1]);
 
     result.render_order = vec![
         opts.first_widget_id,

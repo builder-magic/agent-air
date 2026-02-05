@@ -175,9 +175,8 @@ impl KeyHandler for DefaultKeyHandler {
                     self.exit_state.reset();
                     return AppKeyResult::Action(AppKeyAction::RequestExit);
                 } else if context.input_empty {
-                    self.exit_state = ExitState::awaiting_confirmation(
-                        self.bindings.exit_timeout_secs,
-                    );
+                    self.exit_state =
+                        ExitState::awaiting_confirmation(self.bindings.exit_timeout_secs);
                     return AppKeyResult::Handled;
                 }
             }
@@ -211,9 +210,7 @@ impl KeyHandler for DefaultKeyHandler {
         if self.is_exit_key(&key) {
             if context.input_empty {
                 // Enter exit confirmation mode
-                self.exit_state = ExitState::awaiting_confirmation(
-                    self.bindings.exit_timeout_secs,
-                );
+                self.exit_state = ExitState::awaiting_confirmation(self.bindings.exit_timeout_secs);
                 return AppKeyResult::Handled;
             }
             // When not empty, Ctrl+D is delete char at cursor
@@ -526,9 +523,7 @@ mod tests {
     fn test_custom_binding_basic() {
         // Create handler with a custom binding for Ctrl+T
         let mut handler = DefaultKeyHandler::new(KeyBindings::emacs())
-            .with_custom_binding(KeyCombo::ctrl('t'), || {
-                AppKeyAction::custom("toggle")
-            });
+            .with_custom_binding(KeyCombo::ctrl('t'), || AppKeyAction::custom("toggle"));
 
         let context = KeyContext {
             input_empty: true,
@@ -551,9 +546,7 @@ mod tests {
     fn test_custom_binding_overrides_standard() {
         // Custom binding for Ctrl+P should override the standard move_up
         let mut handler = DefaultKeyHandler::new(KeyBindings::emacs())
-            .with_custom_binding(KeyCombo::ctrl('p'), || {
-                AppKeyAction::custom("custom_up")
-            });
+            .with_custom_binding(KeyCombo::ctrl('p'), || AppKeyAction::custom("custom_up"));
 
         let context = KeyContext {
             input_empty: true,
@@ -568,7 +561,10 @@ mod tests {
         if let AppKeyResult::Action(AppKeyAction::Custom(_)) = result {
             // Good - custom binding took precedence
         } else {
-            panic!("Expected Custom action to override MoveUp, got {:?}", result);
+            panic!(
+                "Expected Custom action to override MoveUp, got {:?}",
+                result
+            );
         }
     }
 
@@ -592,14 +588,13 @@ mod tests {
     #[test]
     fn test_composed_handler_pre_hook_intercepts() {
         let base = DefaultKeyHandler::new(KeyBindings::minimal());
-        let mut composed = ComposedKeyHandler::new(base)
-            .with_pre_hook(|key, _ctx| {
-                // Intercept F1 key
-                if key.code == KeyCode::F(1) {
-                    return Some(AppKeyResult::Action(AppKeyAction::custom("help")));
-                }
-                None
-            });
+        let mut composed = ComposedKeyHandler::new(base).with_pre_hook(|key, _ctx| {
+            // Intercept F1 key
+            if key.code == KeyCode::F(1) {
+                return Some(AppKeyResult::Action(AppKeyAction::custom("help")));
+            }
+            None
+        });
 
         let context = KeyContext {
             input_empty: true,

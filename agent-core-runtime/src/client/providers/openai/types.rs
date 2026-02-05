@@ -1,5 +1,7 @@
 use crate::client::error::LlmError;
-use crate::client::models::{Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse};
+use crate::client::models::{
+    Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse,
+};
 use crate::client::providers::common::escape_json_string;
 
 /// Default OpenAI API endpoint.
@@ -175,7 +177,6 @@ pub fn get_azure_request_headers(api_key: &str) -> Vec<(&'static str, String)> {
     ]
 }
 
-
 /// Builds the JSON request body for streaming OpenAI Chat API.
 ///
 /// This is identical to `build_request_body` but adds `"stream": true` and
@@ -190,7 +191,10 @@ pub fn build_streaming_request_body(
     let mut body = build_request_body(messages, options, default_model)?;
     // Insert stream options after the opening brace
     // include_usage ensures token counts are sent in a final chunk
-    body.insert_str(1, r#""stream":true,"stream_options":{"include_usage":true},"#);
+    body.insert_str(
+        1,
+        r#""stream":true,"stream_options":{"include_usage":true},"#,
+    );
     Ok(body)
 }
 
@@ -205,10 +209,7 @@ fn format_message(msg: &Message) -> Result<String, LlmError> {
     let is_simple_text = msg.content.len() == 1 && matches!(&msg.content[0], Content::Text(_));
 
     // Check if message has tool calls (assistant) or tool results (user)
-    let has_tool_calls = msg
-        .content
-        .iter()
-        .any(|c| matches!(c, Content::ToolUse(_)));
+    let has_tool_calls = msg.content.iter().any(|c| matches!(c, Content::ToolUse(_)));
     let has_tool_results = msg
         .content
         .iter()
@@ -217,7 +218,11 @@ fn format_message(msg: &Message) -> Result<String, LlmError> {
     if has_tool_results {
         // Tool results in OpenAI are sent as separate messages with role "tool"
         // For simplicity, we'll send the first tool result
-        if let Some(Content::ToolResult(tr)) = msg.content.iter().find(|c| matches!(c, Content::ToolResult(_))) {
+        if let Some(Content::ToolResult(tr)) = msg
+            .content
+            .iter()
+            .find(|c| matches!(c, Content::ToolResult(_)))
+        {
             return Ok(format!(
                 r#"{{"role":"tool","tool_call_id":"{}","content":"{}"}}"#,
                 escape_json_string(&tr.tool_use_id),
@@ -322,7 +327,6 @@ fn format_content_block(content: &Content) -> String {
     }
 }
 
-
 /// Parses the OpenAI API response and extracts the assistant message.
 pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     let parsed: serde_json::Value = serde_json::from_str(response_body)
@@ -338,10 +342,7 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     let message = &parsed["choices"][0]["message"];
 
     if message.is_null() {
-        return Err(LlmError::new(
-            "PARSE_ERROR",
-            "No message found in response",
-        ));
+        return Err(LlmError::new("PARSE_ERROR", "No message found in response"));
     }
 
     let mut content_blocks: Vec<Content> = Vec::new();
@@ -378,10 +379,7 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     if content_blocks.is_empty() {
         // OpenAI can return null content with tool calls, which we've handled
         // But if truly empty, that's an error
-        return Err(LlmError::new(
-            "PARSE_ERROR",
-            "No content found in response",
-        ));
+        return Err(LlmError::new("PARSE_ERROR", "No content found in response"));
     }
 
     Ok(Message::with_content(Role::Assistant, content_blocks))

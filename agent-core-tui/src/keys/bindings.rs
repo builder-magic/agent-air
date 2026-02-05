@@ -97,7 +97,10 @@ impl KeyBindings {
             enter_exit_mode: vec![KeyCombo::ctrl('d')],
             exit_timeout_secs: DEFAULT_EXIT_TIMEOUT_SECS,
 
-            select: vec![KeyCombo::key(KeyCode::Enter), KeyCombo::key(KeyCode::Char(' '))],
+            select: vec![
+                KeyCombo::key(KeyCode::Enter),
+                KeyCombo::key(KeyCode::Char(' ')),
+            ],
             cancel: vec![KeyCombo::key(KeyCode::Esc)],
         }
     }
@@ -129,7 +132,10 @@ impl KeyBindings {
             enter_exit_mode: vec![],
             exit_timeout_secs: DEFAULT_EXIT_TIMEOUT_SECS,
 
-            select: vec![KeyCombo::key(KeyCode::Enter), KeyCombo::key(KeyCode::Char(' '))],
+            select: vec![
+                KeyCombo::key(KeyCode::Enter),
+                KeyCombo::key(KeyCode::Char(' ')),
+            ],
             cancel: vec![KeyCombo::key(KeyCode::Esc)],
         }
     }
@@ -415,9 +421,7 @@ mod tests {
     #[test]
     fn test_builder_without_methods() {
         // Start with emacs and disable some features
-        let bindings = KeyBindings::emacs()
-            .without_exit_mode()
-            .without_kill_line();
+        let bindings = KeyBindings::emacs().without_exit_mode().without_kill_line();
 
         // Exit mode should be empty
         assert!(bindings.enter_exit_mode.is_empty());

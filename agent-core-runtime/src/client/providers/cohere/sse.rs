@@ -154,7 +154,10 @@ pub fn parse_stream_event(
             if let Some(delta) = json.get("delta") {
                 if let Some(tool_call) = delta.get("tool_call") {
                     let id = tool_call["id"].as_str().unwrap_or("").to_string();
-                    let name = tool_call["function"]["name"].as_str().unwrap_or("").to_string();
+                    let name = tool_call["function"]["name"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
 
                     // Close text block if open
                     if state.text_block_started {
@@ -221,7 +224,8 @@ pub fn parse_stream_event(
             state.pending_tool_block_indices.clear();
 
             // Extract usage if present
-            let usage = json.get("delta")
+            let usage = json
+                .get("delta")
                 .and_then(|d| d.get("usage"))
                 .map(|u| Usage {
                     input_tokens: u["billed_units"]["input_tokens"].as_u64().unwrap_or(0) as u32,
@@ -229,7 +233,8 @@ pub fn parse_stream_event(
                 });
 
             // Determine stop reason
-            let finish_reason = json.get("delta")
+            let finish_reason = json
+                .get("delta")
                 .and_then(|d| d.get("finish_reason"))
                 .and_then(|r| r.as_str())
                 .map(|r| match r {
@@ -286,9 +291,9 @@ mod tests {
         let mut state = StreamState::default();
         let events = parse_stream_event(&sse, &mut state).unwrap();
 
-        let has_text_delta = events.iter().any(|e| {
-            matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello")
-        });
+        let has_text_delta = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello"));
         assert!(has_text_delta);
     }
 

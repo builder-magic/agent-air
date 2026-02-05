@@ -13,10 +13,7 @@ pub enum Role {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImageSource {
     /// Base64-encoded image data with media type (e.g., "image/jpeg", "image/png").
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
     /// URL reference to an image.
     Url(String),
 }
@@ -166,7 +163,11 @@ impl Message {
     }
 
     /// Create a user message with a tool result.
-    pub fn tool_result(tool_use_id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
+    pub fn tool_result(
+        tool_use_id: impl Into<String>,
+        content: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
         Self {
             role: Role::User,
             content: vec![Content::ToolResult(ToolResult {
@@ -262,29 +263,18 @@ pub struct MessageOptions {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamEvent {
     /// Stream started, contains message metadata.
-    MessageStart {
-        message_id: String,
-        model: String,
-    },
+    MessageStart { message_id: String, model: String },
     /// A content block is starting.
     ContentBlockStart {
         index: usize,
         block_type: ContentBlockType,
     },
     /// Incremental text content.
-    TextDelta {
-        index: usize,
-        text: String,
-    },
+    TextDelta { index: usize, text: String },
     /// Incremental JSON for tool input.
-    InputJsonDelta {
-        index: usize,
-        json: String,
-    },
+    InputJsonDelta { index: usize, json: String },
     /// A content block has finished.
-    ContentBlockStop {
-        index: usize,
-    },
+    ContentBlockStop { index: usize },
     /// Message-level updates (stop reason, usage).
     MessageDelta {
         stop_reason: Option<String>,

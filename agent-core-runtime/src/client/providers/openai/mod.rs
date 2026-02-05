@@ -83,7 +83,12 @@ impl OpenAIProvider {
     /// Azure OpenAI uses a different URL format and authentication header.
     /// URL: https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version={version}
     /// Auth: api-key header instead of Authorization: Bearer
-    pub fn azure(api_key: String, resource: String, deployment: String, api_version: String) -> Self {
+    pub fn azure(
+        api_key: String,
+        resource: String,
+        deployment: String,
+        api_version: String,
+    ) -> Self {
         Self {
             api_key,
             model: String::new(), // Not used for Azure
@@ -145,10 +150,8 @@ impl LlmProvider for OpenAIProvider {
             let body = types::build_request_body(&messages, &options, &model)?;
 
             // Get headers
-            let headers_ref: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (*k, v.as_str()))
-                .collect();
+            let headers_ref: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
             // Make the API call
             let response = client.post(&api_url, &headers_ref, &body).await?;
@@ -163,7 +166,16 @@ impl LlmProvider for OpenAIProvider {
         client: &HttpClient,
         messages: &[Message],
         options: &MessageOptions,
-    ) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>, LlmError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>,
+                        LlmError,
+                    >,
+                > + Send,
+        >,
+    > {
         // Clone data for the async block
         let client = client.clone();
         let model = self.model.clone();
@@ -177,10 +189,8 @@ impl LlmProvider for OpenAIProvider {
             let body = types::build_streaming_request_body(&messages, &options, &model)?;
 
             // Get headers
-            let headers_ref: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (*k, v.as_str()))
-                .collect();
+            let headers_ref: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
             // Make the streaming API call
             let byte_stream = client.post_stream(&api_url, &headers_ref, &body).await?;
@@ -230,7 +240,10 @@ impl LlmProvider for OpenAIProvider {
                 }
             };
 
-            Ok(Box::pin(event_stream) as Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>)
+            Ok(Box::pin(event_stream)
+                as Pin<
+                    Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>,
+                >)
         })
     }
 }

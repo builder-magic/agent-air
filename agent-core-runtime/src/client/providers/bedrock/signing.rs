@@ -1,7 +1,7 @@
 //! AWS SigV4 signing implementation for Bedrock API requests.
 
-use crate::client::error::LlmError;
 use super::BedrockCredentials;
+use crate::client::error::LlmError;
 
 use ring::digest;
 use ring::hmac;
@@ -108,7 +108,10 @@ pub fn sign_request(
     );
 
     // Create string to sign
-    let credential_scope = format!("{}/{}/{}/{}", date_stamp, region, SERVICE_NAME, AWS4_REQUEST);
+    let credential_scope = format!(
+        "{}/{}/{}/{}",
+        date_stamp, region, SERVICE_NAME, AWS4_REQUEST
+    );
     let canonical_request_hash = sha256_hex(canonical_request.as_bytes());
     let string_to_sign = format!(
         "{}\n{}\n{}\n{}",
@@ -127,11 +130,7 @@ pub fn sign_request(
     // Build authorization header
     let authorization = format!(
         "{} Credential={}/{}, SignedHeaders={}, Signature={}",
-        AWS_ALGORITHM,
-        credentials.access_key_id,
-        credential_scope,
-        signed_headers,
-        signature
+        AWS_ALGORITHM, credentials.access_key_id, credential_scope, signed_headers, signature
     );
 
     // Build final headers
@@ -165,9 +164,9 @@ struct ParsedUrl {
 /// Parse a URL into its components.
 fn parse_url(url: &str) -> Result<ParsedUrl, LlmError> {
     // Simple URL parsing - assumes https://host/path?query format
-    let url = url.strip_prefix("https://").ok_or_else(|| {
-        LlmError::new("INVALID_URL", "URL must start with https://")
-    })?;
+    let url = url
+        .strip_prefix("https://")
+        .ok_or_else(|| LlmError::new("INVALID_URL", "URL must start with https://"))?;
 
     let (host_and_path, query) = match url.split_once('?') {
         Some((hp, q)) => (hp, Some(q.to_string())),
@@ -219,7 +218,9 @@ mod tests {
 
     #[test]
     fn test_parse_url_simple() {
-        let parsed = parse_url("https://bedrock-runtime.us-east-1.amazonaws.com/model/test/converse").unwrap();
+        let parsed =
+            parse_url("https://bedrock-runtime.us-east-1.amazonaws.com/model/test/converse")
+                .unwrap();
         assert_eq!(parsed.host, "bedrock-runtime.us-east-1.amazonaws.com");
         assert_eq!(parsed.path, "/model/test/converse");
         assert!(parsed.query.is_none());
@@ -229,12 +230,18 @@ mod tests {
     fn test_sha256_hex() {
         // Empty string hash
         let hash = sha256_hex(b"");
-        assert_eq!(hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]
     fn test_sign_request() {
-        let credentials = BedrockCredentials::new("AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        let credentials = BedrockCredentials::new(
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        );
         let url = "https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-3-sonnet-20240229-v1:0/converse";
         let body = r#"{"messages":[]}"#;
 

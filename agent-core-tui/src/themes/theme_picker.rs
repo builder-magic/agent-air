@@ -4,14 +4,14 @@
 // and a live preview on the right.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
-use super::theme::{set_theme, Theme};
-use super::themes::{get_theme, THEMES};
+use super::theme::{Theme, set_theme};
+use super::themes::{THEMES, get_theme};
 
 /// State for the theme picker
 pub struct ThemePickerState {
@@ -111,9 +111,9 @@ impl Default for ThemePickerState {
 
 // --- Widget trait implementation ---
 
-use std::any::Any;
+use crate::widgets::{Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::widgets::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
+use std::any::Any;
 
 /// Result of handling a key event in the theme picker
 #[derive(Debug, Clone, PartialEq)]
@@ -245,8 +245,7 @@ pub fn render_theme_picker(state: &ThemePickerState, frame: &mut Frame, area: Re
     frame.render_widget(Clear, area);
 
     // Split into main area and bottom help bar
-    let main_chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(2)])
-        .split(area);
+    let main_chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).split(area);
 
     // Split main area into left (theme list) and right (preview)
     let chunks = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -307,15 +306,18 @@ fn render_preview(frame: &mut Frame, area: Rect, theme: &Theme) {
 
     // Preview header
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        " # Preview",
-        theme.heading_1,
-    )));
+    lines.push(Line::from(Span::styled(" # Preview", theme.heading_1)));
     lines.push(Line::from(""));
 
     // User message example
-    lines.push(Line::from(Span::styled(" > User message example", theme.user_prefix)));
-    lines.push(Line::from(Span::styled("   - 10:30:00 AM", theme.timestamp)));
+    lines.push(Line::from(Span::styled(
+        " > User message example",
+        theme.user_prefix,
+    )));
+    lines.push(Line::from(Span::styled(
+        "   - 10:30:00 AM",
+        theme.timestamp,
+    )));
     lines.push(Line::from(""));
 
     // Markdown examples
@@ -363,8 +365,14 @@ fn render_preview(frame: &mut Frame, area: Rect, theme: &Theme) {
     lines.push(Line::from(""));
 
     // Tool status examples
-    lines.push(Line::from(Span::styled(" Tool executing...", theme.tool_executing)));
-    lines.push(Line::from(Span::styled(" Tool completed", theme.tool_completed)));
+    lines.push(Line::from(Span::styled(
+        " Tool executing...",
+        theme.tool_executing,
+    )));
+    lines.push(Line::from(Span::styled(
+        " Tool completed",
+        theme.tool_completed,
+    )));
     lines.push(Line::from(Span::styled(" Tool failed", theme.tool_failed)));
     lines.push(Line::from(""));
 
@@ -383,7 +391,6 @@ fn render_preview(frame: &mut Frame, area: Rect, theme: &Theme) {
 /// Render the help bar at the bottom
 fn render_help_bar(frame: &mut Frame, area: Rect, theme: &Theme) {
     let help_text = " Arrow keys to navigate | Enter to accept | Esc to cancel | * = current theme";
-    let help = Paragraph::new(help_text)
-        .style(theme.status_help);
+    let help = Paragraph::new(help_text).style(theme.status_help);
     frame.render_widget(help, area);
 }

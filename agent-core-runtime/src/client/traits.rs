@@ -25,7 +25,16 @@ pub trait LlmProvider {
         _client: &HttpClient,
         _messages: &[Message],
         _options: &MessageOptions,
-    ) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>, LlmError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>,
+                        LlmError,
+                    >,
+                > + Send,
+        >,
+    > {
         Box::pin(async {
             Err(LlmError::new(
                 "NOT_IMPLEMENTED",

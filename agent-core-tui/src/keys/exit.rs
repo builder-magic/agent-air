@@ -42,9 +42,10 @@ impl ExitState {
     pub fn is_expired(&self) -> bool {
         match self {
             Self::Normal => false,
-            Self::AwaitingConfirmation { since, timeout_secs } => {
-                since.elapsed().as_secs() >= *timeout_secs
-            }
+            Self::AwaitingConfirmation {
+                since,
+                timeout_secs,
+            } => since.elapsed().as_secs() >= *timeout_secs,
         }
     }
 
@@ -52,9 +53,10 @@ impl ExitState {
     pub fn is_awaiting(&self) -> bool {
         match self {
             Self::Normal => false,
-            Self::AwaitingConfirmation { since, timeout_secs } => {
-                since.elapsed().as_secs() < *timeout_secs
-            }
+            Self::AwaitingConfirmation {
+                since,
+                timeout_secs,
+            } => since.elapsed().as_secs() < *timeout_secs,
         }
     }
 

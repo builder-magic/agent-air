@@ -16,7 +16,6 @@ const ERROR_SSE_PARSE: &str = "SSE_PARSE_ERROR";
 /// Prefix for Gemini API error codes.
 const ERROR_PREFIX_GEMINI: &str = "GEMINI_ERROR_";
 
-
 /// Default error message when error details are unavailable.
 const MSG_UNKNOWN_ERROR: &str = "Unknown error";
 
@@ -421,9 +420,9 @@ mod tests {
         // Should have: ContentBlockStart, TextDelta, ContentBlockStop, MessageDelta
         assert!(events.len() >= 3);
 
-        let has_text_delta = events.iter().any(|e| {
-            matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello")
-        });
+        let has_text_delta = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello"));
         assert!(has_text_delta);
 
         let has_stop = events.iter().any(|e| {
@@ -501,9 +500,18 @@ mod tests {
 
     #[test]
     fn test_map_finish_reason() {
-        assert_eq!(map_finish_reason(FINISH_REASON_STOP), Some(STOP_REASON_END_TURN.to_string()));
-        assert_eq!(map_finish_reason(FINISH_REASON_MAX_TOKENS), Some(STOP_REASON_MAX_TOKENS.to_string()));
-        assert_eq!(map_finish_reason(FINISH_REASON_SAFETY), Some(STOP_REASON_SAFETY.to_string()));
+        assert_eq!(
+            map_finish_reason(FINISH_REASON_STOP),
+            Some(STOP_REASON_END_TURN.to_string())
+        );
+        assert_eq!(
+            map_finish_reason(FINISH_REASON_MAX_TOKENS),
+            Some(STOP_REASON_MAX_TOKENS.to_string())
+        );
+        assert_eq!(
+            map_finish_reason(FINISH_REASON_SAFETY),
+            Some(STOP_REASON_SAFETY.to_string())
+        );
         assert_eq!(map_finish_reason("UNKNOWN"), Some("unknown".to_string()));
     }
 
@@ -547,7 +555,9 @@ mod tests {
         });
         assert!(has_delta);
 
-        let has_stop = events.iter().any(|e| matches!(e, StreamEvent::ContentBlockStop { .. }));
+        let has_stop = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::ContentBlockStop { .. }));
         assert!(has_stop);
     }
 }

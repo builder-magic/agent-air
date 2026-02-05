@@ -67,7 +67,10 @@ pub fn get_command_by_name<'a>(
     name: &str,
 ) -> Option<&'a dyn SlashCommand> {
     let name = name.trim_start_matches('/');
-    commands.iter().find(|cmd| cmd.name() == name).map(|c| c.as_ref())
+    commands
+        .iter()
+        .find(|cmd| cmd.name() == name)
+        .map(|c| c.as_ref())
 }
 
 /// Generate help message listing all available commands.
@@ -96,8 +99,14 @@ mod tests {
     #[test]
     fn test_parse_command() {
         assert_eq!(parse_command("/help"), Some(("help", "")));
-        assert_eq!(parse_command("/echo hello world"), Some(("echo", "hello world")));
-        assert_eq!(parse_command("/cmd  spaced  args"), Some(("cmd", "spaced  args")));
+        assert_eq!(
+            parse_command("/echo hello world"),
+            Some(("echo", "hello world"))
+        );
+        assert_eq!(
+            parse_command("/cmd  spaced  args"),
+            Some(("cmd", "spaced  args"))
+        );
         assert_eq!(parse_command("not a command"), None);
         assert_eq!(parse_command(""), None);
     }

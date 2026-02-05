@@ -5,6 +5,6 @@ mod types;
 
 pub use executor::StatelessExecutor;
 pub use types::{
-    RequestOptions, StatelessConfig, StatelessError, StatelessResult, StreamCallback,
-    DEFAULT_MAX_TOKENS,
+    DEFAULT_MAX_TOKENS, RequestOptions, StatelessConfig, StatelessError, StatelessResult,
+    StreamCallback,
 };

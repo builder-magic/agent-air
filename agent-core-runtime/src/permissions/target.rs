@@ -93,10 +93,9 @@ impl GrantTarget {
                 },
             ) => path_covers(grant_path, request_path, *recursive),
 
-            (
-                GrantTarget::Domain { pattern: grant },
-                GrantTarget::Domain { pattern: request },
-            ) => domain_pattern_matches(grant, request),
+            (GrantTarget::Domain { pattern: grant }, GrantTarget::Domain { pattern: request }) => {
+                domain_pattern_matches(grant, request)
+            }
 
             (
                 GrantTarget::Command { pattern: grant },
@@ -343,17 +342,29 @@ mod tests {
 
             // These should NOT be covered - they share a string prefix but are different directories
             let request1 = GrantTarget::path("/project/src-backup/file.rs", false);
-            assert!(!grant.covers(&request1), "/project/src should not cover /project/src-backup");
+            assert!(
+                !grant.covers(&request1),
+                "/project/src should not cover /project/src-backup"
+            );
 
             let request2 = GrantTarget::path("/project/srcrc/file.rs", false);
-            assert!(!grant.covers(&request2), "/project/src should not cover /project/srcrc");
+            assert!(
+                !grant.covers(&request2),
+                "/project/src should not cover /project/srcrc"
+            );
 
             let request3 = GrantTarget::path("/project/src_old/file.rs", false);
-            assert!(!grant.covers(&request3), "/project/src should not cover /project/src_old");
+            assert!(
+                !grant.covers(&request3),
+                "/project/src should not cover /project/src_old"
+            );
 
             // This SHOULD be covered - it's actually under /project/src
             let request4 = GrantTarget::path("/project/src/backup/file.rs", false);
-            assert!(grant.covers(&request4), "/project/src should cover /project/src/backup");
+            assert!(
+                grant.covers(&request4),
+                "/project/src should cover /project/src/backup"
+            );
         }
     }
 

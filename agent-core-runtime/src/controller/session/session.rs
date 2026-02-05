@@ -1,13 +1,14 @@
 // This implements a single session with an LLM
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
 use std::time::Instant;
 
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
+use crate::client::LLMClient;
 use crate::client::error::LlmError;
 use crate::client::models::Tool as LLMTool;
 use crate::client::providers::anthropic::AnthropicProvider;
@@ -15,7 +16,6 @@ use crate::client::providers::bedrock::{BedrockCredentials, BedrockProvider};
 use crate::client::providers::cohere::CohereProvider;
 use crate::client::providers::gemini::GeminiProvider;
 use crate::client::providers::openai::OpenAIProvider;
-use crate::client::LLMClient;
 
 use super::compactor::{AsyncCompactor, Compactor, LLMCompactor, ThresholdCompactor};
 use super::config::{CompactorType, LLMProvider, LLMSessionConfig};
@@ -70,13 +70,18 @@ fn create_llm_client(config: &LLMSessionConfig) -> Result<LLMClient, LlmError> {
                 LlmError::new("MISSING_CONFIG", "Bedrock requires bedrock_access_key_id")
             })?;
             let secret_access_key = config.bedrock_secret_access_key.clone().ok_or_else(|| {
-                LlmError::new("MISSING_CONFIG", "Bedrock requires bedrock_secret_access_key")
+                LlmError::new(
+                    "MISSING_CONFIG",
+                    "Bedrock requires bedrock_secret_access_key",
+                )
             })?;
 
             let credentials = match &config.bedrock_session_token {
-                Some(token) => {
-                    BedrockCredentials::with_session_token(access_key_id, secret_access_key, token.clone())
-                }
+                Some(token) => BedrockCredentials::with_session_token(
+                    access_key_id,
+                    secret_access_key,
+                    token.clone(),
+                ),
                 None => BedrockCredentials::new(access_key_id, secret_access_key),
             };
 
@@ -236,7 +241,11 @@ impl LLMSession {
         if let Some(ref compactor_type) = config.compaction {
             match compactor_type {
                 CompactorType::Threshold(c) => {
-                    match ThresholdCompactor::new(c.threshold, c.keep_recent_turns, c.tool_compaction) {
+                    match ThresholdCompactor::new(
+                        c.threshold,
+                        c.keep_recent_turns,
+                        c.tool_compaction,
+                    ) {
                         Ok(tc) => {
                             tracing::info!(
                                 threshold = c.threshold,
@@ -429,10 +438,7 @@ impl LLMSession {
         // Check for LLM compactor first (async compaction)
         if let Some(ref llm_compactor) = self.llm_compactor {
             if !llm_compactor.should_compact(context_used, context_limit) {
-                tracing::debug!(
-                    session_id = self.id(),
-                    "LLM compaction not triggered"
-                );
+                tracing::debug!(session_id = self.id(), "LLM compaction not triggered");
                 return;
             }
 
@@ -442,8 +448,8 @@ impl LLMSession {
                 let guard = self.conversation.read().await;
                 Arc::clone(&*guard) // O(1)
             };
-            let conversation = Arc::try_unwrap(conversation_arc)
-                .unwrap_or_else(|arc| (*arc).clone());
+            let conversation =
+                Arc::try_unwrap(conversation_arc).unwrap_or_else(|arc| (*arc).clone());
 
             tracing::info!(
                 session_id = self.id(),
@@ -481,19 +487,13 @@ impl LLMSession {
         let compactor = match &self.compactor {
             Some(c) => c,
             None => {
-                tracing::debug!(
-                    session_id = self.id(),
-                    "No compactor configured"
-                );
+                tracing::debug!(session_id = self.id(), "No compactor configured");
                 return;
             }
         };
 
         if !compactor.should_compact(context_used, context_limit) {
-            tracing::debug!(
-                session_id = self.id(),
-                "Threshold compaction not triggered"
-            );
+            tracing::debug!(session_id = self.id(), "Threshold compaction not triggered");
             return;
         }
 
@@ -547,8 +547,8 @@ impl LLMSession {
                 let guard = self.conversation.read().await;
                 Arc::clone(&*guard) // O(1)
             };
-            let conversation = Arc::try_unwrap(conversation_arc)
-                .unwrap_or_else(|arc| (*arc).clone());
+            let conversation =
+                Arc::try_unwrap(conversation_arc).unwrap_or_else(|arc| (*arc).clone());
             let messages_before = conversation.len();
             let turns_before = self.count_unique_turns(&conversation);
 
@@ -663,7 +663,10 @@ impl LLMSession {
         if let Message::User(user_msg) = message {
             for block in &user_msg.content {
                 if let ContentBlock::Text(text_block) = block {
-                    if text_block.text.starts_with("[Previous conversation summary]") {
+                    if text_block
+                        .text
+                        .starts_with("[Previous conversation summary]")
+                    {
                         return text_block.text.len();
                     }
                 }
@@ -830,8 +833,8 @@ impl LLMSession {
     /// Handles a non-streaming request.
     async fn handle_non_streaming_request(&self, request: ToLLMPayload) {
         use super::convert::{from_llm_message, to_llm_messages};
-        use crate::controller::types::{LLMRequestType, LLMResponseType};
         use crate::client::models::Message as LLMMessage;
+        use crate::controller::types::{LLMRequestType, LLMResponseType};
 
         // Prepare request context
         let (_request_token, effective_turn_id) = self.prepare_request(&request).await;
@@ -871,7 +874,8 @@ impl LLMSession {
             }
             LLMRequestType::ToolResult => {
                 // Store compact summaries for later compaction
-                self.store_compact_summaries(&request.compact_summaries).await;
+                self.store_compact_summaries(&request.compact_summaries)
+                    .await;
 
                 // Add tool result messages using LLM client's proper format
                 for tool_result in &request.tool_results {
@@ -893,12 +897,14 @@ impl LLMSession {
                         session_id: session_id.to_string(),
                         turn_id: effective_turn_id.clone(),
                         created_at: Self::current_timestamp_millis(),
-                        content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
-                            tool_use_id: tool_result.tool_use_id.clone(),
-                            content: tool_result.content.clone(),
-                            is_error: tool_result.is_error,
-                            compact_summary,
-                        })],
+                        content: vec![ContentBlock::ToolResult(
+                            crate::controller::types::ToolResultBlock {
+                                tool_use_id: tool_result.tool_use_id.clone(),
+                                content: tool_result.content.clone(),
+                                is_error: tool_result.is_error,
+                                compact_summary,
+                            },
+                        )],
                     });
                     Arc::make_mut(&mut *self.conversation.write().await).push(user_msg);
                 }
@@ -1019,11 +1025,9 @@ impl LLMSession {
     /// Handles a streaming request.
     async fn handle_streaming_request(&self, request: ToLLMPayload) {
         use super::convert::to_llm_messages;
+        use crate::client::models::{ContentBlockType, Message as LLMMessage, StreamEvent};
         use crate::controller::types::{LLMRequestType, LLMResponseType};
         use futures::StreamExt;
-        use crate::client::models::{
-            ContentBlockType, Message as LLMMessage, StreamEvent,
-        };
 
         // Prepare request context
         let (request_token, effective_turn_id) = self.prepare_request(&request).await;
@@ -1063,7 +1067,8 @@ impl LLMSession {
             }
             LLMRequestType::ToolResult => {
                 // Store compact summaries for later compaction
-                self.store_compact_summaries(&request.compact_summaries).await;
+                self.store_compact_summaries(&request.compact_summaries)
+                    .await;
 
                 // Log conversation state before adding tool results (streaming path)
                 {
@@ -1095,12 +1100,14 @@ impl LLMSession {
                         session_id: session_id.to_string(),
                         turn_id: effective_turn_id.clone(),
                         created_at: Self::current_timestamp_millis(),
-                        content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
-                            tool_use_id: tool_result.tool_use_id.clone(),
-                            content: tool_result.content.clone(),
-                            is_error: tool_result.is_error,
-                            compact_summary,
-                        })],
+                        content: vec![ContentBlock::ToolResult(
+                            crate::controller::types::ToolResultBlock {
+                                tool_use_id: tool_result.tool_use_id.clone(),
+                                content: tool_result.content.clone(),
+                                is_error: tool_result.is_error,
+                                compact_summary,
+                            },
+                        )],
                     });
                     Arc::make_mut(&mut *self.conversation.write().await).push(user_msg);
                 }
@@ -1128,7 +1135,8 @@ impl LLMSession {
                 // Accumulate response text for conversation history
                 let mut response_text = String::new();
                 // Accumulate completed tool uses for conversation history
-                let mut completed_tool_uses: Vec<crate::controller::types::ToolUseBlock> = Vec::new();
+                let mut completed_tool_uses: Vec<crate::controller::types::ToolUseBlock> =
+                    Vec::new();
 
                 // Process stream events
                 loop {

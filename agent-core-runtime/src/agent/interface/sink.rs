@@ -75,7 +75,10 @@ pub trait EventSink: Send + Sync + 'static {
     /// slow consumers.
     ///
     /// Default implementation calls `send()` and returns immediately.
-    fn send_async(&self, event: UiMessage) -> Pin<Box<dyn Future<Output = Result<(), SendError>> + Send + '_>> {
+    fn send_async(
+        &self,
+        event: UiMessage,
+    ) -> Pin<Box<dyn Future<Output = Result<(), SendError>> + Send + '_>> {
         Box::pin(async move { self.send(event) })
     }
 
@@ -92,7 +95,10 @@ impl EventSink for Box<dyn EventSink> {
         (**self).send(event)
     }
 
-    fn send_async(&self, event: UiMessage) -> Pin<Box<dyn Future<Output = Result<(), SendError>> + Send + '_>> {
+    fn send_async(
+        &self,
+        event: UiMessage,
+    ) -> Pin<Box<dyn Future<Output = Result<(), SendError>> + Send + '_>> {
         (**self).send_async(event)
     }
 
@@ -124,14 +130,17 @@ impl ChannelEventSink {
 
 impl EventSink for ChannelEventSink {
     fn send(&self, event: UiMessage) -> Result<(), SendError> {
-        self.tx.try_send(event).map_err(|e| SendError(e.into_inner()))
+        self.tx
+            .try_send(event)
+            .map_err(|e| SendError(e.into_inner()))
     }
 
-    fn send_async(&self, event: UiMessage) -> Pin<Box<dyn Future<Output = Result<(), SendError>> + Send + '_>> {
+    fn send_async(
+        &self,
+        event: UiMessage,
+    ) -> Pin<Box<dyn Future<Output = Result<(), SendError>> + Send + '_>> {
         let tx = self.tx.clone();
-        Box::pin(async move {
-            tx.send(event).await.map_err(|e| SendError(e.0))
-        })
+        Box::pin(async move { tx.send(event).await.map_err(|e| SendError(e.0)) })
     }
 
     fn clone_box(&self) -> Box<dyn EventSink> {
@@ -214,13 +223,19 @@ impl EventSink for SimpleEventSink {
                 }
             }
             UiMessage::PermissionRequired { .. } => {
-                eprintln!("Warning: SimpleEventSink received permission request. Use AutoApprovePolicy to handle permissions automatically.");
+                eprintln!(
+                    "Warning: SimpleEventSink received permission request. Use AutoApprovePolicy to handle permissions automatically."
+                );
             }
             UiMessage::BatchPermissionRequired { .. } => {
-                eprintln!("Warning: SimpleEventSink received batch permission request. Use AutoApprovePolicy to handle permissions automatically.");
+                eprintln!(
+                    "Warning: SimpleEventSink received batch permission request. Use AutoApprovePolicy to handle permissions automatically."
+                );
             }
             UiMessage::UserInteractionRequired { .. } => {
-                eprintln!("Warning: SimpleEventSink received user interaction request. Use AutoApprovePolicy to auto-cancel interactions.");
+                eprintln!(
+                    "Warning: SimpleEventSink received user interaction request. Use AutoApprovePolicy to auto-cancel interactions."
+                );
             }
             _ => {
                 // Silently ignore other events
@@ -253,7 +268,10 @@ mod tests {
 
         let received = rx.recv().await.unwrap();
         match received {
-            UiMessage::System { session_id, message } => {
+            UiMessage::System {
+                session_id,
+                message,
+            } => {
                 assert_eq!(session_id, 1);
                 assert_eq!(message, "test");
             }
@@ -275,7 +293,10 @@ mod tests {
 
         let received = rx.recv().await.unwrap();
         match received {
-            UiMessage::System { session_id, message } => {
+            UiMessage::System {
+                session_id,
+                message,
+            } => {
                 assert_eq!(session_id, 2);
                 assert_eq!(message, "async test");
             }

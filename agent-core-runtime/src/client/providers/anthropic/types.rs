@@ -1,5 +1,7 @@
 use crate::client::error::LlmError;
-use crate::client::models::{Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse};
+use crate::client::models::{
+    Content, ImageSource, Message, MessageOptions, Role, ToolChoice, ToolUse,
+};
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -320,10 +322,7 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     }
 
     if content_blocks.is_empty() {
-        return Err(LlmError::new(
-            "PARSE_ERROR",
-            "No content found in response",
-        ));
+        return Err(LlmError::new("PARSE_ERROR", "No content found in response"));
     }
 
     Ok(Message::with_content(Role::Assistant, content_blocks))

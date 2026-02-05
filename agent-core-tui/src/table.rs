@@ -89,31 +89,66 @@ impl TableRenderer for PulldownRenderer {
                 }
                 // Formatting events
                 Event::Start(Tag::Strong) => {
-                    flush_text(&mut current_text, &mut current_cell, &style_stack, &color_stack);
+                    flush_text(
+                        &mut current_text,
+                        &mut current_cell,
+                        &style_stack,
+                        &color_stack,
+                    );
                     style_stack.push(theme.bold());
                 }
                 Event::End(TagEnd::Strong) => {
-                    flush_text(&mut current_text, &mut current_cell, &style_stack, &color_stack);
+                    flush_text(
+                        &mut current_text,
+                        &mut current_cell,
+                        &style_stack,
+                        &color_stack,
+                    );
                     style_stack.pop();
                 }
                 Event::Start(Tag::Emphasis) => {
-                    flush_text(&mut current_text, &mut current_cell, &style_stack, &color_stack);
+                    flush_text(
+                        &mut current_text,
+                        &mut current_cell,
+                        &style_stack,
+                        &color_stack,
+                    );
                     style_stack.push(theme.italic());
                 }
                 Event::End(TagEnd::Emphasis) => {
-                    flush_text(&mut current_text, &mut current_cell, &style_stack, &color_stack);
+                    flush_text(
+                        &mut current_text,
+                        &mut current_cell,
+                        &style_stack,
+                        &color_stack,
+                    );
                     style_stack.pop();
                 }
                 Event::Start(Tag::Strikethrough) => {
-                    flush_text(&mut current_text, &mut current_cell, &style_stack, &color_stack);
+                    flush_text(
+                        &mut current_text,
+                        &mut current_cell,
+                        &style_stack,
+                        &color_stack,
+                    );
                     style_stack.push(theme.strikethrough());
                 }
                 Event::End(TagEnd::Strikethrough) => {
-                    flush_text(&mut current_text, &mut current_cell, &style_stack, &color_stack);
+                    flush_text(
+                        &mut current_text,
+                        &mut current_cell,
+                        &style_stack,
+                        &color_stack,
+                    );
                     style_stack.pop();
                 }
                 Event::Code(code) => {
-                    flush_text(&mut current_text, &mut current_cell, &style_stack, &color_stack);
+                    flush_text(
+                        &mut current_text,
+                        &mut current_cell,
+                        &style_stack,
+                        &color_stack,
+                    );
                     current_cell.push((code.to_string(), theme.inline_code()));
                 }
                 Event::Text(text) => {
@@ -150,26 +185,54 @@ impl TableRenderer for PulldownRenderer {
         let border_style = theme.table_border();
 
         // Top border
-        lines.push(render_border(&col_widths, '\u{250C}', '\u{252C}', '\u{2510}', border_style));
+        lines.push(render_border(
+            &col_widths,
+            '\u{250C}',
+            '\u{252C}',
+            '\u{2510}',
+            border_style,
+        ));
 
         // Header rows
         let header_count = header_row_count.max(1).min(rows.len());
         for row in rows.iter().take(header_count) {
-            lines.push(render_styled_row(row, &col_widths, header_style, border_style));
+            lines.push(render_styled_row(
+                row,
+                &col_widths,
+                header_style,
+                border_style,
+            ));
         }
 
         // Separator after header
         if rows.len() > header_count {
-            lines.push(render_border(&col_widths, '\u{251C}', '\u{253C}', '\u{2524}', border_style));
+            lines.push(render_border(
+                &col_widths,
+                '\u{251C}',
+                '\u{253C}',
+                '\u{2524}',
+                border_style,
+            ));
         }
 
         // Data rows
         for row in rows.iter().skip(header_count) {
-            lines.push(render_styled_row(row, &col_widths, cell_style, border_style));
+            lines.push(render_styled_row(
+                row,
+                &col_widths,
+                cell_style,
+                border_style,
+            ));
         }
 
         // Bottom border
-        lines.push(render_border(&col_widths, '\u{2514}', '\u{2534}', '\u{2518}', border_style));
+        lines.push(render_border(
+            &col_widths,
+            '\u{2514}',
+            '\u{2534}',
+            '\u{2518}',
+            border_style,
+        ));
 
         lines
     }
@@ -288,10 +351,7 @@ fn render_border(
     }
     content.push(right);
 
-    Line::from(vec![
-        Span::raw(TABLE_INDENT),
-        Span::styled(content, style),
-    ])
+    Line::from(vec![Span::raw(TABLE_INDENT), Span::styled(content, style)])
 }
 
 #[cfg(test)]
@@ -374,6 +434,9 @@ mod tests {
 
         // The row should contain multiple spans (border + styled cells)
         let data_row = &lines[3];
-        assert!(data_row.spans.len() > 3, "Data row should have multiple spans for styling");
+        assert!(
+            data_row.spans.len() > 3,
+            "Data row should have multiple spans for styling"
+        );
     }
 }

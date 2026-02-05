@@ -49,27 +49,37 @@ mod messages;
 mod providers;
 mod router;
 
-pub use config::{load_config, AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig, SimpleConfig};
+pub use config::{
+    AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig, SimpleConfig, load_config,
+};
 
 // Re-export commonly used interface types at agent level for convenience
-pub use interface::{
-    // Sink types
-    ChannelEventSink, EventSink, SendError, SimpleEventSink,
-    // Source types
-    ChannelInputSource, InputSource,
-    // Policy types
-    AutoApprovePolicy, DenyAllPolicy, InteractivePolicy, PermissionPolicy, PolicyDecision,
+pub use core::{
+    AgentCore, FromControllerRx, FromControllerTx, ToControllerRx, ToControllerTx,
+    convert_controller_event_to_ui_message,
 };
 pub use environment::EnvironmentContext;
-pub use providers::{get_provider_info, is_known_provider, list_providers, ProviderInfo};
 pub use error::AgentError;
-pub use core::{
-    convert_controller_event_to_ui_message, AgentCore, FromControllerRx, FromControllerTx,
-    ToControllerRx, ToControllerTx,
+pub use interface::{
+    // Policy types
+    AutoApprovePolicy,
+    // Sink types
+    ChannelEventSink,
+    // Source types
+    ChannelInputSource,
+    DenyAllPolicy,
+    EventSink,
+    InputSource,
+    InteractivePolicy,
+    PermissionPolicy,
+    PolicyDecision,
+    SendError,
+    SimpleEventSink,
 };
 pub use logger::Logger;
-pub use messages::channels::{create_channels, DEFAULT_CHANNEL_SIZE};
 pub use messages::UiMessage;
+pub use messages::channels::{DEFAULT_CHANNEL_SIZE, create_channels};
+pub use providers::{ProviderInfo, get_provider_info, is_known_provider, list_providers};
 pub use router::InputRouter;
 
 // Re-export common types from llm-controller-rs that agents typically need

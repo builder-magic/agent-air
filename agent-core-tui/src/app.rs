@@ -14,20 +14,20 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crossterm::{
+    ExecutableCommand,
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
         KeyModifiers, MouseEventKind,
     },
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     layout::Rect,
     prelude::CrosstermBackend,
     widgets::{Block, Borders, Paragraph, Wrap},
-    Terminal,
 };
-use throbber_widgets_tui::{Throbber, ThrobberState, BRAILLE_EIGHT_DOUBLE};
+use throbber_widgets_tui::{BRAILLE_EIGHT_DOUBLE, Throbber, ThrobberState};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
@@ -37,18 +37,20 @@ use crate::controller::{
     ToolResultStatus, TurnId, UserInteractionRegistry,
 };
 
-use super::layout::{LayoutContext, LayoutTemplate, WidgetSizes};
-use super::themes::{render_theme_picker, ThemePickerState};
 use super::commands::{
-    is_slash_command, parse_command,
-    CommandContext, CommandResult, PendingAction, SlashCommand,
+    CommandContext, CommandResult, PendingAction, SlashCommand, is_slash_command, parse_command,
 };
-use super::keys::{AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, KeyBindings, KeyContext, KeyHandler, NavigationHelper};
+use super::keys::{
+    AppKeyAction, AppKeyResult, DefaultKeyHandler, ExitHandler, KeyBindings, KeyContext,
+    KeyHandler, NavigationHelper,
+};
+use super::layout::{LayoutContext, LayoutTemplate, WidgetSizes};
+use super::themes::{ThemePickerState, render_theme_picker};
 use super::widgets::{
-    widget_ids, ChatView, TextInput, ToolStatus, SessionInfo, SessionPickerState,
-    SlashPopupState, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, render_session_picker, render_slash_popup,
-    PermissionPanel, QuestionPanel, ConversationView, ConversationViewFactory,
-    StatusBar, StatusBarData, BatchPermissionPanel,
+    BatchPermissionPanel, ChatView, ConversationView, ConversationViewFactory, PermissionPanel,
+    QuestionPanel, SessionInfo, SessionPickerState, SlashPopupState, StatusBar, StatusBarData,
+    TextInput, ToolStatus, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult,
+    render_session_picker, render_slash_popup, widget_ids,
 };
 use super::{app_theme, current_theme_name, default_theme_name, get_theme, init_theme};
 
@@ -87,10 +89,22 @@ impl std::fmt::Debug for AppConfig {
         f.debug_struct("AppConfig")
             .field("agent_name", &self.agent_name)
             .field("version", &self.version)
-            .field("commands", &self.commands.as_ref().map(|c| format!("<{} commands>", c.len())))
-            .field("command_extension", &self.command_extension.as_ref().map(|_| "<extension>"))
+            .field(
+                "commands",
+                &self
+                    .commands
+                    .as_ref()
+                    .map(|c| format!("<{} commands>", c.len())),
+            )
+            .field(
+                "command_extension",
+                &self.command_extension.as_ref().map(|_| "<extension>"),
+            )
             .field("processing_message", &self.processing_message)
-            .field("processing_message_fn", &self.processing_message_fn.as_ref().map(|_| "<fn>"))
+            .field(
+                "processing_message_fn",
+                &self.processing_message_fn.as_ref().map(|_| "<fn>"),
+            )
             .field("error_no_session", &self.error_no_session)
             .finish()
     }
@@ -246,9 +260,7 @@ impl App {
         let commands = config.commands.unwrap_or_else(default_commands);
 
         // Create a default conversation factory (creates basic ChatView)
-        let default_factory: ConversationViewFactory = Box::new(|| {
-            Box::new(ChatView::new())
-        });
+        let default_factory: ConversationViewFactory = Box::new(|| Box::new(ChatView::new()));
 
         let mut app = Self {
             agent_name: config.agent_name,
@@ -320,12 +332,16 @@ impl App {
 
     /// Get a widget by ID
     pub fn widget<W: Widget + 'static>(&self, id: &str) -> Option<&W> {
-        self.widgets.get(id).and_then(|w| w.as_any().downcast_ref::<W>())
+        self.widgets
+            .get(id)
+            .and_then(|w| w.as_any().downcast_ref::<W>())
     }
 
     /// Get a widget by ID (mutable)
     pub fn widget_mut<W: Widget + 'static>(&mut self, id: &str) -> Option<&mut W> {
-        self.widgets.get_mut(id).and_then(|w| w.as_any_mut().downcast_mut::<W>())
+        self.widgets
+            .get_mut(id)
+            .and_then(|w| w.as_any_mut().downcast_mut::<W>())
     }
 
     /// Check if a widget is registered
@@ -335,7 +351,9 @@ impl App {
 
     /// Check if any registered widget blocks input
     fn any_widget_blocks_input(&self) -> bool {
-        self.widgets.values().any(|w| w.is_active() && w.blocks_input())
+        self.widgets
+            .values()
+            .any(|w| w.is_active() && w.blocks_input())
     }
 
     /// Set the conversation view factory
@@ -544,8 +562,9 @@ impl App {
 
         // Check if we have an active session
         if self.session_id == 0 {
-            let msg = self.error_no_session.clone()
-                .unwrap_or_else(|| "No active session. Use /new-session to create one.".to_string());
+            let msg = self.error_no_session.clone().unwrap_or_else(|| {
+                "No active session. Use /new-session to create one.".to_string()
+            });
             self.conversation_view.add_system_message(msg);
             return;
         }
@@ -558,7 +577,8 @@ impl App {
 
             // Try to send (non-blocking)
             if tx.try_send(payload).is_err() {
-                self.conversation_view.add_system_message("Failed to send message to controller".to_string());
+                self.conversation_view
+                    .add_system_message("Failed to send message to controller".to_string());
             } else {
                 // Immediately show throbber (before streaming starts)
                 self.waiting_for_response = true;
@@ -591,7 +611,8 @@ impl App {
                 self.conversation_view.complete_streaming();
                 // Clear turn ID so any stale messages from this turn are ignored
                 self.current_turn_id = None;
-                self.conversation_view.add_system_message("Request cancelled".to_string());
+                self.conversation_view
+                    .add_system_message("Request cancelled".to_string());
             }
         }
     }
@@ -599,14 +620,16 @@ impl App {
     /// Execute a slash command using the trait-based system
     fn execute_command(&mut self, input: &str) {
         let Some((cmd_name, args)) = parse_command(input) else {
-            self.conversation_view.add_system_message("Invalid command format".to_string());
+            self.conversation_view
+                .add_system_message("Invalid command format".to_string());
             return;
         };
 
         // Find the command by name
         let cmd_idx = self.commands.iter().position(|c| c.name() == cmd_name);
         let Some(cmd_idx) = cmd_idx else {
-            self.conversation_view.add_system_message(format!("Unknown command: /{}", cmd_name));
+            self.conversation_view
+                .add_system_message(format!("Unknown command: /{}", cmd_name));
             return;
         };
 
@@ -643,8 +666,12 @@ impl App {
                 PendingAction::OpenSessionPicker => self.cmd_sessions(),
                 PendingAction::ClearConversation => self.cmd_clear(),
                 PendingAction::CompactConversation => self.cmd_compact(),
-                PendingAction::CreateNewSession => { self.cmd_new_session(); }
-                PendingAction::Quit => { self.should_quit = true; }
+                PendingAction::CreateNewSession => {
+                    self.cmd_new_session();
+                }
+                PendingAction::Quit => {
+                    self.should_quit = true;
+                }
             }
         }
 
@@ -655,7 +682,8 @@ impl App {
                 self.conversation_view.add_system_message(msg);
             }
             CommandResult::Error(err) => {
-                self.conversation_view.add_system_message(format!("Error: {}", err));
+                self.conversation_view
+                    .add_system_message(format!("Error: {}", err));
             }
             CommandResult::Quit => {
                 self.should_quit = true;
@@ -671,8 +699,7 @@ impl App {
         // Send Clear command to controller to clear session conversation
         if self.session_id != 0 {
             if let Some(ref tx) = self.to_controller {
-                let payload =
-                    ControllerInputPayload::control(self.session_id, ControlCmd::Clear);
+                let payload = ControllerInputPayload::control(self.session_id, ControlCmd::Clear);
                 if let Err(e) = tx.try_send(payload) {
                     tracing::warn!("Failed to send clear command to controller: {}", e);
                 }
@@ -683,7 +710,8 @@ impl App {
     fn cmd_compact(&mut self) {
         // Check if we have an active session
         if self.session_id == 0 {
-            self.conversation_view.add_system_message("No active session to compact".to_string());
+            self.conversation_view
+                .add_system_message("No active session to compact".to_string());
             return;
         }
 
@@ -696,7 +724,8 @@ impl App {
                 self.waiting_started = Some(Instant::now());
                 self.custom_throbber_message = Some("compacting...".to_string());
             } else {
-                self.conversation_view.add_system_message("Failed to send compact command".to_string());
+                self.conversation_view
+                    .add_system_message("Failed to send compact command".to_string());
             }
         }
     }
@@ -817,7 +846,11 @@ impl App {
     }
 
     /// Submit the question panel response
-    fn submit_question_panel_response(&mut self, tool_use_id: String, response: crate::controller::AskUserQuestionsResponse) {
+    fn submit_question_panel_response(
+        &mut self,
+        tool_use_id: String,
+        response: crate::controller::AskUserQuestionsResponse,
+    ) {
         // Respond to the interaction via the registry
         if let (Some(registry), Some(handle)) =
             (&self.user_interaction_registry, &self.runtime_handle)
@@ -861,7 +894,11 @@ impl App {
     }
 
     /// Submit the permission panel response
-    fn submit_permission_panel_response(&mut self, tool_use_id: String, response: PermissionPanelResponse) {
+    fn submit_permission_panel_response(
+        &mut self,
+        tool_use_id: String,
+        response: PermissionPanelResponse,
+    ) {
         // Respond to the permission request via the registry
         if let (Some(registry), Some(handle)) = (&self.permission_registry, &self.runtime_handle) {
             let registry = registry.clone();
@@ -1028,7 +1065,8 @@ impl App {
                 self.waiting_for_response = false;
                 self.waiting_started = None;
                 self.current_turn_id = None;
-                self.conversation_view.add_system_message(format!("Error: {}", error));
+                self.conversation_view
+                    .add_system_message(format!("Error: {}", error));
             }
             UiMessage::System { message, .. } => {
                 self.conversation_view.add_system_message(message);
@@ -1040,7 +1078,11 @@ impl App {
                 ..
             } => {
                 self.executing_tools.insert(tool_use_id.clone());
-                self.conversation_view.add_tool_message(&tool_use_id, &display_name, &display_title);
+                self.conversation_view.add_tool_message(
+                    &tool_use_id,
+                    &display_name,
+                    &display_title,
+                );
             }
             UiMessage::ToolCompleted {
                 tool_use_id,
@@ -1054,7 +1096,8 @@ impl App {
                 } else {
                     ToolStatus::Failed(error.unwrap_or_default())
                 };
-                self.conversation_view.update_tool_status(&tool_use_id, tool_status);
+                self.conversation_view
+                    .update_tool_status(&tool_use_id, tool_status);
             }
             UiMessage::CommandComplete {
                 command,
@@ -1085,7 +1128,8 @@ impl App {
                 turn_id,
             } => {
                 if session_id == self.session_id {
-                    self.conversation_view.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
+                    self.conversation_view
+                        .update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
                     // Activate via widget registry if registered
                     if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
                         if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
@@ -1101,7 +1145,8 @@ impl App {
                 turn_id,
             } => {
                 if session_id == self.session_id {
-                    self.conversation_view.update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
+                    self.conversation_view
+                        .update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
                     // Activate via widget registry if registered
                     if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
                         if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
@@ -1118,11 +1163,14 @@ impl App {
                 if session_id == self.session_id {
                     // Mark all tools in the batch as waiting for user
                     for request in &batch.requests {
-                        self.conversation_view.update_tool_status(&request.id, ToolStatus::WaitingForUser);
+                        self.conversation_view
+                            .update_tool_status(&request.id, ToolStatus::WaitingForUser);
                     }
                     // Activate BatchPermissionPanel widget if registered
                     if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL) {
-                        if let Some(panel) = widget.as_any_mut().downcast_mut::<BatchPermissionPanel>() {
+                        if let Some(panel) =
+                            widget.as_any_mut().downcast_mut::<BatchPermissionPanel>()
+                        {
                             panel.activate(session_id, batch, turn_id);
                         }
                     }
@@ -1294,7 +1342,8 @@ impl App {
             }
             AppKeyAction::RequestExit => {
                 // Call exit handler if set, otherwise just quit
-                let should_quit = self.exit_handler
+                let should_quit = self
+                    .exit_handler
                     .as_mut()
                     .map(|h| h.on_exit())
                     .unwrap_or(true);
@@ -1316,13 +1365,19 @@ impl App {
     /// Process an action returned by a widget
     fn process_widget_action(&mut self, action: WidgetAction) {
         match action {
-            WidgetAction::SubmitQuestion { tool_use_id, response } => {
+            WidgetAction::SubmitQuestion {
+                tool_use_id,
+                response,
+            } => {
                 self.submit_question_panel_response(tool_use_id, response);
             }
             WidgetAction::CancelQuestion { tool_use_id } => {
                 self.cancel_question_panel_response(tool_use_id);
             }
-            WidgetAction::SubmitPermission { tool_use_id, response } => {
+            WidgetAction::SubmitPermission {
+                tool_use_id,
+                response,
+            } => {
                 self.submit_permission_panel_response(tool_use_id, response);
             }
             WidgetAction::CancelPermission { tool_use_id } => {
@@ -1340,7 +1395,10 @@ impl App {
             WidgetAction::ExecuteCommand { command } => {
                 // Handle slash popup command selection
                 if command.starts_with("__SLASH_INDEX_") {
-                    if let Ok(idx) = command.trim_start_matches("__SLASH_INDEX_").parse::<usize>() {
+                    if let Ok(idx) = command
+                        .trim_start_matches("__SLASH_INDEX_")
+                        .parse::<usize>()
+                    {
                         self.execute_slash_command_at_index(idx);
                     }
                 } else {
@@ -1405,7 +1463,8 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                let selected_idx = self.widgets
+                let selected_idx = self
+                    .widgets
                     .get(widget_ids::SLASH_POPUP)
                     .and_then(|w| w.as_any().downcast_ref::<SlashPopupState>())
                     .map(|p| p.selected_index)
@@ -1439,7 +1498,10 @@ impl App {
                     if let Some(input) = self.input_mut() {
                         input.delete_char_before();
                     }
-                    let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
+                    let buffer = self
+                        .input()
+                        .map(|i| i.buffer().to_string())
+                        .unwrap_or_default();
                     self.filtered_command_indices = self.filter_command_indices(&buffer);
                     if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
                         if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
@@ -1452,7 +1514,10 @@ impl App {
                 if let Some(input) = self.input_mut() {
                     input.insert_char(c);
                 }
-                let buffer = self.input().map(|i| i.buffer().to_string()).unwrap_or_default();
+                let buffer = self
+                    .input()
+                    .map(|i| i.buffer().to_string())
+                    .unwrap_or_default();
                 self.filtered_command_indices = self.filter_command_indices(&buffer);
                 if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
                     if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
@@ -1578,7 +1643,8 @@ impl App {
         let theme = app_theme();
 
         // Compute layout using the layout system
-        let ctx = self.build_layout_context(frame_area, show_throbber, prompt_len, indent_len, &theme);
+        let ctx =
+            self.build_layout_context(frame_area, show_throbber, prompt_len, indent_len, &theme);
         let sizes = self.compute_widget_sizes(frame_height);
         let layout = self.layout_template.compute(&ctx, &sizes);
 
@@ -1600,7 +1666,9 @@ impl App {
             is_waiting: show_throbber,
             waiting_elapsed: self.waiting_started.map(|t| t.elapsed()),
             input_empty: self.input().map(|i| i.is_empty()).unwrap_or(true),
-            panels_active: question_panel_active || permission_panel_active || batch_permission_panel_active,
+            panels_active: question_panel_active
+                || permission_panel_active
+                || batch_permission_panel_active,
         };
 
         // Update status bar with collected data
@@ -1633,26 +1701,23 @@ impl App {
                     } else {
                         None
                     };
-                    self.conversation_view.render(frame, *area, &theme, pending_status);
+                    self.conversation_view
+                        .render(frame, *area, &theme, pending_status);
                 }
                 id if id == widget_ids::TEXT_INPUT => {
                     // Input is rendered specially below (with throbber logic)
                 }
                 id if id == widget_ids::SLASH_POPUP => {
                     if let Some(widget) = self.widgets.get(widget_ids::SLASH_POPUP) {
-                        if let Some(popup_state) = widget.as_any().downcast_ref::<SlashPopupState>() {
+                        if let Some(popup_state) = widget.as_any().downcast_ref::<SlashPopupState>()
+                        {
                             // Build filtered commands from indices
-                            let filtered: Vec<&dyn SlashCommand> = self.filtered_command_indices
+                            let filtered: Vec<&dyn SlashCommand> = self
+                                .filtered_command_indices
                                 .iter()
                                 .filter_map(|&i| self.commands.get(i).map(|c| c.as_ref()))
                                 .collect();
-                            render_slash_popup(
-                                popup_state,
-                                &filtered,
-                                frame,
-                                *area,
-                                &theme,
-                            );
+                            render_slash_popup(popup_state, &filtered, frame, *area, &theme);
                         }
                     }
                 }
@@ -1669,7 +1734,8 @@ impl App {
 
         // Render input or throbber (special handling)
         if let Some(input_area) = layout.input_area {
-            if !question_panel_active && !permission_panel_active && !batch_permission_panel_active {
+            if !question_panel_active && !permission_panel_active && !batch_permission_panel_active
+            {
                 if show_throbber {
                     let default_message;
                     let message = if let Some(msg) = &self.custom_throbber_message {
@@ -1697,7 +1763,11 @@ impl App {
                         inner.height,
                     );
                     frame.render_widget(throbber_block, input_area);
-                    frame.render_stateful_widget(throbber, throbber_inner, &mut self.throbber_state);
+                    frame.render_stateful_widget(
+                        throbber,
+                        throbber_inner,
+                        &mut self.throbber_state,
+                    );
                 } else if let Some(input) = self.input() {
                     let input_lines: Vec<String> = input
                         .buffer()
@@ -1728,8 +1798,11 @@ impl App {
 
                     // Only show cursor if no overlay is active
                     if !theme_picker_active && !session_picker_active {
-                        let (cursor_rel_x, cursor_rel_y) = input
-                            .cursor_display_position_wrapped(frame_width, prompt_len, indent_len);
+                        let (cursor_rel_x, cursor_rel_y) = input.cursor_display_position_wrapped(
+                            frame_width,
+                            prompt_len,
+                            indent_len,
+                        );
                         let cursor_x = input_area.x + cursor_rel_x;
                         let cursor_y = input_area.y + 1 + cursor_rel_y;
                         frame.set_cursor_position((cursor_x, cursor_y));
@@ -1737,7 +1810,6 @@ impl App {
                 }
             }
         }
-
 
         // Render overlay widgets (theme picker, session picker) - always on top
         if theme_picker_active {

@@ -13,8 +13,10 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
+use super::types::{
+    DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
+};
 use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
-use super::types::{DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType};
 
 /// ReadFile tool name constant.
 pub const READ_FILE_TOOL_NAME: &str = "read_file";
@@ -61,14 +63,11 @@ const MAX_BYTES: usize = 50 * 1024;
 
 /// Binary file extensions that should be rejected.
 const BINARY_EXTENSIONS: &[&str] = &[
-    ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
-    ".exe", ".dll", ".so", ".dylib", ".a", ".lib", ".o", ".obj",
-    ".class", ".jar", ".war", ".pyc", ".pyo", ".wasm",
-    ".bin", ".dat", ".db", ".sqlite", ".sqlite3",
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff",
-    ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac", ".ogg",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".odt", ".ods", ".odp",
+    ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".exe", ".dll", ".so", ".dylib",
+    ".a", ".lib", ".o", ".obj", ".class", ".jar", ".war", ".pyc", ".pyo", ".wasm", ".bin", ".dat",
+    ".db", ".sqlite", ".sqlite3", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
+    ".tiff", ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac", ".ogg", ".pdf", ".doc",
+    ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp",
 ];
 
 /// Tool that reads files from the filesystem.
@@ -79,7 +78,9 @@ pub struct ReadFileTool {
 impl ReadFileTool {
     /// Create a new ReadFileTool instance.
     pub fn new(permission_registry: Arc<PermissionRegistry>) -> Self {
-        Self { permission_registry }
+        Self {
+            permission_registry,
+        }
     }
 
     fn build_permission_request(tool_use_id: &str, path: &str) -> PermissionRequest {
@@ -237,9 +238,14 @@ impl Executable for ReadFileTool {
 
             // Request permission if not pre-approved by batch executor
             if !context.permissions_pre_approved {
-                let permission_request = ReadFileTool::build_permission_request(&context.tool_use_id, file_path);
+                let permission_request =
+                    ReadFileTool::build_permission_request(&context.tool_use_id, file_path);
                 let response_rx = permission_registry
-                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
+                    .request_permission(
+                        context.session_id,
+                        permission_request,
+                        context.turn_id.clone(),
+                    )
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
@@ -248,8 +254,13 @@ impl Executable for ReadFileTool {
                     .map_err(|_| "Permission request was cancelled".to_string())?;
 
                 if !response.granted {
-                    let reason = response.message.unwrap_or_else(|| "User denied".to_string());
-                    return Err(format!("Permission denied to read '{}': {}", file_path, reason));
+                    let reason = response
+                        .message
+                        .unwrap_or_else(|| "User denied".to_string());
+                    return Err(format!(
+                        "Permission denied to read '{}': {}",
+                        file_path, reason
+                    ));
                 }
             }
 
@@ -398,11 +409,7 @@ impl Executable for ReadFileTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, result: &str) -> String {
         let filename = input
             .get("file_path")
             .and_then(|v| v.as_str())
@@ -426,9 +433,7 @@ impl Executable for ReadFileTool {
         input: &HashMap<String, serde_json::Value>,
     ) -> Option<Vec<PermissionRequest>> {
         // Extract file_path from input
-        let file_path = input
-            .get("file_path")
-            .and_then(|v| v.as_str())?;
+        let file_path = input.get("file_path").and_then(|v| v.as_str())?;
 
         let path = Path::new(file_path);
 
@@ -438,7 +443,8 @@ impl Executable for ReadFileTool {
         }
 
         // Build permission request using the existing helper
-        let permission_request = ReadFileTool::build_permission_request(&context.tool_use_id, file_path);
+        let permission_request =
+            ReadFileTool::build_permission_request(&context.tool_use_id, file_path);
 
         Some(vec![permission_request])
     }
@@ -694,7 +700,8 @@ mod tests {
             "[ReadFile: file.rs (complete)]"
         );
 
-        let partial_result = "<file>\n00001| code\n\n(Use 'offset' parameter to read beyond line 2000)\n</file>";
+        let partial_result =
+            "<file>\n00001| code\n\n(Use 'offset' parameter to read beyond line 2000)\n</file>";
         assert_eq!(
             tool.compact_summary(&input, partial_result),
             "[ReadFile: file.rs (partial)]"
@@ -703,10 +710,14 @@ mod tests {
 
     #[test]
     fn test_build_permission_request() {
-        let request = ReadFileTool::build_permission_request("test-id", "/home/user/project/file.rs");
+        let request =
+            ReadFileTool::build_permission_request("test-id", "/home/user/project/file.rs");
         assert_eq!(request.description, "Read file: /home/user/project/file.rs");
         assert_eq!(request.reason, Some("Read file contents".to_string()));
-        assert_eq!(request.target, GrantTarget::path("/home/user/project/file.rs", false));
+        assert_eq!(
+            request.target,
+            GrantTarget::path("/home/user/project/file.rs", false)
+        );
         assert_eq!(request.required_level, PermissionLevel::Read);
     }
 }

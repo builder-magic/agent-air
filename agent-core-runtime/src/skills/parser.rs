@@ -13,14 +13,17 @@ const MAX_DESCRIPTION_LENGTH: usize = 1024;
 ///
 /// The file must start with `---` followed by YAML content and another `---`.
 pub fn parse_skill_md(path: &Path) -> Result<SkillMetadata, SkillDiscoveryError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| SkillDiscoveryError::new(path.to_path_buf(), format!("Failed to read file: {}", e)))?;
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        SkillDiscoveryError::new(path.to_path_buf(), format!("Failed to read file: {}", e))
+    })?;
 
-    let frontmatter = extract_frontmatter(&content)
-        .ok_or_else(|| SkillDiscoveryError::new(path.to_path_buf(), "Missing or invalid YAML frontmatter"))?;
+    let frontmatter = extract_frontmatter(&content).ok_or_else(|| {
+        SkillDiscoveryError::new(path.to_path_buf(), "Missing or invalid YAML frontmatter")
+    })?;
 
-    let metadata: SkillMetadata = serde_yaml::from_str(frontmatter)
-        .map_err(|e| SkillDiscoveryError::new(path.to_path_buf(), format!("Invalid YAML: {}", e)))?;
+    let metadata: SkillMetadata = serde_yaml::from_str(frontmatter).map_err(|e| {
+        SkillDiscoveryError::new(path.to_path_buf(), format!("Invalid YAML: {}", e))
+    })?;
 
     validate_metadata(&metadata, path)?;
 
@@ -56,7 +59,10 @@ fn validate_metadata(metadata: &SkillMetadata, path: &Path) -> Result<(), SkillD
 /// Cannot start or end with a hyphen.
 fn validate_name(name: &str, path: &Path) -> Result<(), SkillDiscoveryError> {
     if name.is_empty() {
-        return Err(SkillDiscoveryError::new(path.to_path_buf(), "Skill name cannot be empty"));
+        return Err(SkillDiscoveryError::new(
+            path.to_path_buf(),
+            "Skill name cannot be empty",
+        ));
     }
 
     if name.len() > MAX_NAME_LENGTH {
@@ -77,7 +83,10 @@ fn validate_name(name: &str, path: &Path) -> Result<(), SkillDiscoveryError> {
         if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
             return Err(SkillDiscoveryError::new(
                 path.to_path_buf(),
-                format!("Skill name contains invalid character '{}'. Only lowercase letters, numbers, and hyphens allowed", c),
+                format!(
+                    "Skill name contains invalid character '{}'. Only lowercase letters, numbers, and hyphens allowed",
+                    c
+                ),
             ));
         }
     }
@@ -88,13 +97,19 @@ fn validate_name(name: &str, path: &Path) -> Result<(), SkillDiscoveryError> {
 /// Validate skill description.
 fn validate_description(description: &str, path: &Path) -> Result<(), SkillDiscoveryError> {
     if description.is_empty() {
-        return Err(SkillDiscoveryError::new(path.to_path_buf(), "Skill description cannot be empty"));
+        return Err(SkillDiscoveryError::new(
+            path.to_path_buf(),
+            "Skill description cannot be empty",
+        ));
     }
 
     if description.len() > MAX_DESCRIPTION_LENGTH {
         return Err(SkillDiscoveryError::new(
             path.to_path_buf(),
-            format!("Skill description exceeds {} characters", MAX_DESCRIPTION_LENGTH),
+            format!(
+                "Skill description exceeds {} characters",
+                MAX_DESCRIPTION_LENGTH
+            ),
         ));
     }
 

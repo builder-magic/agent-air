@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use thiserror::Error;
 
-use crate::client::models::{Message as LLMMessage, MessageOptions};
 use crate::client::LLMClient;
+use crate::client::models::{Message as LLMMessage, MessageOptions};
 
 use crate::controller::types::{ContentBlock, Message, TextBlock, TurnId, UserMessage};
 
@@ -123,7 +123,13 @@ pub trait AsyncCompactor: Compactor {
         &'a self,
         conversation: Vec<Message>,
         compact_summaries: &'a HashMap<String, String>,
-    ) -> Pin<Box<dyn Future<Output = Result<(Vec<Message>, CompactionResult), CompactionError>> + Send + 'a>>;
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<(Vec<Message>, CompactionResult), CompactionError>>
+                + Send
+                + 'a,
+        >,
+    >;
 }
 
 /// Compacts when context usage exceeds a threshold.
@@ -382,7 +388,8 @@ impl LLMCompactorConfig {
 
     /// Returns the max tokens to use (config value or default).
     pub fn max_tokens(&self) -> i64 {
-        self.max_summary_tokens.unwrap_or(DEFAULT_MAX_SUMMARY_TOKENS)
+        self.max_summary_tokens
+            .unwrap_or(DEFAULT_MAX_SUMMARY_TOKENS)
     }
 
     /// Returns the timeout to use (config value or default).
@@ -416,7 +423,10 @@ impl LLMCompactor {
     ///
     /// # Returns
     /// Error if configuration is invalid.
-    pub fn new(client: LLMClient, config: LLMCompactorConfig) -> Result<Self, CompactorConfigError> {
+    pub fn new(
+        client: LLMClient,
+        config: LLMCompactorConfig,
+    ) -> Result<Self, CompactorConfigError> {
         config.validate()?;
 
         tracing::info!(
@@ -556,8 +566,13 @@ impl AsyncCompactor for LLMCompactor {
         &'a self,
         conversation: Vec<Message>,
         _compact_summaries: &'a HashMap<String, String>,
-    ) -> Pin<Box<dyn Future<Output = Result<(Vec<Message>, CompactionResult), CompactionError>> + Send + 'a>>
-    {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<(Vec<Message>, CompactionResult), CompactionError>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             if conversation.is_empty() {
                 return Ok((conversation, CompactionResult::default()));
@@ -693,7 +708,7 @@ fn truncate_content(content: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::controller::types::{UserMessage, AssistantMessage};
+    use crate::controller::types::{AssistantMessage, UserMessage};
 
     fn make_user_message(turn_id: TurnId) -> Message {
         Message::User(UserMessage {
@@ -735,12 +750,14 @@ mod tests {
             session_id: "test_session".to_string(),
             turn_id,
             created_at: 0,
-            content: vec![ContentBlock::ToolResult(crate::controller::types::ToolResultBlock {
-                tool_use_id: tool_use_id.to_string(),
-                content: content.to_string(),
-                is_error: false,
-                compact_summary: None,
-            })],
+            content: vec![ContentBlock::ToolResult(
+                crate::controller::types::ToolResultBlock {
+                    tool_use_id: tool_use_id.to_string(),
+                    content: content.to_string(),
+                    is_error: false,
+                    compact_summary: None,
+                },
+            )],
         })
     }
 

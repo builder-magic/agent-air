@@ -331,17 +331,18 @@ mod tests {
         let mut state = StreamState::default();
         let events = parse_stream_event(&sse, &mut state).unwrap();
 
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, StreamEvent::MessageStart { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, StreamEvent::MessageStart { .. }))
+        );
         assert_eq!(state.message_id, Some("chatcmpl-123".to_string()));
         assert_eq!(state.model, Some("gpt-4".to_string()));
     }
 
     #[test]
     fn test_parse_content_delta() {
-        let data =
-            r#"{"id":"chatcmpl-123","model":"gpt-4","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let data = r#"{"id":"chatcmpl-123","model":"gpt-4","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
         let sse = SseEvent {
             data: data.to_string(),
         };
@@ -352,9 +353,9 @@ mod tests {
 
         let events = parse_stream_event(&sse, &mut state).unwrap();
 
-        let has_text_delta = events.iter().any(|e| {
-            matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello")
-        });
+        let has_text_delta = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello"));
         assert!(has_text_delta);
     }
 

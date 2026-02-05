@@ -92,7 +92,9 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &SidebarOptions) 
     let mut result = standard::compute(&main_ctx, sizes, &opts.main_options);
 
     // Add sidebar
-    result.widget_areas.insert(opts.sidebar_widget_id, sidebar_area);
+    result
+        .widget_areas
+        .insert(opts.sidebar_widget_id, sidebar_area);
     // Insert sidebar at beginning of render order (renders first, behind main)
     result.render_order.insert(0, opts.sidebar_widget_id);
 

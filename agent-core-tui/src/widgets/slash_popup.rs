@@ -7,10 +7,10 @@
 //! definitions via the SlashCommand trait.
 
 use ratatui::{
+    Frame,
     layout::Rect,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::themes::Theme;
@@ -18,7 +18,8 @@ use crate::themes::Theme;
 /// Default configuration values for SlashPopup
 pub mod defaults {
     /// Header text shown at top of popup
-    pub const HEADER_TEXT: &str = " Slash command mode \u{2014} Use arrow keys to select, Enter to execute, Esc to cancel";
+    pub const HEADER_TEXT: &str =
+        " Slash command mode \u{2014} Use arrow keys to select, Enter to execute, Esc to cancel";
     /// Message when no commands match
     pub const NO_MATCHES_MESSAGE: &str = " No matching commands";
     /// Command prefix (the slash)
@@ -213,9 +214,9 @@ impl Default for SlashPopupState {
 
 // --- Widget trait implementation ---
 
-use std::any::Any;
+use super::{Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
+use std::any::Any;
 
 /// Result of handling a key event in the slash popup
 #[derive(Debug, Clone, PartialEq)]
@@ -421,7 +422,9 @@ pub fn render_slash_popup<C: SlashCommandDisplay>(
         // Description line with leading space, padded to full width for selected
         let desc_text = format!("{}{}", state.config.description_indent, cmd.description());
         let desc_style = if is_selected {
-            theme.popup_selected_bg().patch(theme.popup_item_desc_selected())
+            theme
+                .popup_selected_bg()
+                .patch(theme.popup_item_desc_selected())
         } else {
             theme.popup_item_desc()
         };

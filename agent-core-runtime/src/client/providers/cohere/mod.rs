@@ -69,10 +69,8 @@ impl LlmProvider for CohereProvider {
 
             // Get headers
             let headers = types::get_request_headers(&api_key)?;
-            let headers_ref: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (*k, v.as_str()))
-                .collect();
+            let headers_ref: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
             // Get the API URL
             let url = types::get_api_url();
@@ -90,7 +88,16 @@ impl LlmProvider for CohereProvider {
         client: &HttpClient,
         messages: &[Message],
         options: &MessageOptions,
-    ) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>, LlmError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>,
+                        LlmError,
+                    >,
+                > + Send,
+        >,
+    > {
         // Clone data for the async block
         let client = client.clone();
         let api_key = self.api_key.clone();
@@ -104,10 +111,8 @@ impl LlmProvider for CohereProvider {
 
             // Get headers
             let headers = types::get_request_headers(&api_key)?;
-            let headers_ref: Vec<(&str, &str)> = headers
-                .iter()
-                .map(|(k, v)| (*k, v.as_str()))
-                .collect();
+            let headers_ref: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
             // Get the API URL
             let url = types::get_api_url();
@@ -175,7 +180,10 @@ impl LlmProvider for CohereProvider {
                 }
             };
 
-            Ok(Box::pin(event_stream) as Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>)
+            Ok(Box::pin(event_stream)
+                as Pin<
+                    Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>,
+                >)
         })
     }
 }

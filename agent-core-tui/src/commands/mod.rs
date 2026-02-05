@@ -69,13 +69,15 @@ mod traits;
 // Re-export main types
 pub use context::{CommandContext, PendingAction};
 pub use custom::CustomCommand;
-pub use helpers::{filter_commands, generate_help_message, get_command_by_name, is_slash_command, parse_command};
+pub use helpers::{
+    filter_commands, generate_help_message, get_command_by_name, is_slash_command, parse_command,
+};
 pub use registry::CommandRegistry;
 pub use result::CommandResult;
 pub use traits::SlashCommand;
 
 // Re-export standard commands
 pub use standard::{
-    default_commands, ClearCommand, CompactCommand, HelpCommand, NewSessionCommand, QuitCommand,
-    SessionsCommand, StatusCommand, ThemesCommand, VersionCommand,
+    ClearCommand, CompactCommand, HelpCommand, NewSessionCommand, QuitCommand, SessionsCommand,
+    StatusCommand, ThemesCommand, VersionCommand, default_commands,
 };

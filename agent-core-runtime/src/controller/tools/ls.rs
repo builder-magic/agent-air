@@ -14,8 +14,10 @@ use std::time::SystemTime;
 use chrono::{DateTime, Local};
 use globset::{Glob, GlobMatcher};
 
+use super::types::{
+    DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
+};
 use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
-use super::types::{DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType};
 
 /// Ls tool name constant.
 pub const LS_TOOL_NAME: &str = "ls";
@@ -222,7 +224,9 @@ pub struct LsTool {
 impl LsTool {
     /// Create a new LsTool instance.
     pub fn new(permission_registry: Arc<PermissionRegistry>) -> Self {
-        Self { permission_registry }
+        Self {
+            permission_registry,
+        }
     }
 
     fn build_permission_request(tool_use_id: &str, path: &str) -> PermissionRequest {
@@ -287,9 +291,14 @@ impl Executable for LsTool {
 
             // Request permission if not pre-approved by batch executor
             if !context.permissions_pre_approved {
-                let permission_request = Self::build_permission_request(&context.tool_use_id, path_str);
+                let permission_request =
+                    Self::build_permission_request(&context.tool_use_id, path_str);
                 let response_rx = permission_registry
-                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
+                    .request_permission(
+                        context.session_id,
+                        permission_request,
+                        context.turn_id.clone(),
+                    )
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
@@ -298,8 +307,13 @@ impl Executable for LsTool {
                     .map_err(|_| "Permission request was cancelled".to_string())?;
 
                 if !response.granted {
-                    let reason = response.message.unwrap_or_else(|| "User denied".to_string());
-                    return Err(format!("Permission denied to list '{}': {}", path_str, reason));
+                    let reason = response
+                        .message
+                        .unwrap_or_else(|| "User denied".to_string());
+                    return Err(format!(
+                        "Permission denied to list '{}': {}",
+                        path_str, reason
+                    ));
                 }
             }
 
@@ -350,8 +364,8 @@ impl Executable for LsTool {
             };
 
             // Read directory entries
-            let read_dir = fs::read_dir(path)
-                .map_err(|e| format!("Failed to read directory: {}", e))?;
+            let read_dir =
+                fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
             let mut entries: Vec<FileEntry> = read_dir
                 .filter_map(|entry| entry.ok())
@@ -390,11 +404,7 @@ impl Executable for LsTool {
                     SortBy::Modified => a.modified.cmp(&b.modified),
                 };
 
-                if reverse {
-                    cmp.reverse()
-                } else {
-                    cmp
-                }
+                if reverse { cmp.reverse() } else { cmp }
             });
 
             // Apply limit
@@ -460,11 +470,7 @@ impl Executable for LsTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, result: &str) -> String {
         let dirname = input
             .get("path")
             .and_then(|v| v.as_str())
@@ -555,7 +561,10 @@ mod tests {
         let request = LsTool::build_permission_request("test-tool-id", "/home/user/project");
         assert_eq!(request.description, "List directory: /home/user/project");
         assert_eq!(request.reason, Some("Read directory contents".to_string()));
-        assert_eq!(request.target, GrantTarget::path("/home/user/project", false));
+        assert_eq!(
+            request.target,
+            GrantTarget::path("/home/user/project", false)
+        );
         assert_eq!(request.required_level, PermissionLevel::Read);
     }
 

@@ -36,6 +36,8 @@ mod policy;
 mod sink;
 mod source;
 
-pub use policy::{AutoApprovePolicy, DenyAllPolicy, InteractivePolicy, PermissionPolicy, PolicyDecision};
+pub use policy::{
+    AutoApprovePolicy, DenyAllPolicy, InteractivePolicy, PermissionPolicy, PolicyDecision,
+};
 pub use sink::{ChannelEventSink, EventSink, SendError, SimpleEventSink};
 pub use source::{ChannelInputSource, InputSource};

@@ -144,7 +144,16 @@ impl LlmProvider for BedrockProvider {
         client: &HttpClient,
         messages: &[Message],
         options: &MessageOptions,
-    ) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>, LlmError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>,
+                        LlmError,
+                    >,
+                > + Send,
+        >,
+    > {
         // Clone data for the async block
         let client = client.clone();
         let credentials = self.credentials.clone();
@@ -232,7 +241,10 @@ impl LlmProvider for BedrockProvider {
                 }
             };
 
-            Ok(Box::pin(event_stream) as Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>)
+            Ok(Box::pin(event_stream)
+                as Pin<
+                    Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>,
+                >)
         })
     }
 }

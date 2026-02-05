@@ -18,16 +18,16 @@
 
 use std::collections::HashSet;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::controller::{
     Answer, AskUserQuestionsRequest, AskUserQuestionsResponse, Question, TurnId,
 };
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 use tui_textarea::TextArea;
 
@@ -46,7 +46,8 @@ pub mod defaults {
     /// Help text for navigation mode
     pub const HELP_TEXT_NAV: &str = " Up/Down: Navigate \u{00B7} Enter/Space: Select \u{00B7} Tab: Next Section \u{00B7} Esc: Cancel";
     /// Help text for text input mode
-    pub const HELP_TEXT_INPUT: &str = " Type text \u{00B7} Enter: Next \u{00B7} Tab: Next Section \u{00B7} Esc: Cancel";
+    pub const HELP_TEXT_INPUT: &str =
+        " Type text \u{00B7} Enter: Next \u{00B7} Tab: Next Section \u{00B7} Esc: Cancel";
     /// Question prefix icon
     pub const QUESTION_PREFIX: &str = " \u{2237} ";
     /// Radio button symbols (single choice)
@@ -127,14 +128,22 @@ impl QuestionPanelConfig {
     }
 
     /// Set radio button symbols
-    pub fn with_radio_symbols(mut self, selected: impl Into<String>, unselected: impl Into<String>) -> Self {
+    pub fn with_radio_symbols(
+        mut self,
+        selected: impl Into<String>,
+        unselected: impl Into<String>,
+    ) -> Self {
         self.radio_selected = selected.into();
         self.radio_unselected = unselected.into();
         self
     }
 
     /// Set checkbox symbols
-    pub fn with_checkbox_symbols(mut self, selected: impl Into<String>, unselected: impl Into<String>) -> Self {
+    pub fn with_checkbox_symbols(
+        mut self,
+        selected: impl Into<String>,
+        unselected: impl Into<String>,
+    ) -> Self {
         self.checkbox_selected = selected.into();
         self.checkbox_unselected = unselected.into();
         self
@@ -297,15 +306,15 @@ impl AnswerState {
     /// Check if this answer has a valid response (selected choice or text entered)
     pub fn has_answer(&self) -> bool {
         match self {
-            AnswerState::SingleChoice { selected, other_text } => {
-                selected.is_some() || !other_text.lines().join("").trim().is_empty()
-            }
-            AnswerState::MultiChoice { selected, other_text } => {
-                !selected.is_empty() || !other_text.lines().join("").trim().is_empty()
-            }
-            AnswerState::FreeText { textarea } => {
-                !textarea.lines().join("").trim().is_empty()
-            }
+            AnswerState::SingleChoice {
+                selected,
+                other_text,
+            } => selected.is_some() || !other_text.lines().join("").trim().is_empty(),
+            AnswerState::MultiChoice {
+                selected,
+                other_text,
+            } => !selected.is_empty() || !other_text.lines().join("").trim().is_empty(),
+            AnswerState::FreeText { textarea } => !textarea.lines().join("").trim().is_empty(),
         }
     }
 }
@@ -429,10 +438,14 @@ impl QuestionPanel {
                         });
                     }
                     // "Type Something" option - always available for custom answers
-                    items.push(FocusItem::OtherOption { question_idx: q_idx });
+                    items.push(FocusItem::OtherOption {
+                        question_idx: q_idx,
+                    });
                 }
                 Question::FreeText { .. } => {
-                    items.push(FocusItem::TextInput { question_idx: q_idx });
+                    items.push(FocusItem::TextInput {
+                        question_idx: q_idx,
+                    });
                 }
             }
         }
@@ -516,7 +529,11 @@ impl QuestionPanel {
 
     /// Jump to submit button
     pub fn focus_submit(&mut self) {
-        if let Some(idx) = self.focus_items.iter().position(|f| *f == FocusItem::Submit) {
+        if let Some(idx) = self
+            .focus_items
+            .iter()
+            .position(|f| *f == FocusItem::Submit)
+        {
             self.focus_idx = idx;
         }
     }
@@ -525,7 +542,11 @@ impl QuestionPanel {
     pub fn is_text_focused(&self) -> bool {
         matches!(
             self.current_focus(),
-            Some(FocusItem::TextInput { .. } | FocusItem::OtherText { .. } | FocusItem::OtherOption { .. })
+            Some(
+                FocusItem::TextInput { .. }
+                    | FocusItem::OtherText { .. }
+                    | FocusItem::OtherOption { .. }
+            )
         )
     }
 
@@ -543,9 +564,7 @@ impl QuestionPanel {
                 ) {
                     let choice_text = match question {
                         Question::SingleChoice { choices, .. }
-                        | Question::MultiChoice { choices, .. } => {
-                            choices.get(choice_idx).cloned()
-                        }
+                        | Question::MultiChoice { choices, .. } => choices.get(choice_idx).cloned(),
                         _ => None,
                     };
                     if let Some(text) = choice_text {
@@ -722,9 +741,7 @@ impl QuestionPanel {
                 ) {
                     let choice_text = match question {
                         Question::SingleChoice { choices, .. }
-                        | Question::MultiChoice { choices, .. } => {
-                            choices.get(choice_idx).cloned()
-                        }
+                        | Question::MultiChoice { choices, .. } => choices.get(choice_idx).cloned(),
                         _ => None,
                     };
                     if let Some(text) = choice_text {
@@ -859,12 +876,18 @@ impl QuestionPanel {
 
         // Add: help text(1) + help blank(1) + spacing between questions + blank before buttons(1) + buttons(1) + borders(2)
         let num_questions = self.request.questions.len() as u16;
-        let spacing = if num_questions > 1 { num_questions - 1 } else { 0 };
+        let spacing = if num_questions > 1 {
+            num_questions - 1
+        } else {
+            0
+        };
         let total = lines + spacing + 7;
 
         // Cap at percentage of available height, leaving room for chat and input
         let max_from_percent = (max_height * self.config.max_panel_percent) / 100;
-        total.min(max_from_percent).min(max_height.saturating_sub(6))
+        total
+            .min(max_from_percent)
+            .min(max_height.saturating_sub(6))
     }
 
     /// Render the question panel
@@ -896,7 +919,10 @@ impl QuestionPanel {
         } else {
             &self.config.help_text_nav
         };
-        lines.push(Line::from(Span::styled(help_text.clone(), theme.help_text())));
+        lines.push(Line::from(Span::styled(
+            help_text.clone(),
+            theme.help_text(),
+        )));
         lines.push(Line::from("")); // blank line after help
 
         // Render each question vertically
@@ -914,7 +940,12 @@ impl QuestionPanel {
 
             // Question text with arrow prefix and required marker
             let required = if question.is_required() { "*" } else { "" };
-            let q_text = format!("{}{}{}", self.config.question_prefix, question.text(), required);
+            let q_text = format!(
+                "{}{}{}",
+                self.config.question_prefix,
+                question.text(),
+                required
+            );
             lines.push(Line::from(Span::styled(
                 truncate_text(&q_text, inner_width),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -922,10 +953,26 @@ impl QuestionPanel {
 
             match question {
                 Question::SingleChoice { choices, .. } => {
-                    self.render_choices(&mut lines, q_idx, choices, answer, false, inner_width, theme);
+                    self.render_choices(
+                        &mut lines,
+                        q_idx,
+                        choices,
+                        answer,
+                        false,
+                        inner_width,
+                        theme,
+                    );
                 }
                 Question::MultiChoice { choices, .. } => {
-                    self.render_choices(&mut lines, q_idx, choices, answer, true, inner_width, theme);
+                    self.render_choices(
+                        &mut lines,
+                        q_idx,
+                        choices,
+                        answer,
+                        true,
+                        inner_width,
+                        theme,
+                    );
                 }
                 Question::FreeText { .. } => {
                     self.render_text_input(&mut lines, q_idx, answer, inner_width, theme);
@@ -1003,12 +1050,24 @@ impl QuestionPanel {
             let is_selected = answer.is_selected(choice_text);
 
             let symbol = if is_multi {
-                if is_selected { &self.config.checkbox_selected } else { &self.config.checkbox_unselected }
+                if is_selected {
+                    &self.config.checkbox_selected
+                } else {
+                    &self.config.checkbox_unselected
+                }
             } else {
-                if is_selected { &self.config.radio_selected } else { &self.config.radio_unselected }
+                if is_selected {
+                    &self.config.radio_selected
+                } else {
+                    &self.config.radio_unselected
+                }
             };
 
-            let prefix = if is_focused { &self.config.selection_indicator } else { &self.config.no_indicator };
+            let prefix = if is_focused {
+                &self.config.selection_indicator
+            } else {
+                &self.config.no_indicator
+            };
             let display_text = truncate_text(choice_text, inner_width - 8);
 
             if is_focused {
@@ -1026,7 +1085,8 @@ impl QuestionPanel {
 
         // "Type Something:" option - always available for custom answers
         let other_focused = self.current_focus() == Some(&FocusItem::OtherOption { question_idx });
-        let other_text_focused = self.current_focus() == Some(&FocusItem::OtherText { question_idx });
+        let other_text_focused =
+            self.current_focus() == Some(&FocusItem::OtherText { question_idx });
         let is_this_focused = other_focused || other_text_focused;
         let has_other = answer.has_other_text();
 
@@ -1034,18 +1094,32 @@ impl QuestionPanel {
         // - no other choice is selected AND (has text OR is currently focused)
         // For multi choice, it's selected if there's text
         let is_other_selected = match answer {
-            AnswerState::SingleChoice { selected, .. } => selected.is_none() && (has_other || is_this_focused),
+            AnswerState::SingleChoice { selected, .. } => {
+                selected.is_none() && (has_other || is_this_focused)
+            }
             AnswerState::MultiChoice { .. } => has_other,
             _ => false,
         };
 
         let symbol = if is_multi {
-            if is_other_selected { &self.config.checkbox_selected } else { &self.config.checkbox_unselected }
+            if is_other_selected {
+                &self.config.checkbox_selected
+            } else {
+                &self.config.checkbox_unselected
+            }
         } else {
-            if is_other_selected { &self.config.radio_selected } else { &self.config.radio_unselected }
+            if is_other_selected {
+                &self.config.radio_selected
+            } else {
+                &self.config.radio_unselected
+            }
         };
 
-        let prefix = if is_this_focused { &self.config.selection_indicator } else { &self.config.no_indicator };
+        let prefix = if is_this_focused {
+            &self.config.selection_indicator
+        } else {
+            &self.config.no_indicator
+        };
 
         // Get the text input content and cursor position
         let (other_text, cursor_col) = match answer {
@@ -1064,7 +1138,10 @@ impl QuestionPanel {
             let cursor_pos = cursor_col.min(chars.len());
             let before: String = chars[..cursor_pos].iter().collect();
             let cursor_char = chars.get(cursor_pos).copied().unwrap_or(' ');
-            let after: String = chars.get(cursor_pos + 1..).map(|s| s.iter().collect()).unwrap_or_default();
+            let after: String = chars
+                .get(cursor_pos + 1..)
+                .map(|s| s.iter().collect())
+                .unwrap_or_default();
 
             lines.push(Line::from(vec![
                 Span::styled(prefix.clone(), theme.focus_indicator()),
@@ -1102,7 +1179,11 @@ impl QuestionPanel {
             _ => (String::new(), 0),
         };
 
-        let prefix = if is_focused { &self.config.selection_indicator } else { &self.config.no_indicator };
+        let prefix = if is_focused {
+            &self.config.selection_indicator
+        } else {
+            &self.config.no_indicator
+        };
 
         if is_focused {
             // Show cursor as inverse character
@@ -1110,7 +1191,10 @@ impl QuestionPanel {
             let cursor_pos = cursor_col.min(chars.len());
             let before: String = chars[..cursor_pos].iter().collect();
             let cursor_char = chars.get(cursor_pos).copied().unwrap_or(' ');
-            let after: String = chars.get(cursor_pos + 1..).map(|s| s.iter().collect()).unwrap_or_default();
+            let after: String = chars
+                .get(cursor_pos + 1..)
+                .map(|s| s.iter().collect())
+                .unwrap_or_default();
 
             lines.push(Line::from(vec![
                 Span::styled(prefix.clone(), theme.focus_indicator()),
@@ -1142,8 +1226,8 @@ impl Default for QuestionPanel {
 
 // --- Widget trait implementation ---
 
+use super::{Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use std::any::Any;
-use super::{widget_ids, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult};
 
 impl Widget for QuestionPanel {
     fn id(&self) -> &'static str {
@@ -1257,13 +1341,11 @@ mod tests {
 
     fn create_test_request() -> AskUserQuestionsRequest {
         AskUserQuestionsRequest {
-            questions: vec![
-                Question::SingleChoice {
-                    text: "Choose one".to_string(),
-                    choices: vec!["Option A".to_string(), "Option B".to_string()],
-                    required: true,
-                },
-            ],
+            questions: vec![Question::SingleChoice {
+                text: "Choose one".to_string(),
+                choices: vec!["Option A".to_string(), "Option B".to_string()],
+                required: true,
+            }],
         }
     }
 

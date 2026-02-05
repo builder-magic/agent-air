@@ -153,58 +153,142 @@ impl Theme {
     // Accessor methods for compatibility with code that used the old trait
 
     // Markdown styles
-    pub fn bold(&self) -> Modifier { self.bold }
-    pub fn italic(&self) -> Modifier { self.italic }
-    pub fn strikethrough(&self) -> Modifier { self.strikethrough }
-    pub fn inline_code(&self) -> Style { self.inline_code }
-    pub fn link_text(&self) -> Style { self.link_text }
-    pub fn link_url(&self) -> Style { self.link_url }
-    pub fn heading_1(&self) -> Style { self.heading_1 }
-    pub fn heading_2(&self) -> Style { self.heading_2 }
-    pub fn heading_3(&self) -> Style { self.heading_3 }
-    pub fn heading_4(&self) -> Style { self.heading_4 }
-    pub fn code_block(&self) -> Style { self.code_block }
-    pub fn assistant_prefix(&self) -> Style { self.assistant_prefix }
+    pub fn bold(&self) -> Modifier {
+        self.bold
+    }
+    pub fn italic(&self) -> Modifier {
+        self.italic
+    }
+    pub fn strikethrough(&self) -> Modifier {
+        self.strikethrough
+    }
+    pub fn inline_code(&self) -> Style {
+        self.inline_code
+    }
+    pub fn link_text(&self) -> Style {
+        self.link_text
+    }
+    pub fn link_url(&self) -> Style {
+        self.link_url
+    }
+    pub fn heading_1(&self) -> Style {
+        self.heading_1
+    }
+    pub fn heading_2(&self) -> Style {
+        self.heading_2
+    }
+    pub fn heading_3(&self) -> Style {
+        self.heading_3
+    }
+    pub fn heading_4(&self) -> Style {
+        self.heading_4
+    }
+    pub fn code_block(&self) -> Style {
+        self.code_block
+    }
+    pub fn assistant_prefix(&self) -> Style {
+        self.assistant_prefix
+    }
 
     // Table styles
-    pub fn table_header(&self) -> Style { self.table_header }
-    pub fn table_cell(&self) -> Style { self.table_cell }
-    pub fn table_border(&self) -> Style { self.table_border }
+    pub fn table_header(&self) -> Style {
+        self.table_header
+    }
+    pub fn table_cell(&self) -> Style {
+        self.table_cell
+    }
+    pub fn table_border(&self) -> Style {
+        self.table_border
+    }
 
     // Border styles
-    pub fn border(&self) -> Style { self.border }
-    pub fn border_focused(&self) -> Style { self.border_focused }
+    pub fn border(&self) -> Style {
+        self.border
+    }
+    pub fn border_focused(&self) -> Style {
+        self.border_focused
+    }
 
     // Popup styles
-    pub fn popup_border(&self) -> Style { self.popup_border }
-    pub fn popup_header(&self) -> Style { self.popup_header }
-    pub fn popup_item(&self) -> Style { self.popup_item }
-    pub fn popup_item_selected(&self) -> Style { self.popup_item_selected }
-    pub fn popup_item_desc(&self) -> Style { self.popup_item_desc }
-    pub fn popup_item_desc_selected(&self) -> Style { self.popup_item_desc_selected }
-    pub fn popup_selected_bg(&self) -> Style { self.popup_selected_bg }
-    pub fn popup_empty(&self) -> Style { self.popup_empty }
+    pub fn popup_border(&self) -> Style {
+        self.popup_border
+    }
+    pub fn popup_header(&self) -> Style {
+        self.popup_header
+    }
+    pub fn popup_item(&self) -> Style {
+        self.popup_item
+    }
+    pub fn popup_item_selected(&self) -> Style {
+        self.popup_item_selected
+    }
+    pub fn popup_item_desc(&self) -> Style {
+        self.popup_item_desc
+    }
+    pub fn popup_item_desc_selected(&self) -> Style {
+        self.popup_item_desc_selected
+    }
+    pub fn popup_selected_bg(&self) -> Style {
+        self.popup_selected_bg
+    }
+    pub fn popup_empty(&self) -> Style {
+        self.popup_empty
+    }
 
     // Status styles
-    pub fn status_help(&self) -> Style { self.status_help }
-    pub fn background(&self) -> Style { self.background }
-    pub fn text(&self) -> Style { self.text }
-    pub fn cursor(&self) -> Style { self.cursor }
+    pub fn status_help(&self) -> Style {
+        self.status_help
+    }
+    pub fn background(&self) -> Style {
+        self.background
+    }
+    pub fn text(&self) -> Style {
+        self.text
+    }
+    pub fn cursor(&self) -> Style {
+        self.cursor
+    }
 
     // UI Panel styles
-    pub fn help_text(&self) -> Style { self.help_text }
-    pub fn muted_text(&self) -> Style { self.muted_text }
-    pub fn focused_text(&self) -> Style { self.focused_text }
-    pub fn focus_indicator(&self) -> Style { self.focus_indicator }
-    pub fn selected(&self) -> Style { self.selected }
-    pub fn unselected(&self) -> Style { self.unselected }
-    pub fn button_confirm(&self) -> Style { self.button_confirm }
-    pub fn button_confirm_focused(&self) -> Style { self.button_confirm_focused }
-    pub fn button_cancel(&self) -> Style { self.button_cancel }
-    pub fn button_cancel_focused(&self) -> Style { self.button_cancel_focused }
-    pub fn warning(&self) -> Style { self.warning }
-    pub fn category(&self) -> Style { self.category }
-    pub fn resource(&self) -> Style { self.resource }
+    pub fn help_text(&self) -> Style {
+        self.help_text
+    }
+    pub fn muted_text(&self) -> Style {
+        self.muted_text
+    }
+    pub fn focused_text(&self) -> Style {
+        self.focused_text
+    }
+    pub fn focus_indicator(&self) -> Style {
+        self.focus_indicator
+    }
+    pub fn selected(&self) -> Style {
+        self.selected
+    }
+    pub fn unselected(&self) -> Style {
+        self.unselected
+    }
+    pub fn button_confirm(&self) -> Style {
+        self.button_confirm
+    }
+    pub fn button_confirm_focused(&self) -> Style {
+        self.button_confirm_focused
+    }
+    pub fn button_cancel(&self) -> Style {
+        self.button_cancel
+    }
+    pub fn button_cancel_focused(&self) -> Style {
+        self.button_cancel_focused
+    }
+    pub fn warning(&self) -> Style {
+        self.warning
+    }
+    pub fn category(&self) -> Style {
+        self.category
+    }
+    pub fn resource(&self) -> Style {
+        self.resource
+    }
 }
 
 impl Default for Theme {
@@ -303,18 +387,23 @@ impl Default for Theme {
             // UI Panel styles
             help_text: Style::default().fg(Color::DarkGray),
             muted_text: Style::default().fg(Color::Gray),
-            focused_text: Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            focused_text: Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
             focus_indicator: Style::default().fg(Color::Yellow),
             selected: Style::default().fg(Color::Green),
             unselected: Style::default().fg(Color::Gray),
             button_confirm: Style::default().fg(Color::Rgb(60, 120, 60)),
-            button_confirm_focused: Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+            button_confirm_focused: Style::default()
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
             button_cancel: Style::default().fg(Color::Rgb(140, 70, 70)),
-            button_cancel_focused: Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            button_cancel_focused: Style::default()
+                .fg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
             warning: Style::default().fg(Color::Yellow),
             category: Style::default().fg(Color::Magenta),
             resource: Style::default().fg(Color::Cyan),
         }
     }
 }
-

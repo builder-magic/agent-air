@@ -112,8 +112,8 @@ impl Default for ToolRegistry {
 mod tests {
     use super::*;
     use crate::controller::tools::types::{ToolContext, ToolType};
-    use std::pin::Pin;
     use std::future::Future;
+    use std::pin::Pin;
 
     struct MockTool {
         name: String,

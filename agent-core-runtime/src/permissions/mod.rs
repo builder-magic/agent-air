@@ -57,16 +57,16 @@ mod target;
 mod tool_mapping;
 
 pub use batch::{
-    compute_suggested_grants, BatchAction, BatchPermissionRequest, BatchPermissionResponse,
+    BatchAction, BatchPermissionRequest, BatchPermissionResponse, compute_suggested_grants,
 };
 pub use grant::{Grant, PermissionRequest};
 pub use level::PermissionLevel;
 pub use registry::{
-    generate_batch_id, PendingPermissionInfo, PermissionError, PermissionPanelResponse,
-    PermissionRegistry,
+    PendingPermissionInfo, PermissionError, PermissionPanelResponse, PermissionRegistry,
+    generate_batch_id,
 };
 pub use target::GrantTarget;
-pub use tool_mapping::{get_tool_category, ToolCategory, ToolPermissions};
+pub use tool_mapping::{ToolCategory, ToolPermissions, get_tool_category};
 
 #[cfg(test)]
 mod integration_tests {

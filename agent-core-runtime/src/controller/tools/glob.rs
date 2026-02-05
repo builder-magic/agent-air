@@ -14,10 +14,10 @@ use std::time::SystemTime;
 use globset::{Glob, GlobMatcher};
 use walkdir::WalkDir;
 
-use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 
 /// Glob tool name constant.
 pub const GLOB_TOOL_NAME: &str = "glob";
@@ -105,11 +105,7 @@ impl GlobTool {
     }
 
     /// Builds a permission request for searching files in a directory.
-    fn build_permission_request(
-        tool_use_id: &str,
-        path: &str,
-        pattern: &str,
-    ) -> PermissionRequest {
+    fn build_permission_request(tool_use_id: &str, path: &str, pattern: &str) -> PermissionRequest {
         let reason = format!("Search for '{}' pattern", pattern);
         PermissionRequest::new(
             tool_use_id,
@@ -168,9 +164,7 @@ impl Executable for GlobTool {
                 .and_then(|v| v.as_str())
                 .map(PathBuf::from)
                 .or(default_path)
-                .unwrap_or_else(|| {
-                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-                });
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
             let search_path_str = search_path.to_string_lossy().to_string();
 
@@ -187,10 +181,7 @@ impl Executable for GlobTool {
 
             // Validate search path exists
             if !search_path.exists() {
-                return Err(format!(
-                    "Search path does not exist: {}",
-                    search_path_str
-                ));
+                return Err(format!("Search path does not exist: {}", search_path_str));
             }
 
             if !search_path.is_dir() {
@@ -208,7 +199,11 @@ impl Executable for GlobTool {
                     Self::build_permission_request(&context.tool_use_id, &search_path_str, pattern);
 
                 let response_rx = permission_registry
-                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
+                    .request_permission(
+                        context.session_id,
+                        permission_request,
+                        context.turn_id.clone(),
+                    )
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
@@ -245,9 +240,7 @@ impl Executable for GlobTool {
                     // Skip hidden directories unless include_hidden is true
                     // But always allow the root search path
                     let is_root = e.path() == search_path_for_filter;
-                    is_root
-                        || include_hidden
-                        || !e.file_name().to_string_lossy().starts_with('.')
+                    is_root || include_hidden || !e.file_name().to_string_lossy().starts_with('.')
                 })
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().is_file())
@@ -321,19 +314,14 @@ impl Executable for GlobTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        result: &str,
-    ) -> String {
-        let pattern = input
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .unwrap_or("*");
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, result: &str) -> String {
+        let pattern = input.get("pattern").and_then(|v| v.as_str()).unwrap_or("*");
 
         let file_count = result
             .lines()
-            .filter(|line| !line.starts_with("...") && !line.starts_with("No files") && !line.is_empty())
+            .filter(|line| {
+                !line.starts_with("...") && !line.starts_with("No files") && !line.is_empty()
+            })
             .count();
 
         format!("[Glob: {} ({} files)]", pattern, file_count)
@@ -353,9 +341,7 @@ impl Executable for GlobTool {
             .and_then(|v| v.as_str())
             .map(PathBuf::from)
             .or_else(|| self.default_path.clone())
-            .unwrap_or_else(|| {
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-            });
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
         let search_path_str = search_path.to_string_lossy().to_string();
 
@@ -384,11 +370,19 @@ mod tests {
     }
 
     fn grant_once() -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: true, grant: None, message: None }
+        PermissionPanelResponse {
+            granted: true,
+            grant: None,
+            message: None,
+        }
     }
 
     fn deny(reason: &str) -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
+        PermissionPanelResponse {
+            granted: false,
+            grant: None,
+            message: Some(reason.to_string()),
+        }
     }
 
     fn setup_test_dir() -> TempDir {
@@ -534,10 +528,7 @@ mod tests {
             "pattern".to_string(),
             serde_json::Value::String("**/*".to_string()),
         );
-        input.insert(
-            "include_hidden".to_string(),
-            serde_json::Value::Bool(true),
-        );
+        input.insert("include_hidden".to_string(), serde_json::Value::Bool(true));
 
         let context = ToolContext {
             session_id: 1,

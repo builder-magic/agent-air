@@ -246,7 +246,9 @@ pub fn parse_stream_event(
                 index: state.block_index,
             });
             // Remove from pending if it was a tool call
-            state.pending_tool_block_indices.retain(|&idx| idx != state.block_index);
+            state
+                .pending_tool_block_indices
+                .retain(|&idx| idx != state.block_index);
             state.block_index += 1;
             state.text_block_started = false;
         }
@@ -268,15 +270,13 @@ pub fn parse_stream_event(
             state.pending_tool_block_indices.clear();
 
             // Extract stop reason
-            let stop_reason = json["stopReason"]
-                .as_str()
-                .map(|r| match r {
-                    "end_turn" => "end_turn".to_string(),
-                    "max_tokens" => "max_tokens".to_string(),
-                    "tool_use" => "tool_use".to_string(),
-                    "stop_sequence" => "stop_sequence".to_string(),
-                    other => other.to_string(),
-                });
+            let stop_reason = json["stopReason"].as_str().map(|r| match r {
+                "end_turn" => "end_turn".to_string(),
+                "max_tokens" => "max_tokens".to_string(),
+                "tool_use" => "tool_use".to_string(),
+                "stop_sequence" => "stop_sequence".to_string(),
+                other => other.to_string(),
+            });
 
             events.push(StreamEvent::MessageDelta {
                 stop_reason,
@@ -316,9 +316,10 @@ mod tests {
         let data = vec![
             11, // name length
             b':', b'e', b'v', b'e', b'n', b't', b'-', b't', b'y', b'p', b'e', // ":event-type"
-            7,   // string type
+            7,    // string type
             0, 12, // value length (12)
-            b'm', b'e', b's', b's', b'a', b'g', b'e', b'S', b't', b'a', b'r', b't', // "messageStart"
+            b'm', b'e', b's', b's', b'a', b'g', b'e', b'S', b't', b'a', b'r',
+            b't', // "messageStart"
         ];
 
         let headers = parse_headers(&data);
@@ -337,9 +338,9 @@ mod tests {
         let mut state = StreamState::default();
         let events = parse_stream_event(&event, &mut state).unwrap();
 
-        let has_text_delta = events.iter().any(|e| {
-            matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello")
-        });
+        let has_text_delta = events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextDelta { text, .. } if text == "Hello"));
         assert!(has_text_delta);
     }
 

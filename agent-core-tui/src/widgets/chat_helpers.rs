@@ -1,6 +1,6 @@
 //! Helper types for ChatView rendering customization
 
-use ratatui::{layout::Rect, Frame};
+use ratatui::{Frame, layout::Rect};
 
 use crate::themes::Theme;
 

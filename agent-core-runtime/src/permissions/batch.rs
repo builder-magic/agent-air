@@ -77,7 +77,10 @@ impl BatchPermissionResponse {
     }
 
     /// Creates a response where all requests were denied.
-    pub fn all_denied(batch_id: impl Into<String>, request_ids: impl IntoIterator<Item = String>) -> Self {
+    pub fn all_denied(
+        batch_id: impl Into<String>,
+        request_ids: impl IntoIterator<Item = String>,
+    ) -> Self {
         Self {
             batch_id: batch_id.into(),
             approved_grants: Vec::new(),
@@ -130,7 +133,9 @@ impl BatchPermissionResponse {
         }
 
         // Check if any approved grant satisfies this request
-        self.approved_grants.iter().any(|grant| grant.satisfies(request))
+        self.approved_grants
+            .iter()
+            .any(|grant| grant.satisfies(request))
     }
 
     /// Returns whether any requests were denied.
@@ -282,7 +287,9 @@ fn compute_domain_grants(requests: &[&PermissionRequest]) -> Vec<Grant> {
     for req in requests {
         if let GrantTarget::Domain { pattern } = &req.target {
             let base_domain = extract_base_domain(pattern);
-            let entry = domain_levels.entry(base_domain).or_insert(PermissionLevel::None);
+            let entry = domain_levels
+                .entry(base_domain)
+                .or_insert(PermissionLevel::None);
             *entry = std::cmp::max(*entry, req.required_level);
         }
     }
@@ -387,7 +394,8 @@ mod tests {
 
     #[test]
     fn test_batch_response_all_denied() {
-        let response = BatchPermissionResponse::all_denied("batch-1", vec!["1".to_string(), "2".to_string()]);
+        let response =
+            BatchPermissionResponse::all_denied("batch-1", vec!["1".to_string(), "2".to_string()]);
 
         let request = PermissionRequest::file_read("1", "/project/src/main.rs");
         assert!(!response.is_granted("1", &request));
@@ -396,7 +404,8 @@ mod tests {
 
     #[test]
     fn test_batch_response_auto_approved() {
-        let response = BatchPermissionResponse::with_auto_approved("batch-1", vec!["1".to_string()]);
+        let response =
+            BatchPermissionResponse::with_auto_approved("batch-1", vec!["1".to_string()]);
 
         let request = PermissionRequest::file_read("1", "/project/src/main.rs");
         assert!(response.is_granted("1", &request));

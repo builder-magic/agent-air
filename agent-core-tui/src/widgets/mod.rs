@@ -18,12 +18,12 @@
 //! agents to customize which widgets are available.
 
 use crossterm::event::KeyEvent;
-use ratatui::{layout::Rect, Frame};
+use ratatui::{Frame, layout::Rect};
 use std::any::Any;
 
 use crate::controller::{AskUserQuestionsResponse, PermissionPanelResponse};
-use crate::permissions::BatchPermissionResponse;
 use crate::keys::NavigationHelper;
+use crate::permissions::BatchPermissionResponse;
 use crate::themes::Theme;
 
 pub mod batch_permission_panel;
@@ -51,10 +51,11 @@ pub use question_panel::{
     AnswerState, EnterAction, FocusItem, KeyAction as QuestionKeyAction, QuestionPanel,
     QuestionPanelConfig,
 };
-pub use session_picker::{render_session_picker, SessionInfo, SessionPickerConfig, SessionPickerState};
+pub use session_picker::{
+    SessionInfo, SessionPickerConfig, SessionPickerState, render_session_picker,
+};
 pub use slash_popup::{
-    render_slash_popup, SimpleCommand, SlashCommandDisplay, SlashPopupConfig,
-    SlashPopupState,
+    SimpleCommand, SlashCommandDisplay, SlashPopupConfig, SlashPopupState, render_slash_popup,
 };
 pub use status_bar::{StatusBar, StatusBarConfig, StatusBarData};
 

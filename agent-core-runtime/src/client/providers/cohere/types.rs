@@ -200,10 +200,7 @@ fn format_message(msg: &Message) -> Result<String, LlmError> {
     };
 
     // Check if message has tool calls (assistant) or tool results (user)
-    let has_tool_calls = msg
-        .content
-        .iter()
-        .any(|c| matches!(c, Content::ToolUse(_)));
+    let has_tool_calls = msg.content.iter().any(|c| matches!(c, Content::ToolUse(_)));
     let has_tool_results = msg
         .content
         .iter()
@@ -211,7 +208,11 @@ fn format_message(msg: &Message) -> Result<String, LlmError> {
 
     if has_tool_results {
         // Tool results in Cohere are sent as role "tool"
-        if let Some(Content::ToolResult(tr)) = msg.content.iter().find(|c| matches!(c, Content::ToolResult(_))) {
+        if let Some(Content::ToolResult(tr)) = msg
+            .content
+            .iter()
+            .find(|c| matches!(c, Content::ToolResult(_)))
+        {
             return Ok(format!(
                 r#"{{"role":"tool","tool_call_id":"{}","content":"{}"}}"#,
                 escape_json_string(&tr.tool_use_id),
@@ -373,8 +374,14 @@ mod tests {
     fn test_get_request_headers_valid() {
         let headers = get_request_headers("test-api-key").unwrap();
         assert_eq!(headers.len(), 2);
-        assert_eq!(headers[0], (HEADER_CONTENT_TYPE, CONTENT_TYPE_JSON.to_string()));
-        assert_eq!(headers[1], (HEADER_AUTHORIZATION, "Bearer test-api-key".to_string()));
+        assert_eq!(
+            headers[0],
+            (HEADER_CONTENT_TYPE, CONTENT_TYPE_JSON.to_string())
+        );
+        assert_eq!(
+            headers[1],
+            (HEADER_AUTHORIZATION, "Bearer test-api-key".to_string())
+        );
     }
 
     #[test]

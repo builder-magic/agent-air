@@ -3,11 +3,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use super::config::LLMSessionConfig;
 use super::LLMSession;
+use super::config::LLMSessionConfig;
 use crate::client::error::LlmError;
 use crate::controller::types::FromLLMPayload;
 
@@ -44,7 +44,12 @@ impl LLMSessionManager {
         channel_size: usize,
     ) -> Result<i64, LlmError> {
         let cancel_token = CancellationToken::new();
-        let session = Arc::new(LLMSession::new(config, from_llm, cancel_token, channel_size)?);
+        let session = Arc::new(LLMSession::new(
+            config,
+            from_llm,
+            cancel_token,
+            channel_size,
+        )?);
         let session_id = session.id();
 
         // Store the session

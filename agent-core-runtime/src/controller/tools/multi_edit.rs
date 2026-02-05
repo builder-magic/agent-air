@@ -13,10 +13,10 @@ use std::sync::Arc;
 
 use strsim::normalized_levenshtein;
 
-use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 
 /// MultiEdit tool name constant.
 pub const MULTI_EDIT_TOOL_NAME: &str = "multi_edit";
@@ -151,7 +151,9 @@ pub struct MultiEditTool {
 impl MultiEditTool {
     /// Create a new MultiEditTool with permission registry.
     pub fn new(permission_registry: Arc<PermissionRegistry>) -> Self {
-        Self { permission_registry }
+        Self {
+            permission_registry,
+        }
     }
 
     /// Build a permission request for multi-edit operation.
@@ -262,8 +264,7 @@ impl MultiEditTool {
                 }
 
                 if all_match {
-                    let start_byte: usize =
-                        content_lines[..i].iter().map(|l| l.len() + 1).sum();
+                    let start_byte: usize = content_lines[..i].iter().map(|l| l.len() + 1).sum();
                     let end_line = i + search_lines.len();
                     let matched_text = content_lines[i..end_line].join("\n");
                     let end_byte = start_byte + matched_text.len();
@@ -494,7 +495,11 @@ impl Executable for MultiEditTool {
                 return Err("No edits provided".to_string());
             }
             if edits.len() > MAX_EDITS {
-                return Err(format!("Too many edits: {} (max {})", edits.len(), MAX_EDITS));
+                return Err(format!(
+                    "Too many edits: {} (max {})",
+                    edits.len(),
+                    MAX_EDITS
+                ));
             }
 
             let path = PathBuf::from(file_path);
@@ -576,7 +581,10 @@ impl Executable for MultiEditTool {
                     let reason = response
                         .message
                         .unwrap_or_else(|| "Permission denied by user".to_string());
-                    return Err(format!("Permission denied to edit '{}': {}", file_path, reason));
+                    return Err(format!(
+                        "Permission denied to edit '{}': {}",
+                        file_path, reason
+                    ));
                 }
             }
 
@@ -597,8 +605,8 @@ impl Executable for MultiEditTool {
             );
 
             if !fuzzy_edits.is_empty() {
-                let avg_similarity: f64 =
-                    fuzzy_edits.iter().map(|e| e.similarity).sum::<f64>() / fuzzy_edits.len() as f64;
+                let avg_similarity: f64 = fuzzy_edits.iter().map(|e| e.similarity).sum::<f64>()
+                    / fuzzy_edits.len() as f64;
                 result.push_str(&format!(
                     " ({} fuzzy matches, avg {:.0}% similarity)",
                     fuzzy_edits.len(),
@@ -640,11 +648,7 @@ impl Executable for MultiEditTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, result: &str) -> String {
         let filename = input
             .get("file_path")
             .and_then(|v| v.as_str())
@@ -684,8 +688,7 @@ impl Executable for MultiEditTool {
         let edits = Self::parse_edits(edits_value).ok()?;
 
         // Build a single permission request for all edits
-        let permission_request =
-            Self::build_permission_request("preview", file_path, edits.len());
+        let permission_request = Self::build_permission_request("preview", file_path, edits.len());
 
         Some(vec![permission_request])
     }
@@ -703,8 +706,8 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::PermissionPanelResponse;
     use crate::controller::types::ControllerEvent;
+    use crate::permissions::PermissionPanelResponse;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
@@ -715,11 +718,19 @@ mod tests {
     }
 
     fn grant_once() -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: true, grant: None, message: None }
+        PermissionPanelResponse {
+            granted: true,
+            grant: None,
+            message: None,
+        }
     }
 
     fn deny(reason: &str) -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
+        PermissionPanelResponse {
+            granted: false,
+            grant: None,
+            message: Some(reason.to_string()),
+        }
     }
 
     #[tokio::test]
@@ -813,7 +824,10 @@ mod tests {
         let result = tool.execute(context, input).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("3 edit(s)"));
-        assert_eq!(fs::read_to_string(&file_path).unwrap(), "qux bar qux baz qux");
+        assert_eq!(
+            fs::read_to_string(&file_path).unwrap(),
+            "qux bar qux baz qux"
+        );
     }
 
     #[tokio::test]
@@ -1017,10 +1031,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond_to_request(
-                        &tool_use_id,
-                        deny("Not allowed"),
-                    )
+                    .respond_to_request(&tool_use_id, deny("Not allowed"))
                     .await
                     .unwrap();
             }

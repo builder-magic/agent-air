@@ -35,8 +35,14 @@ impl LLMClient {
     }
 
     /// Send a message and wait for the complete response.
-    pub async fn send_message(&self, messages: &[Message], options: &MessageOptions) -> Result<Message, LlmError> {
-        self.provider.send_msg(&self.http_client, messages, options).await
+    pub async fn send_message(
+        &self,
+        messages: &[Message],
+        options: &MessageOptions,
+    ) -> Result<Message, LlmError> {
+        self.provider
+            .send_msg(&self.http_client, messages, options)
+            .await
     }
 
     /// Send a message and receive a stream of response events.
@@ -45,6 +51,8 @@ impl LLMClient {
         messages: &[Message],
         options: &MessageOptions,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>, LlmError> {
-        self.provider.send_msg_stream(&self.http_client, messages, options).await
+        self.provider
+            .send_msg_stream(&self.http_client, messages, options)
+            .await
     }
 }

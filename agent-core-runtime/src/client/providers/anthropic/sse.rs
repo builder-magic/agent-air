@@ -85,14 +85,8 @@ fn parse_message_start(data: &str) -> Result<Option<StreamEvent>, LlmError> {
         .map_err(|e| LlmError::new(ERROR_SSE_PARSE, format!("Invalid JSON: {}", e)))?;
 
     let message = &json["message"];
-    let message_id = message["id"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
-    let model = message["model"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let message_id = message["id"].as_str().unwrap_or_default().to_string();
+    let model = message["model"].as_str().unwrap_or_default().to_string();
 
     Ok(Some(StreamEvent::MessageStart { message_id, model }))
 }
@@ -111,7 +105,10 @@ fn parse_content_block_start(data: &str) -> Result<Option<StreamEvent>, LlmError
         "text" => ContentBlockType::Text,
         "tool_use" => {
             let id = content_block["id"].as_str().unwrap_or_default().to_string();
-            let name = content_block["name"].as_str().unwrap_or_default().to_string();
+            let name = content_block["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             ContentBlockType::ToolUse { id, name }
         }
         _ => ContentBlockType::Text,
@@ -137,8 +134,14 @@ fn parse_content_block_delta(data: &str) -> Result<Option<StreamEvent>, LlmError
             Ok(Some(StreamEvent::TextDelta { index, text }))
         }
         "input_json_delta" => {
-            let json_str = delta["partial_json"].as_str().unwrap_or_default().to_string();
-            Ok(Some(StreamEvent::InputJsonDelta { index, json: json_str }))
+            let json_str = delta["partial_json"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            Ok(Some(StreamEvent::InputJsonDelta {
+                index,
+                json: json_str,
+            }))
         }
         _ => Ok(None),
     }
@@ -164,12 +167,8 @@ fn parse_message_delta(data: &str) -> Result<Option<StreamEvent>, LlmError> {
     // Check if usage exists by looking for output_tokens
     let usage = if json["usage"]["output_tokens"].as_u64().is_some() {
         Some(Usage {
-            input_tokens: json["usage"]["input_tokens"]
-                .as_u64()
-                .unwrap_or(0) as u32,
-            output_tokens: json["usage"]["output_tokens"]
-                .as_u64()
-                .unwrap_or(0) as u32,
+            input_tokens: json["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32,
+            output_tokens: json["usage"]["output_tokens"].as_u64().unwrap_or(0) as u32,
         })
     } else {
         None
@@ -196,7 +195,8 @@ mod tests {
 
     #[test]
     fn test_parse_sse_chunk() {
-        let chunk = "event: message_start\ndata: {\"type\":\"message_start\"}\n\nevent: ping\ndata: {}\n\n";
+        let chunk =
+            "event: message_start\ndata: {\"type\":\"message_start\"}\n\nevent: ping\ndata: {}\n\n";
         let (events, remaining) = parse_sse_chunk(chunk);
 
         assert_eq!(events.len(), 2);

@@ -259,9 +259,7 @@ impl TextInput {
 
         // Convert byte-based col to character count
         let current_line = self.buffer.split('\n').nth(logical_line).unwrap_or("");
-        let col_chars = current_line[..col.min(current_line.len())]
-            .chars()
-            .count();
+        let col_chars = current_line[..col.min(current_line.len())].chars().count();
 
         // Count visual lines before cursor's logical line
         let mut visual_y = 0;
@@ -329,11 +327,11 @@ impl Default for TextInput {
 
 // --- Widget trait implementation ---
 
-use std::any::Any;
-use crossterm::event::KeyEvent;
-use ratatui::{layout::Rect, Frame};
+use super::{Widget, WidgetKeyContext, WidgetKeyResult, widget_ids};
 use crate::themes::Theme;
-use super::{widget_ids, Widget, WidgetKeyContext, WidgetKeyResult};
+use crossterm::event::KeyEvent;
+use ratatui::{Frame, layout::Rect};
+use std::any::Any;
 
 impl Widget for TextInput {
     fn id(&self) -> &'static str {

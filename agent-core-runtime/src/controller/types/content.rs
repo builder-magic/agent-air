@@ -31,7 +31,11 @@ impl ContentBlock {
     }
 
     /// Creates a new tool use block
-    pub fn tool_use(id: impl Into<String>, name: impl Into<String>, input: HashMap<String, serde_json::Value>) -> Self {
+    pub fn tool_use(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input: HashMap<String, serde_json::Value>,
+    ) -> Self {
         Self::ToolUse(ToolUseBlock {
             id: id.into(),
             name: name.into(),
@@ -40,7 +44,11 @@ impl ContentBlock {
     }
 
     /// Creates a new tool result block
-    pub fn tool_result(tool_use_id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
+    pub fn tool_result(
+        tool_use_id: impl Into<String>,
+        content: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
         Self::ToolResult(ToolResultBlock {
             tool_use_id: tool_use_id.into(),
             content: content.into(),

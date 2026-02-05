@@ -293,5 +293,4 @@ description: Bad name format.
         // Both have the same name
         assert!(valid.iter().all(|s| s.metadata.name == "same-name"));
     }
-
 }

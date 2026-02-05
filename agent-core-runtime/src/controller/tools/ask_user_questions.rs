@@ -11,15 +11,16 @@ use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
 
-use super::types::{DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType};
+use super::types::{
+    DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
+};
 use super::user_interaction::UserInteractionRegistry;
 
 /// AskUserQuestions tool name constant.
 pub const ASK_USER_QUESTIONS_TOOL_NAME: &str = "ask_user_questions";
 
 /// AskUserQuestions tool description constant.
-pub const ASK_USER_QUESTIONS_TOOL_DESCRIPTION: &str =
-    "Ask the user one or more questions with structured response options. \
+pub const ASK_USER_QUESTIONS_TOOL_DESCRIPTION: &str = "Ask the user one or more questions with structured response options. \
      Supports single choice, multiple choice, and free text question types.";
 
 /// AskUserQuestions tool JSON schema constant.
@@ -297,7 +298,9 @@ impl AskUserQuestionsResponse {
             if question.is_required() {
                 // Check if question was answered with non-empty content
                 let has_valid_answer = self.answers.iter().any(|a| {
-                    a.question == question_text && !a.answer.is_empty() && a.answer.iter().any(|s| !s.is_empty())
+                    a.question == question_text
+                        && !a.answer.is_empty()
+                        && a.answer.iter().any(|s| !s.is_empty())
                 });
 
                 if !has_valid_answer {
@@ -441,11 +444,7 @@ impl Executable for AskUserQuestionsTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        _result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, _result: &str) -> String {
         let count = input
             .get("questions")
             .and_then(|v| v.as_array())
@@ -556,10 +555,11 @@ mod tests {
         };
 
         let err = response.validate(&request).unwrap_err();
-        assert!(err
-            .details
-            .iter()
-            .any(|d| d.error == ValidationErrorCode::TooManySelections));
+        assert!(
+            err.details
+                .iter()
+                .any(|d| d.error == ValidationErrorCode::TooManySelections)
+        );
     }
 
     #[test]
@@ -575,10 +575,11 @@ mod tests {
         let response = AskUserQuestionsResponse { answers: vec![] };
 
         let err = response.validate(&request).unwrap_err();
-        assert!(err
-            .details
-            .iter()
-            .any(|d| d.error == ValidationErrorCode::RequiredFieldEmpty));
+        assert!(
+            err.details
+                .iter()
+                .any(|d| d.error == ValidationErrorCode::RequiredFieldEmpty)
+        );
     }
 
     #[test]
@@ -599,10 +600,11 @@ mod tests {
         };
 
         let err = response.validate(&request).unwrap_err();
-        assert!(err
-            .details
-            .iter()
-            .any(|d| d.error == ValidationErrorCode::UnknownQuestion));
+        assert!(
+            err.details
+                .iter()
+                .any(|d| d.error == ValidationErrorCode::UnknownQuestion)
+        );
     }
 
     #[test]

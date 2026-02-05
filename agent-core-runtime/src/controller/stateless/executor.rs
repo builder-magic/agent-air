@@ -1,18 +1,18 @@
 use tokio_util::sync::CancellationToken;
 
+use crate::client::LLMClient;
 use crate::client::models::{Message as LLMMessage, MessageOptions, StreamEvent};
 use crate::client::providers::anthropic::AnthropicProvider;
 use crate::client::providers::bedrock::{BedrockCredentials, BedrockProvider};
 use crate::client::providers::cohere::CohereProvider;
 use crate::client::providers::gemini::GeminiProvider;
 use crate::client::providers::openai::OpenAIProvider;
-use crate::client::LLMClient;
 
 use crate::controller::session::LLMProvider;
 
 use super::types::{
-    RequestOptions, StatelessConfig, StatelessError, StatelessResult, StreamCallback,
-    DEFAULT_MAX_TOKENS,
+    DEFAULT_MAX_TOKENS, RequestOptions, StatelessConfig, StatelessError, StatelessResult,
+    StreamCallback,
 };
 
 /// Stateless executor for single LLM requests without session state.
@@ -29,8 +29,7 @@ impl StatelessExecutor {
 
         let client = match config.provider {
             LLMProvider::Anthropic => {
-                let provider =
-                    AnthropicProvider::new(config.api_key.clone(), config.model.clone());
+                let provider = AnthropicProvider::new(config.api_key.clone(), config.model.clone());
                 LLMClient::new(Box::new(provider)).map_err(|e| StatelessError::ExecutionFailed {
                     op: "init_client".to_string(),
                     message: format!("failed to initialize LLM client: {}", e),
@@ -92,17 +91,20 @@ impl StatelessExecutor {
                         message: "Bedrock requires bedrock_access_key_id".to_string(),
                     }
                 })?;
-                let secret_access_key = config.bedrock_secret_access_key.clone().ok_or_else(|| {
-                    StatelessError::ExecutionFailed {
-                        op: "init_client".to_string(),
-                        message: "Bedrock requires bedrock_secret_access_key".to_string(),
-                    }
-                })?;
+                let secret_access_key =
+                    config.bedrock_secret_access_key.clone().ok_or_else(|| {
+                        StatelessError::ExecutionFailed {
+                            op: "init_client".to_string(),
+                            message: "Bedrock requires bedrock_secret_access_key".to_string(),
+                        }
+                    })?;
 
                 let credentials = match &config.bedrock_session_token {
-                    Some(token) => {
-                        BedrockCredentials::with_session_token(access_key_id, secret_access_key, token.clone())
-                    }
+                    Some(token) => BedrockCredentials::with_session_token(
+                        access_key_id,
+                        secret_access_key,
+                        token.clone(),
+                    ),
                     None => BedrockCredentials::new(access_key_id, secret_access_key),
                 };
 
@@ -278,9 +280,7 @@ impl StatelessExecutor {
                 DEFAULT_MAX_TOKENS
             });
 
-        let temperature = opts
-            .and_then(|o| o.temperature)
-            .or(self.config.temperature);
+        let temperature = opts.and_then(|o| o.temperature).or(self.config.temperature);
 
         MessageOptions {
             max_tokens: Some(max_tokens),

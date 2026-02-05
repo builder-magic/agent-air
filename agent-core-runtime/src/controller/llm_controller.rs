@@ -4,24 +4,24 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use std::sync::Arc;
 
+use crate::agent::{UiMessage, convert_controller_event_to_ui_message};
 use crate::client::error::LlmError;
+use crate::controller::error::ControllerError;
 use crate::controller::session::{LLMSession, LLMSessionConfig, LLMSessionManager};
 use crate::controller::tools::{
     ToolBatchResult, ToolExecutor, ToolRegistry, ToolRequest, ToolResult,
 };
-use crate::controller::error::ControllerError;
 use crate::controller::types::{
-    ControlCmd, ControllerEvent, ControllerInputPayload, FromLLMPayload, InputType,
-    LLMRequestType, LLMResponseType, ToLLMPayload, TurnId,
+    ControlCmd, ControllerEvent, ControllerInputPayload, FromLLMPayload, InputType, LLMRequestType,
+    LLMResponseType, ToLLMPayload, TurnId,
 };
 use crate::controller::usage::TokenUsageTracker;
 use crate::permissions::PermissionRegistry;
-use crate::agent::{convert_controller_event_to_ui_message, UiMessage};
 
 /// Default channel buffer size for internal communication.
 /// This applies to all async channels: LLM responses, tool results, UI events, etc.
@@ -318,18 +318,17 @@ impl LLMController {
                     let input: HashMap<String, serde_json::Value> = tool
                         .input
                         .as_object()
-                        .map(|obj| {
-                            obj.iter()
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect()
-                        })
+                        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                         .unwrap_or_default();
 
                     // Look up display name and title from tool registry (before moving input)
                     let (display_name, display_title) =
                         if let Some(t) = self.tool_registry().get(&tool.name).await {
                             let config = t.display_config();
-                            (Some(config.display_name), Some((config.display_title)(&input)))
+                            (
+                                Some(config.display_name),
+                                Some((config.display_title)(&input)),
+                            )
                         } else {
                             (None, None)
                         };
@@ -395,7 +394,10 @@ impl LLMController {
                     let (display_name, display_title) =
                         if let Some(tool) = self.tool_registry().get(&tool_info.name).await {
                             let config = tool.display_config();
-                            (Some(config.display_name), Some((config.display_title)(&input)))
+                            (
+                                Some(config.display_name),
+                                Some((config.display_title)(&input)),
+                            )
                         } else {
                             (None, None)
                         };
@@ -407,7 +409,8 @@ impl LLMController {
                         display_name,
                         display_title,
                         turn_id: payload.turn_id.clone(),
-                    }).await;
+                    })
+                    .await;
                 }
 
                 // Execute batch - tools run concurrently, results sent when all complete
@@ -475,7 +478,8 @@ impl LLMController {
         // Get the session
         let Some(session) = self.session_mgr.get_session_by_id(session_id).await else {
             tracing::error!(session_id, "Session not found for data input");
-            self.emit_error(session_id, "Session not found".to_string(), payload.turn_id).await;
+            self.emit_error(session_id, "Session not found".to_string(), payload.turn_id)
+                .await;
             return;
         };
 
@@ -497,7 +501,8 @@ impl LLMController {
                 session_id,
                 "Failed to send message to session".to_string(),
                 None,
-            ).await;
+            )
+            .await;
         }
     }
 
@@ -530,7 +535,8 @@ impl LLMController {
                 if let Some(session) = self.session_mgr.get_session_by_id(session_id).await {
                     session.clear_conversation().await;
                     tracing::info!(session_id, "Session conversation cleared");
-                    self.emit_command_complete(session_id, cmd, true, None).await;
+                    self.emit_command_complete(session_id, cmd, true, None)
+                        .await;
                 } else {
                     tracing::warn!(session_id, "Cannot clear: session not found");
                     self.emit_command_complete(
@@ -538,7 +544,8 @@ impl LLMController {
                         cmd,
                         false,
                         Some("Session not found".to_string()),
-                    ).await;
+                    )
+                    .await;
                 }
             }
             ControlCmd::Compact => {
@@ -549,7 +556,8 @@ impl LLMController {
                     if let Some(error) = result.error {
                         // Compaction failed or no compactor configured
                         tracing::warn!(session_id, error = %error, "Session compaction failed");
-                        self.emit_command_complete(session_id, cmd, false, Some(error)).await;
+                        self.emit_command_complete(session_id, cmd, false, Some(error))
+                            .await;
                     } else if !result.compacted {
                         // Nothing to compact
                         tracing::info!(session_id, "Nothing to compact");
@@ -557,8 +565,11 @@ impl LLMController {
                             session_id,
                             cmd,
                             true,
-                            Some("Nothing to compact - not enough turns in conversation".to_string()),
-                        ).await;
+                            Some(
+                                "Nothing to compact - not enough turns in conversation".to_string(),
+                            ),
+                        )
+                        .await;
                     } else {
                         // Compaction succeeded
                         let message = format!(
@@ -580,7 +591,8 @@ impl LLMController {
                             messages_after = result.messages_after,
                             "Session compaction completed"
                         );
-                        self.emit_command_complete(session_id, cmd, true, Some(message)).await;
+                        self.emit_command_complete(session_id, cmd, true, Some(message))
+                            .await;
                     }
                 } else {
                     tracing::warn!(session_id, "Cannot compact: session not found");
@@ -589,7 +601,8 @@ impl LLMController {
                         cmd,
                         false,
                         Some("Session not found".to_string()),
-                    ).await;
+                    )
+                    .await;
                 }
             }
         }
@@ -601,7 +614,8 @@ impl LLMController {
             session_id,
             error,
             turn_id,
-        }).await;
+        })
+        .await;
     }
 
     /// Emits a command complete event
@@ -617,7 +631,8 @@ impl LLMController {
             command,
             success,
             message,
-        }).await;
+        })
+        .await;
     }
 
     /// Handles a batch of tool execution results by sending them back to the session.
@@ -804,7 +819,10 @@ impl LLMController {
     }
 
     /// Get token usage for a specific model.
-    pub async fn get_model_token_usage(&self, model: &str) -> Option<crate::controller::usage::TokenMeter> {
+    pub async fn get_model_token_usage(
+        &self,
+        model: &str,
+    ) -> Option<crate::controller::usage::TokenMeter> {
         self.token_usage.get_model_usage(model).await
     }
 
@@ -824,5 +842,4 @@ impl LLMController {
     pub fn tool_registry(&self) -> &Arc<ToolRegistry> {
         &self.tool_registry
     }
-
 }

@@ -16,10 +16,10 @@ use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder};
 use walkdir::WalkDir;
 
-use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 use super::types::{
     DisplayConfig, DisplayResult, Executable, ResultContentType, ToolContext, ToolType,
 };
+use crate::permissions::{GrantTarget, PermissionLevel, PermissionRegistry, PermissionRequest};
 
 /// Grep tool name constant.
 pub const GREP_TOOL_NAME: &str = "grep";
@@ -249,18 +249,13 @@ impl Executable for GrepTool {
                 .and_then(|v| v.as_str())
                 .map(PathBuf::from)
                 .or(default_path)
-                .unwrap_or_else(|| {
-                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-                });
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
             let search_path_str = search_path.to_string_lossy().to_string();
 
             // Verify path exists
             if !search_path.exists() {
-                return Err(format!(
-                    "Search path does not exist: {}",
-                    search_path_str
-                ));
+                return Err(format!("Search path does not exist: {}", search_path_str));
             }
 
             let glob_pattern = input.get("glob").and_then(|v| v.as_str());
@@ -272,15 +267,9 @@ impl Executable for GrepTool {
                 .map(OutputMode::from_str)
                 .unwrap_or(OutputMode::FilesWithMatches);
 
-            let case_insensitive = input
-                .get("-i")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+            let case_insensitive = input.get("-i").and_then(|v| v.as_bool()).unwrap_or(false);
 
-            let show_line_numbers = input
-                .get("-n")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+            let show_line_numbers = input.get("-n").and_then(|v| v.as_bool()).unwrap_or(true);
 
             let context_after = input
                 .get("-A")
@@ -322,10 +311,15 @@ impl Executable for GrepTool {
             // Step 2: Request permission if not pre-approved by batch executor
             // ─────────────────────────────────────────────────────────────
             if !context.permissions_pre_approved {
-                let permission_request = Self::build_permission_request(&context.tool_use_id, &search_path_str);
+                let permission_request =
+                    Self::build_permission_request(&context.tool_use_id, &search_path_str);
 
                 let response_rx = permission_registry
-                    .request_permission(context.session_id, permission_request, context.turn_id.clone())
+                    .request_permission(
+                        context.session_id,
+                        permission_request,
+                        context.turn_id.clone(),
+                    )
                     .await
                     .map_err(|e| format!("Failed to request permission: {}", e))?;
 
@@ -444,13 +438,9 @@ impl Executable for GrepTool {
                 OutputMode::FilesWithMatches => {
                     search_files_with_matches(&mut searcher, &matcher, &files, limit)
                 }
-                OutputMode::Content => search_content(
-                    &mut searcher,
-                    &matcher,
-                    &files,
-                    show_line_numbers,
-                    limit,
-                ),
+                OutputMode::Content => {
+                    search_content(&mut searcher, &matcher, &files, show_line_numbers, limit)
+                }
                 OutputMode::Count => search_count(&mut searcher, &matcher, &files, limit),
             }
         })
@@ -486,11 +476,7 @@ impl Executable for GrepTool {
         }
     }
 
-    fn compact_summary(
-        &self,
-        input: &HashMap<String, serde_json::Value>,
-        result: &str,
-    ) -> String {
+    fn compact_summary(&self, input: &HashMap<String, serde_json::Value>, result: &str) -> String {
         let pattern = input
             .get("pattern")
             .and_then(|v| v.as_str())
@@ -519,14 +505,13 @@ impl Executable for GrepTool {
             .and_then(|v| v.as_str())
             .map(PathBuf::from)
             .or_else(|| self.default_path.clone())
-            .unwrap_or_else(|| {
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-            });
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
         let search_path_str = search_path.to_string_lossy().to_string();
 
         // Build the permission request using the existing helper method
-        let permission_request = Self::build_permission_request(&context.tool_use_id, &search_path_str);
+        let permission_request =
+            Self::build_permission_request(&context.tool_use_id, &search_path_str);
 
         Some(vec![permission_request])
     }
@@ -677,11 +662,19 @@ mod tests {
     }
 
     fn grant_once() -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: true, grant: None, message: None }
+        PermissionPanelResponse {
+            granted: true,
+            grant: None,
+            message: None,
+        }
     }
 
     fn deny(reason: &str) -> PermissionPanelResponse {
-        PermissionPanelResponse { granted: false, grant: None, message: Some(reason.to_string()) }
+        PermissionPanelResponse {
+            granted: false,
+            grant: None,
+            message: Some(reason.to_string()),
+        }
     }
 
     fn setup_test_files() -> TempDir {
@@ -784,10 +777,7 @@ mod tests {
                 event_rx.recv().await
             {
                 registry_clone
-                    .respond_to_request(
-                        &tool_use_id,
-                        deny("Access denied"),
-                    )
+                    .respond_to_request(&tool_use_id, deny("Access denied"))
                     .await
                     .unwrap();
             }
@@ -1052,27 +1042,18 @@ mod tests {
             request.reason,
             Some("Search file contents using grep".to_string())
         );
-        assert_eq!(
-            request.target,
-            GrantTarget::path("/path/to/src", true)
-        );
+        assert_eq!(request.target, GrantTarget::path("/path/to/src", true));
         assert_eq!(request.required_level, PermissionLevel::Read);
     }
 
     #[test]
     fn test_get_type_extensions() {
-        assert_eq!(
-            GrepTool::get_type_extensions("rust"),
-            vec!["rs"]
-        );
+        assert_eq!(GrepTool::get_type_extensions("rust"), vec!["rs"]);
         assert_eq!(
             GrepTool::get_type_extensions("js"),
             vec!["js", "mjs", "cjs"]
         );
-        assert_eq!(
-            GrepTool::get_type_extensions("py"),
-            vec!["py", "pyi"]
-        );
+        assert_eq!(GrepTool::get_type_extensions("py"), vec!["py", "pyi"]);
         assert!(GrepTool::get_type_extensions("unknown").is_empty());
     }
 }
