@@ -133,8 +133,6 @@ pub struct ProviderConfig {
     /// Model identifier (optional - uses provider default if not specified)
     #[serde(default)]
     pub model: String,
-    /// Optional system prompt override
-    pub system_prompt: Option<String>,
 }
 
 /// Root configuration structure from YAML
@@ -250,12 +248,8 @@ impl LLMRegistry {
             }
         };
 
-        // Set system prompt
-        let system_prompt = config
-            .system_prompt
-            .clone()
-            .unwrap_or_else(|| default_system_prompt.to_string());
-        session_config = session_config.with_system_prompt(system_prompt);
+        // Set system prompt from AgentConfig default
+        session_config = session_config.with_system_prompt(default_system_prompt);
 
         // Configure aggressive compaction to avoid rate limits
         // With 0.05 threshold on 200K context = 10K tokens triggers compaction
@@ -530,7 +524,6 @@ providers:
             provider: "groq".to_string(),
             api_key: "test-key".to_string(),
             model: String::new(), // Empty model
-            system_prompt: None,
         };
 
         let session_config = LLMRegistry::create_session_config(&provider_config, "test prompt").unwrap();
