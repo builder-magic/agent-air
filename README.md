@@ -1,79 +1,65 @@
-# agent-core
+<p align="center">
+  <img src="agent-core-title.svg" alt="agent-core" width="500" />
+</p>
 
-[![CI](https://github.com/deepmesa/agent-core/actions/workflows/ci.yml/badge.svg?branch=mainline)](https://github.com/deepmesa/agent-core/actions/workflows/ci.yml)
-![License](https://img.shields.io/badge/License-Apache--2.0-blue)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<h3 align="center">An Open Source SDK and Runtime for building AI Agents</h3>
 
-A Rust framework for building terminal UI agents powered by large language models.
+<p align="center">
+  <a href="https://github.com/deepmesa/agent-core/actions/workflows/ci.yml"><img src="https://github.com/deepmesa/agent-core/actions/workflows/ci.yml/badge.svg?branch=mainline" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License" />
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+</p>
 
-agent-core provides the infrastructure to create production-ready LLM-powered terminal applications. It handles the complexity of managing async communication between UI components, LLM providers, and tool execution while offering flexible abstractions for customization.
+<h3 align="center"><a href="https://agent-core.ai">https://agent-core.ai</a></h3>
 
-## Features
+---
 
-- Complete TUI components built on Ratatui (chat views, input widgets, permission panels)
-- Session management with automatic context window compaction
-- Tool execution framework with concurrent execution and permission handling
-- Provider-agnostic LLM client (supports Anthropic and OpenAI)
-- Customizable themes, layouts, and key bindings
-- Slash command system for in-app commands
-- Event-driven architecture with clean component separation
+agent-core is an open-source Agent SDK and Runtime built in Rust. agent-core provides everything you need to build AI agents running in a Terminal UI or on the server. agent-core handles everything you need: LLM communication, multiple sessions, markdown rendering, widgets & layouts, tools, skills, MCP, permissions and much more so you can focus on building your agent.
 
 ## Getting Started
 
-Add agent-core to your Cargo.toml:
+Add agent-core to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 agent-core = "0.1.0"
 ```
 
-## Basic Usage
-
-Create a minimal agent by implementing the `AgentConfig` trait:
+Build a working AI agent in just a few lines of code:
 
 ```rust
-use agent_core::agent::{AgentConfig, AgentCore};
+use agent_core::agent::AgentCore;
+use agent_core::tui::AgentCoreExt;
 
-struct MyAgent;
+const SYSTEM_PROMPT: &str = "You are a helpful AI assistant.";
 
-impl AgentConfig for MyAgent {
-    fn config_path(&self) -> &str {
-        "~/.config/myagent"
-    }
-
-    fn default_system_prompt(&self) -> &str {
-        "You are a helpful assistant."
-    }
-
-    fn log_prefix(&self) -> &str {
-        "myagent"
-    }
-
-    fn name(&self) -> &str {
-        "MyAgent"
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let agent = AgentCore::new(MyAgent)?;
-    agent.run().await?;
-    Ok(())
+fn main() -> std::io::Result<()> {
+    AgentCore::with_config("my-agent", "~/.config/my-agent", SYSTEM_PROMPT)?
+        .into_tui()
+        .run()
 }
 ```
 
-This creates a working terminal agent with chat UI, LLM integration, and tool execution capabilities.
+<p align="center">
+  <img src="docs/hero-agent.png" alt="agent-core hero" />
+</p>
 
-## Architecture
+## Features
 
-The framework has four main components:
-
-- **agent**: Orchestrates all components and provides `AgentCore` for quick setup
-- **controller**: Manages LLM sessions, tool execution, and event coordination
-- **client**: HTTP client for LLM providers (Anthropic, OpenAI)
-- **tui**: Terminal UI components (widgets, layouts, themes, commands)
-
-Communication flows through async channels in an event-driven architecture. The controller coordinates between the UI, LLM provider, and tool execution layers.
+- **High Performance Rust Core** - Async-first architecture powered by Tokio with zero-cost abstractions
+- **Multi Model Architecture** - 75+ providers and 500+ models with runtime switching
+- **Modular Architecture** - Terminal UI, Desktop, or Web-based frontends with event-driven API
+- **Advanced Session Management** - Isolated concurrent sessions with independent history and tool registrations
+- **Advanced Context Management** - Threshold-based, on-demand, or LLM-driven compaction strategies
+- **Flexible Tool Management** - Custom tools with JSON schema and parallel batch execution
+- **Powerful Permissions Framework** - Target + Level model with batch requests and recursive path grants
+- **Streaming & Markdown Rendering** - Real-time SSE parsing with CommonMark-compliant rendering
+- **Widget System** - Pre-built widgets: StatusBar, ChatView, TextInput, QuestionPanel, PermissionPanel, SessionPicker
+- **Slash Command Framework** - Built-in and custom commands with interactive popup and real-time filtering
+- **Agent Skills Support** - Modular skill system with reusable, composable behaviors
+- **MCP Protocol** - Model Context Protocol support for external tool integrations
+- **Custom Keybindings** - Standard and Emacs bindings with full KeyHandler trait for custom bindings
+- **Error Recovery** - Graceful degradation with retries and actionable error messages
 
 ## Contributing
 
