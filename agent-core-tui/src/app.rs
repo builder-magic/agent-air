@@ -1571,7 +1571,7 @@ impl App {
             // Advance animations
             if show_throbber {
                 self.animation_frame_counter = self.animation_frame_counter.wrapping_add(1);
-                if self.animation_frame_counter % 6 == 0 {
+                if self.animation_frame_counter.is_multiple_of(6) {
                     self.throbber_state.calc_next();
                     self.conversation_view.step_spinner();
                 }

@@ -207,9 +207,10 @@ impl Tool {
 }
 
 /// Controls how the model uses tools.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum ToolChoice {
     /// Model decides whether to use tools.
+    #[default]
     Auto,
     /// Model must use at least one tool.
     Any,
@@ -217,12 +218,6 @@ pub enum ToolChoice {
     Tool(String),
     /// Model cannot use any tools.
     None,
-}
-
-impl Default for ToolChoice {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Metadata for request tracking.

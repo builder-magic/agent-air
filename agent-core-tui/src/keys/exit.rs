@@ -10,9 +10,10 @@ use std::time::Instant;
 ///
 /// This tracks whether the user has initiated an exit sequence
 /// that requires confirmation (e.g., press Ctrl+D twice to quit).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum ExitState {
     /// Normal operation, no exit pending.
+    #[default]
     Normal,
     /// Awaiting exit confirmation within the timeout.
     AwaitingConfirmation {
@@ -21,12 +22,6 @@ pub enum ExitState {
         /// Timeout in seconds for confirmation.
         timeout_secs: u64,
     },
-}
-
-impl Default for ExitState {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl ExitState {

@@ -10,10 +10,13 @@ use std::fmt;
 ///
 /// Levels are hierarchical: a higher level automatically grants all lower levels.
 /// For example, `Write` permission implies `Read` permission.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 #[repr(u8)]
 pub enum PermissionLevel {
     /// No permission granted
+    #[default]
     None = 0,
     /// Read-only access: view contents, list directories, search
     Read = 1,
@@ -103,12 +106,6 @@ impl fmt::Display for PermissionLevel {
             Self::Execute => write!(f, "Execute"),
             Self::Admin => write!(f, "Admin"),
         }
-    }
-}
-
-impl Default for PermissionLevel {
-    fn default() -> Self {
-        Self::None
     }
 }
 
