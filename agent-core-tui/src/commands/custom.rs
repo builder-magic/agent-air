@@ -4,6 +4,9 @@ use super::context::CommandContext;
 use super::result::CommandResult;
 use super::traits::SlashCommand;
 
+/// Closure type for custom command handlers.
+pub type CommandHandlerFn = Box<dyn Fn(&str, &mut CommandContext) -> CommandResult + Send + Sync>;
+
 /// A simple custom command using a closure.
 ///
 /// Use this for commands that don't need internal state.
@@ -26,7 +29,7 @@ use super::traits::SlashCommand;
 pub struct CustomCommand {
     name: String,
     description: String,
-    handler: Box<dyn Fn(&str, &mut CommandContext) -> CommandResult + Send + Sync>,
+    handler: CommandHandlerFn,
 }
 
 impl CustomCommand {

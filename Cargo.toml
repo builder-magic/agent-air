@@ -29,3 +29,4 @@ agent-core-tui = { path = "agent-core-tui", version = "0.6.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+cargo-husky = { version = "1", default-features = false, features = ["precommit-hook", "run-cargo-fmt", "run-cargo-clippy"] }

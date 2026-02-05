@@ -7,7 +7,7 @@
 use super::{Grant, GrantTarget, PermissionLevel, PermissionRequest};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A batch of permission requests from parallel tool executions.
 ///
@@ -260,7 +260,7 @@ fn merge_related_directories(
 }
 
 /// Finds the common ancestor of two paths, up to a maximum depth from either path.
-fn find_common_ancestor(path1: &PathBuf, path2: &PathBuf, max_depth: usize) -> Option<PathBuf> {
+fn find_common_ancestor(path1: &Path, path2: &Path, max_depth: usize) -> Option<PathBuf> {
     let ancestors1: Vec<_> = path1.ancestors().take(max_depth + 1).collect();
     let ancestors2: Vec<_> = path2.ancestors().take(max_depth + 1).collect();
 

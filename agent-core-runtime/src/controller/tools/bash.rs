@@ -163,9 +163,9 @@ impl BashTool {
                 pattern: command.to_string(),
             },
             PermissionLevel::Execute,
-            &format!("Execute: {}", first_word),
+            format!("Execute: {}", first_word),
         )
-        .with_reason(&format!("Run command: {}", truncated_cmd))
+        .with_reason(format!("Run command: {}", truncated_cmd))
         .with_tool(BASH_TOOL_NAME)
     }
 
@@ -291,7 +291,7 @@ impl Executable for BashTool {
             let background_timeout = input
                 .get("background_timeout")
                 .and_then(|v| v.as_u64())
-                .map(|ms| Duration::from_millis(ms));
+                .map(Duration::from_millis);
 
             // Extract additional environment variables
             let extra_env: HashMap<String, String> = input

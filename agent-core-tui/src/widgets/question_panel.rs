@@ -705,10 +705,10 @@ impl QuestionPanel {
         match focus {
             Some(FocusItem::TextInput { question_idx }) => {
                 // FreeText question - forward to its textarea
-                if let Some(answer) = self.answers.get_mut(question_idx) {
-                    if let Some(textarea) = answer.textarea_mut() {
-                        textarea.input(key);
-                    }
+                if let Some(answer) = self.answers.get_mut(question_idx)
+                    && let Some(textarea) = answer.textarea_mut()
+                {
+                    textarea.input(key);
                 }
             }
             Some(FocusItem::OtherText { question_idx })
@@ -876,11 +876,7 @@ impl QuestionPanel {
 
         // Add: help text(1) + help blank(1) + spacing between questions + blank before buttons(1) + buttons(1) + borders(2)
         let num_questions = self.request.questions.len() as u16;
-        let spacing = if num_questions > 1 {
-            num_questions - 1
-        } else {
-            0
-        };
+        let spacing = num_questions.saturating_sub(1);
         let total = lines + spacing + 7;
 
         // Cap at percentage of available height, leaving room for chat and input
@@ -1031,6 +1027,7 @@ impl QuestionPanel {
     }
 
     /// Render choice options inline
+    #[allow(clippy::too_many_arguments)]
     fn render_choices(
         &self,
         lines: &mut Vec<Line>,
@@ -1055,12 +1052,10 @@ impl QuestionPanel {
                 } else {
                     &self.config.checkbox_unselected
                 }
+            } else if is_selected {
+                &self.config.radio_selected
             } else {
-                if is_selected {
-                    &self.config.radio_selected
-                } else {
-                    &self.config.radio_unselected
-                }
+                &self.config.radio_unselected
             };
 
             let prefix = if is_focused {
@@ -1107,12 +1102,10 @@ impl QuestionPanel {
             } else {
                 &self.config.checkbox_unselected
             }
+        } else if is_other_selected {
+            &self.config.radio_selected
         } else {
-            if is_other_selected {
-                &self.config.radio_selected
-            } else {
-                &self.config.radio_unselected
-            }
+            &self.config.radio_unselected
         };
 
         let prefix = if is_this_focused {

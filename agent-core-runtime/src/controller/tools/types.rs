@@ -92,15 +92,21 @@ pub struct DisplayResult {
     pub full_length: usize,
 }
 
+/// Closure type for generating a dynamic display title from tool input.
+pub type DisplayTitleFn = Box<dyn Fn(&HashMap<String, serde_json::Value>) -> String + Send + Sync>;
+
+/// Closure type for generating display content from tool input and result.
+pub type DisplayContentFn =
+    Box<dyn Fn(&HashMap<String, serde_json::Value>, &str) -> DisplayResult + Send + Sync>;
+
 /// Configuration for how a tool should be displayed in the UI.
 pub struct DisplayConfig {
     /// UI-friendly name (e.g., "Web Search" vs "web_search").
     pub display_name: String,
     /// Dynamic title based on input (e.g., "AWS/DynamoDB" for tool input).
-    pub display_title: Box<dyn Fn(&HashMap<String, serde_json::Value>) -> String + Send + Sync>,
+    pub display_title: DisplayTitleFn,
     /// Dynamic content based on input and result.
-    pub display_content:
-        Box<dyn Fn(&HashMap<String, serde_json::Value>, &str) -> DisplayResult + Send + Sync>,
+    pub display_content: DisplayContentFn,
 }
 
 impl DisplayConfig {
@@ -157,6 +163,7 @@ pub struct ToolResult {
 
 impl ToolResult {
     /// Create a successful tool result.
+    #[allow(clippy::too_many_arguments)]
     pub fn success(
         session_id: i64,
         tool_name: String,

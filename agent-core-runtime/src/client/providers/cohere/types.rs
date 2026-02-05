@@ -132,37 +132,37 @@ fn build_request_body_internal(
     }
 
     // Stop sequences (optional)
-    if let Some(stop_sequences) = &options.stop_sequences {
-        if !stop_sequences.is_empty() {
-            json.push_str(r#","stop_sequences":["#);
-            for (i, seq) in stop_sequences.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                json.push_str(&format!(r#""{}""#, escape_json_string(seq)));
+    if let Some(stop_sequences) = &options.stop_sequences
+        && !stop_sequences.is_empty()
+    {
+        json.push_str(r#","stop_sequences":["#);
+        for (i, seq) in stop_sequences.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
             }
-            json.push(']');
+            json.push_str(&format!(r#""{}""#, escape_json_string(seq)));
         }
+        json.push(']');
     }
 
     // Tools (optional) - Cohere format
-    if let Some(tools) = &options.tools {
-        if !tools.is_empty() {
-            json.push_str(r#","tools":["#);
-            for (i, tool) in tools.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                // Cohere uses "parameter_definitions" directly, not wrapped in "function"
-                json.push_str(&format!(
+    if let Some(tools) = &options.tools
+        && !tools.is_empty()
+    {
+        json.push_str(r#","tools":["#);
+        for (i, tool) in tools.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            // Cohere uses "parameter_definitions" directly, not wrapped in "function"
+            json.push_str(&format!(
                     r#"{{"type":"function","function":{{"name":"{}","description":"{}","parameters":{}}}}}"#,
                     escape_json_string(&tool.name),
                     escape_json_string(&tool.description),
                     tool.input_schema
                 ));
-            }
-            json.push(']');
         }
+        json.push(']');
     }
 
     // Tool choice (optional) - Cohere uses "tool_choice" with object format
@@ -299,10 +299,10 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     if let Some(message) = parsed.get("message") {
         if let Some(content_arr) = message["content"].as_array() {
             for content in content_arr {
-                if let Some(text) = content["text"].as_str() {
-                    if !text.is_empty() {
-                        content_blocks.push(Content::Text(text.to_string()));
-                    }
+                if let Some(text) = content["text"].as_str()
+                    && !text.is_empty()
+                {
+                    content_blocks.push(Content::Text(text.to_string()));
                 }
             }
         }
@@ -328,10 +328,10 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
 
     // Fallback: check for top-level "text" field (older API format)
     if content_blocks.is_empty() {
-        if let Some(text) = parsed["text"].as_str() {
-            if !text.is_empty() {
-                content_blocks.push(Content::Text(text.to_string()));
-            }
+        if let Some(text) = parsed["text"].as_str()
+            && !text.is_empty()
+        {
+            content_blocks.push(Content::Text(text.to_string()));
         }
 
         // Check for top-level tool_calls

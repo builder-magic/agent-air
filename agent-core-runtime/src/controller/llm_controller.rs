@@ -270,17 +270,17 @@ impl LLMController {
     /// Handles a response from an LLM session
     async fn handle_llm_response(&self, payload: FromLLMPayload) {
         // Track token usage for TokenUpdate events
-        if payload.response_type == LLMResponseType::TokenUpdate {
-            if let Some(session) = self.session_mgr.get_session_by_id(payload.session_id).await {
-                self.token_usage
-                    .increment(
-                        payload.session_id,
-                        session.model(),
-                        payload.input_tokens,
-                        payload.output_tokens,
-                    )
-                    .await;
-            }
+        if payload.response_type == LLMResponseType::TokenUpdate
+            && let Some(session) = self.session_mgr.get_session_by_id(payload.session_id).await
+        {
+            self.token_usage
+                .increment(
+                    payload.session_id,
+                    session.model(),
+                    payload.input_tokens,
+                    payload.output_tokens,
+                )
+                .await;
         }
 
         let event = match payload.response_type {

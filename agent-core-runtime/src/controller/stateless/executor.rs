@@ -216,7 +216,7 @@ impl StatelessExecutor {
             ..Default::default()
         };
         let mut text_builder = String::new();
-        let cancel = cancel_token.unwrap_or_else(CancellationToken::new);
+        let cancel = cancel_token.unwrap_or_default();
 
         loop {
             tokio::select! {
@@ -296,7 +296,7 @@ impl StatelessExecutor {
         let mut text = String::new();
         for block in &message.content {
             if let Content::Text(t) = block {
-                text.push_str(&t);
+                text.push_str(t);
             }
         }
         text

@@ -111,6 +111,11 @@ pub trait Compactor: Send + Sync {
     }
 }
 
+/// A boxed future for async compaction results.
+pub type CompactAsyncFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<(Vec<Message>, CompactionResult), CompactionError>> + Send + 'a>,
+>;
+
 /// Trait for async compaction strategies that require LLM calls.
 /// Implementors must also implement `Compactor` with `is_async() -> true`.
 pub trait AsyncCompactor: Compactor {
@@ -123,13 +128,7 @@ pub trait AsyncCompactor: Compactor {
         &'a self,
         conversation: Vec<Message>,
         compact_summaries: &'a HashMap<String, String>,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<(Vec<Message>, CompactionResult), CompactionError>>
-                + Send
-                + 'a,
-        >,
-    >;
+    ) -> CompactAsyncFuture<'a>;
 }
 
 /// Compacts when context usage exceeds a threshold.
@@ -566,13 +565,7 @@ impl AsyncCompactor for LLMCompactor {
         &'a self,
         conversation: Vec<Message>,
         _compact_summaries: &'a HashMap<String, String>,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<(Vec<Message>, CompactionResult), CompactionError>>
-                + Send
-                + 'a,
-        >,
-    > {
+    ) -> CompactAsyncFuture<'a> {
         Box::pin(async move {
             if conversation.is_empty() {
                 return Ok((conversation, CompactionResult::default()));

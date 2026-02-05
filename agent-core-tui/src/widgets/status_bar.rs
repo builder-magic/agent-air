@@ -235,9 +235,7 @@ impl StatusBar {
         };
 
         // Line 2: Help text (hint line)
-        let help_text = if !config.show_hints {
-            String::new()
-        } else if data.panels_active {
+        let help_text = if !config.show_hints || data.panels_active {
             String::new()
         } else if let Some(hint) = &data.status_hint {
             format!(" {}", hint)

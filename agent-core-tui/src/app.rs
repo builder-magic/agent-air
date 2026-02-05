@@ -697,12 +697,12 @@ impl App {
         self.user_turn_counter = 0;
 
         // Send Clear command to controller to clear session conversation
-        if self.session_id != 0 {
-            if let Some(ref tx) = self.to_controller {
-                let payload = ControllerInputPayload::control(self.session_id, ControlCmd::Clear);
-                if let Err(e) = tx.try_send(payload) {
-                    tracing::warn!("Failed to send clear command to controller: {}", e);
-                }
+        if self.session_id != 0
+            && let Some(ref tx) = self.to_controller
+        {
+            let payload = ControllerInputPayload::control(self.session_id, ControlCmd::Clear);
+            if let Err(e) = tx.try_send(payload) {
+                tracing::warn!("Failed to send clear command to controller: {}", e);
             }
         }
     }
@@ -785,12 +785,12 @@ impl App {
     }
 
     fn cmd_themes(&mut self) {
-        if let Some(widget) = self.widgets.get_mut(widget_ids::THEME_PICKER) {
-            if let Some(picker) = widget.as_any_mut().downcast_mut::<ThemePickerState>() {
-                let current_name = current_theme_name();
-                let current_theme = app_theme();
-                picker.activate(&current_name, current_theme);
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::THEME_PICKER)
+            && let Some(picker) = widget.as_any_mut().downcast_mut::<ThemePickerState>()
+        {
+            let current_name = current_theme_name();
+            let current_theme = app_theme();
+            picker.activate(&current_name, current_theme);
         }
     }
 
@@ -800,10 +800,10 @@ impl App {
             session.context_used = self.context_used;
         }
 
-        if let Some(widget) = self.widgets.get_mut(widget_ids::SESSION_PICKER) {
-            if let Some(picker) = widget.as_any_mut().downcast_mut::<SessionPickerState>() {
-                picker.activate(self.sessions.clone(), self.session_id);
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::SESSION_PICKER)
+            && let Some(picker) = widget.as_any_mut().downcast_mut::<SessionPickerState>()
+        {
+            picker.activate(self.sessions.clone(), self.session_id);
         }
     }
 
@@ -864,10 +864,10 @@ impl App {
         }
 
         // Deactivate the widget
-        if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
-            if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
-                panel.deactivate();
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL)
+            && let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>()
+        {
+            panel.deactivate();
         }
     }
 
@@ -886,10 +886,10 @@ impl App {
         }
 
         // Deactivate the widget
-        if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
-            if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
-                panel.deactivate();
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL)
+            && let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>()
+        {
+            panel.deactivate();
         }
     }
 
@@ -910,10 +910,10 @@ impl App {
         }
 
         // Deactivate the widget
-        if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
-            if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
-                panel.deactivate();
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL)
+            && let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>()
+        {
+            panel.deactivate();
         }
     }
 
@@ -930,10 +930,10 @@ impl App {
         }
 
         // Deactivate the widget
-        if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
-            if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
-                panel.deactivate();
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL)
+            && let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>()
+        {
+            panel.deactivate();
         }
     }
 
@@ -954,13 +954,12 @@ impl App {
         }
 
         // Deactivate the widget
-        if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL) {
-            if let Some(panel) = widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL)
+            && let Some(panel) = widget
                 .as_any_mut()
                 .downcast_mut::<crate::widgets::BatchPermissionPanel>()
-            {
-                panel.deactivate();
-            }
+        {
+            panel.deactivate();
         }
     }
 
@@ -977,13 +976,12 @@ impl App {
         }
 
         // Deactivate the widget
-        if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL) {
-            if let Some(panel) = widget
+        if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL)
+            && let Some(panel) = widget
                 .as_any_mut()
                 .downcast_mut::<crate::widgets::BatchPermissionPanel>()
-            {
-                panel.deactivate();
-            }
+        {
+            panel.deactivate();
         }
     }
 
@@ -1131,10 +1129,10 @@ impl App {
                     self.conversation_view
                         .update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
                     // Activate via widget registry if registered
-                    if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL) {
-                        if let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>() {
-                            panel.activate(tool_use_id, session_id, request, turn_id);
-                        }
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::QUESTION_PANEL)
+                        && let Some(panel) = widget.as_any_mut().downcast_mut::<QuestionPanel>()
+                    {
+                        panel.activate(tool_use_id, session_id, request, turn_id);
                     }
                 }
             }
@@ -1148,10 +1146,10 @@ impl App {
                     self.conversation_view
                         .update_tool_status(&tool_use_id, ToolStatus::WaitingForUser);
                     // Activate via widget registry if registered
-                    if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL) {
-                        if let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>() {
-                            panel.activate(tool_use_id, session_id, request, turn_id);
-                        }
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::PERMISSION_PANEL)
+                        && let Some(panel) = widget.as_any_mut().downcast_mut::<PermissionPanel>()
+                    {
+                        panel.activate(tool_use_id, session_id, request, turn_id);
                     }
                 }
             }
@@ -1167,12 +1165,11 @@ impl App {
                             .update_tool_status(&request.id, ToolStatus::WaitingForUser);
                     }
                     // Activate BatchPermissionPanel widget if registered
-                    if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL) {
-                        if let Some(panel) =
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::BATCH_PERMISSION_PANEL)
+                        && let Some(panel) =
                             widget.as_any_mut().downcast_mut::<BatchPermissionPanel>()
-                        {
-                            panel.activate(session_id, batch, turn_id);
-                        }
+                    {
+                        panel.activate(session_id, batch, turn_id);
                     }
                 }
             }
@@ -1246,17 +1243,17 @@ impl App {
         let widget_ids_to_check: Vec<&'static str> = self.widget_priority_order.clone();
 
         for widget_id in widget_ids_to_check {
-            if let Some(widget) = self.widgets.get_mut(widget_id) {
-                if widget.is_active() {
-                    match widget.handle_key(key_event, &widget_ctx) {
-                        WidgetKeyResult::Handled => return,
-                        WidgetKeyResult::Action(action) => {
-                            self.process_widget_action(action);
-                            return;
-                        }
-                        WidgetKeyResult::NotHandled => {
-                            // Continue to next widget or fall through to input handling
-                        }
+            if let Some(widget) = self.widgets.get_mut(widget_id)
+                && widget.is_active()
+            {
+                match widget.handle_key(key_event, &widget_ctx) {
+                    WidgetKeyResult::Handled => return,
+                    WidgetKeyResult::Action(action) => {
+                        self.process_widget_action(action);
+                        return;
+                    }
+                    WidgetKeyResult::NotHandled => {
+                        // Continue to next widget or fall through to input handling
                     }
                 }
             }
@@ -1265,7 +1262,6 @@ impl App {
         // Handle slash popup specially (needs input buffer access)
         if self.is_slash_popup_active() {
             self.handle_slash_popup_key(key);
-            return;
         }
     }
 
@@ -1437,11 +1433,11 @@ impl App {
         let count = indices.len();
         self.filtered_command_indices = indices;
 
-        if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-            if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                popup.activate();
-                popup.set_filtered_count(count);
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+            && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+        {
+            popup.activate();
+            popup.set_filtered_count(count);
         }
     }
 
@@ -1449,17 +1445,17 @@ impl App {
     fn handle_slash_popup_key(&mut self, key: KeyCode) {
         match key {
             KeyCode::Up => {
-                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                        popup.select_previous();
-                    }
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                    && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+                {
+                    popup.select_previous();
                 }
             }
             KeyCode::Down => {
-                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                        popup.select_next();
-                    }
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                    && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+                {
+                    popup.select_next();
                 }
             }
             KeyCode::Enter => {
@@ -1475,10 +1471,10 @@ impl App {
                 if let Some(input) = self.input_mut() {
                     input.clear();
                 }
-                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                        popup.deactivate();
-                    }
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                    && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+                {
+                    popup.deactivate();
                 }
                 self.filtered_command_indices.clear();
             }
@@ -1488,10 +1484,10 @@ impl App {
                     if let Some(input) = self.input_mut() {
                         input.clear();
                     }
-                    if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                        if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                            popup.deactivate();
-                        }
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                        && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+                    {
+                        popup.deactivate();
                     }
                     self.filtered_command_indices.clear();
                 } else {
@@ -1503,10 +1499,10 @@ impl App {
                         .map(|i| i.buffer().to_string())
                         .unwrap_or_default();
                     self.filtered_command_indices = self.filter_command_indices(&buffer);
-                    if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                        if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                            popup.set_filtered_count(self.filtered_command_indices.len());
-                        }
+                    if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                        && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+                    {
+                        popup.set_filtered_count(self.filtered_command_indices.len());
                     }
                 }
             }
@@ -1519,17 +1515,17 @@ impl App {
                     .map(|i| i.buffer().to_string())
                     .unwrap_or_default();
                 self.filtered_command_indices = self.filter_command_indices(&buffer);
-                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                        popup.set_filtered_count(self.filtered_command_indices.len());
-                    }
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                    && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+                {
+                    popup.set_filtered_count(self.filtered_command_indices.len());
                 }
             }
             _ => {
-                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                        popup.deactivate();
-                    }
+                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                    && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+                {
+                    popup.deactivate();
                 }
             }
         }
@@ -1538,23 +1534,23 @@ impl App {
     /// Execute slash command at the given index in filtered list
     fn execute_slash_command_at_index(&mut self, idx: usize) {
         // Get the command index from the filtered list
-        if let Some(&cmd_idx) = self.filtered_command_indices.get(idx) {
-            if let Some(cmd) = self.commands.get(cmd_idx) {
-                let cmd_name = cmd.name().to_string();
-                if let Some(input) = self.input_mut() {
-                    input.clear();
-                    for c in format!("/{}", cmd_name).chars() {
-                        input.insert_char(c);
-                    }
+        if let Some(&cmd_idx) = self.filtered_command_indices.get(idx)
+            && let Some(cmd) = self.commands.get(cmd_idx)
+        {
+            let cmd_name = cmd.name().to_string();
+            if let Some(input) = self.input_mut() {
+                input.clear();
+                for c in format!("/{}", cmd_name).chars() {
+                    input.insert_char(c);
                 }
-                if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP) {
-                    if let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>() {
-                        popup.deactivate();
-                    }
-                }
-                self.filtered_command_indices.clear();
-                self.submit_message();
             }
+            if let Some(widget) = self.widgets.get_mut(widget_ids::SLASH_POPUP)
+                && let Some(popup) = widget.as_any_mut().downcast_mut::<SlashPopupState>()
+            {
+                popup.deactivate();
+            }
+            self.filtered_command_indices.clear();
+            self.submit_message();
         }
     }
 
@@ -1672,10 +1668,10 @@ impl App {
         };
 
         // Update status bar with collected data
-        if let Some(widget) = self.widgets.get_mut(widget_ids::STATUS_BAR) {
-            if let Some(status_bar) = widget.as_any_mut().downcast_mut::<StatusBar>() {
-                status_bar.update_data(status_bar_data);
-            }
+        if let Some(widget) = self.widgets.get_mut(widget_ids::STATUS_BAR)
+            && let Some(status_bar) = widget.as_any_mut().downcast_mut::<StatusBar>()
+        {
+            status_bar.update_data(status_bar_data);
         }
 
         // Render widgets in the order specified by the layout
@@ -1708,124 +1704,115 @@ impl App {
                     // Input is rendered specially below (with throbber logic)
                 }
                 id if id == widget_ids::SLASH_POPUP => {
-                    if let Some(widget) = self.widgets.get(widget_ids::SLASH_POPUP) {
-                        if let Some(popup_state) = widget.as_any().downcast_ref::<SlashPopupState>()
-                        {
-                            // Build filtered commands from indices
-                            let filtered: Vec<&dyn SlashCommand> = self
-                                .filtered_command_indices
-                                .iter()
-                                .filter_map(|&i| self.commands.get(i).map(|c| c.as_ref()))
-                                .collect();
-                            render_slash_popup(popup_state, &filtered, frame, *area, &theme);
-                        }
+                    if let Some(widget) = self.widgets.get(widget_ids::SLASH_POPUP)
+                        && let Some(popup_state) = widget.as_any().downcast_ref::<SlashPopupState>()
+                    {
+                        // Build filtered commands from indices
+                        let filtered: Vec<&dyn SlashCommand> = self
+                            .filtered_command_indices
+                            .iter()
+                            .filter_map(|&i| self.commands.get(i).map(|c| c.as_ref()))
+                            .collect();
+                        render_slash_popup(popup_state, &filtered, frame, *area, &theme);
                     }
                 }
                 _ => {
                     // Generic widget rendering
-                    if let Some(widget) = self.widgets.get_mut(widget_id) {
-                        if widget.is_active() {
-                            widget.render(frame, *area, &theme);
-                        }
+                    if let Some(widget) = self.widgets.get_mut(widget_id)
+                        && widget.is_active()
+                    {
+                        widget.render(frame, *area, &theme);
                     }
                 }
             }
         }
 
         // Render input or throbber (special handling)
-        if let Some(input_area) = layout.input_area {
-            if !question_panel_active && !permission_panel_active && !batch_permission_panel_active
-            {
-                if show_throbber {
-                    let default_message;
-                    let message = if let Some(msg) = &self.custom_throbber_message {
-                        msg.as_str()
-                    } else if let Some(ref msg_fn) = self.processing_message_fn {
-                        default_message = msg_fn();
-                        &default_message
-                    } else {
-                        &self.processing_message
-                    };
-                    let throbber = Throbber::default()
-                        .label(message)
-                        .style(theme.throbber_label)
-                        .throbber_style(theme.throbber_spinner)
-                        .throbber_set(BRAILLE_EIGHT_DOUBLE);
+        if let Some(input_area) = layout.input_area
+            && !question_panel_active
+            && !permission_panel_active
+            && !batch_permission_panel_active
+        {
+            if show_throbber {
+                let default_message;
+                let message = if let Some(msg) = &self.custom_throbber_message {
+                    msg.as_str()
+                } else if let Some(ref msg_fn) = self.processing_message_fn {
+                    default_message = msg_fn();
+                    &default_message
+                } else {
+                    &self.processing_message
+                };
+                let throbber = Throbber::default()
+                    .label(message)
+                    .style(theme.throbber_label)
+                    .throbber_style(theme.throbber_spinner)
+                    .throbber_set(BRAILLE_EIGHT_DOUBLE);
 
-                    let throbber_block = Block::default()
-                        .borders(Borders::TOP | Borders::BOTTOM)
-                        .border_style(theme.input_border);
-                    let inner = throbber_block.inner(input_area);
-                    let throbber_inner = Rect::new(
-                        inner.x + 1,
-                        inner.y,
-                        inner.width.saturating_sub(1),
-                        inner.height,
-                    );
-                    frame.render_widget(throbber_block, input_area);
-                    frame.render_stateful_widget(
-                        throbber,
-                        throbber_inner,
-                        &mut self.throbber_state,
-                    );
-                } else if let Some(input) = self.input() {
-                    let input_lines: Vec<String> = input
-                        .buffer()
-                        .split('\n')
-                        .enumerate()
-                        .map(|(i, line)| {
-                            if i == 0 {
-                                format!("{}{}", PROMPT, line)
-                            } else {
-                                format!("{}{}", CONTINUATION_INDENT, line)
-                            }
-                        })
-                        .collect();
-                    let input_text = if input_lines.is_empty() {
-                        PROMPT.to_string()
-                    } else {
-                        input_lines.join("\n")
-                    };
+                let throbber_block = Block::default()
+                    .borders(Borders::TOP | Borders::BOTTOM)
+                    .border_style(theme.input_border);
+                let inner = throbber_block.inner(input_area);
+                let throbber_inner = Rect::new(
+                    inner.x + 1,
+                    inner.y,
+                    inner.width.saturating_sub(1),
+                    inner.height,
+                );
+                frame.render_widget(throbber_block, input_area);
+                frame.render_stateful_widget(throbber, throbber_inner, &mut self.throbber_state);
+            } else if let Some(input) = self.input() {
+                let input_lines: Vec<String> = input
+                    .buffer()
+                    .split('\n')
+                    .enumerate()
+                    .map(|(i, line)| {
+                        if i == 0 {
+                            format!("{}{}", PROMPT, line)
+                        } else {
+                            format!("{}{}", CONTINUATION_INDENT, line)
+                        }
+                    })
+                    .collect();
+                let input_text = if input_lines.is_empty() {
+                    PROMPT.to_string()
+                } else {
+                    input_lines.join("\n")
+                };
 
-                    let input_box = Paragraph::new(input_text)
-                        .block(
-                            Block::default()
-                                .borders(Borders::TOP | Borders::BOTTOM)
-                                .border_style(theme.input_border),
-                        )
-                        .wrap(Wrap { trim: false });
-                    frame.render_widget(input_box, input_area);
+                let input_box = Paragraph::new(input_text)
+                    .block(
+                        Block::default()
+                            .borders(Borders::TOP | Borders::BOTTOM)
+                            .border_style(theme.input_border),
+                    )
+                    .wrap(Wrap { trim: false });
+                frame.render_widget(input_box, input_area);
 
-                    // Only show cursor if no overlay is active
-                    if !theme_picker_active && !session_picker_active {
-                        let (cursor_rel_x, cursor_rel_y) = input.cursor_display_position_wrapped(
-                            frame_width,
-                            prompt_len,
-                            indent_len,
-                        );
-                        let cursor_x = input_area.x + cursor_rel_x;
-                        let cursor_y = input_area.y + 1 + cursor_rel_y;
-                        frame.set_cursor_position((cursor_x, cursor_y));
-                    }
+                // Only show cursor if no overlay is active
+                if !theme_picker_active && !session_picker_active {
+                    let (cursor_rel_x, cursor_rel_y) =
+                        input.cursor_display_position_wrapped(frame_width, prompt_len, indent_len);
+                    let cursor_x = input_area.x + cursor_rel_x;
+                    let cursor_y = input_area.y + 1 + cursor_rel_y;
+                    frame.set_cursor_position((cursor_x, cursor_y));
                 }
             }
         }
 
         // Render overlay widgets (theme picker, session picker) - always on top
-        if theme_picker_active {
-            if let Some(widget) = self.widgets.get(widget_ids::THEME_PICKER) {
-                if let Some(picker) = widget.as_any().downcast_ref::<ThemePickerState>() {
-                    render_theme_picker(picker, frame, frame_area);
-                }
-            }
+        if theme_picker_active
+            && let Some(widget) = self.widgets.get(widget_ids::THEME_PICKER)
+            && let Some(picker) = widget.as_any().downcast_ref::<ThemePickerState>()
+        {
+            render_theme_picker(picker, frame, frame_area);
         }
 
-        if session_picker_active {
-            if let Some(widget) = self.widgets.get(widget_ids::SESSION_PICKER) {
-                if let Some(picker) = widget.as_any().downcast_ref::<SessionPickerState>() {
-                    render_session_picker(picker, frame, frame_area, &theme);
-                }
-            }
+        if session_picker_active
+            && let Some(widget) = self.widgets.get(widget_ids::SESSION_PICKER)
+            && let Some(picker) = widget.as_any().downcast_ref::<SessionPickerState>()
+        {
+            render_session_picker(picker, frame, frame_area, &theme);
         }
     }
 }

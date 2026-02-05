@@ -105,11 +105,11 @@ impl ToolExecutor {
                 let context = ToolContext::new(session_id, &request.tool_use_id, turn_id.clone());
 
                 // Collect required permissions
-                if let Some(perms) = tool.required_permissions(&context, &request.input) {
-                    if !perms.is_empty() {
-                        tools_needing_permissions.push(request.tool_use_id.clone());
-                        all_permissions.extend(perms);
-                    }
+                if let Some(perms) = tool.required_permissions(&context, &request.input)
+                    && !perms.is_empty()
+                {
+                    tools_needing_permissions.push(request.tool_use_id.clone());
+                    all_permissions.extend(perms);
                 }
             }
         }

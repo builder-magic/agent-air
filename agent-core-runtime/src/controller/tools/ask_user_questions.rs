@@ -282,13 +282,13 @@ impl AskUserQuestionsResponse {
             answered.insert(answer.question.as_str());
 
             // Check SingleChoice has at most one selection
-            if let Question::SingleChoice { .. } = question {
-                if answer.answer.len() > 1 {
-                    errors.push(ValidationErrorDetail {
-                        question: answer.question.clone(),
-                        error: ValidationErrorCode::TooManySelections,
-                    });
-                }
+            if let Question::SingleChoice { .. } = question
+                && answer.answer.len() > 1
+            {
+                errors.push(ValidationErrorDetail {
+                    question: answer.question.clone(),
+                    error: ValidationErrorCode::TooManySelections,
+                });
             }
         }
 

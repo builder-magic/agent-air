@@ -90,7 +90,7 @@ impl ReadFileTool {
             tool_use_id,
             GrantTarget::path(path, false),
             PermissionLevel::Read,
-            &format!("Read file: {}", path),
+            format!("Read file: {}", path),
         )
         .with_reason(reason)
         .with_tool(READ_FILE_TOOL_NAME)
@@ -159,10 +159,10 @@ async fn find_similar_files(path: &Path) -> Vec<String> {
         let entry_lower = entry_str.to_lowercase();
 
         // Check if names are similar
-        if entry_lower.contains(&filename_lower) || filename_lower.contains(&entry_lower) {
-            if let Some(full_path) = entry.path().to_str() {
-                suggestions.push(full_path.to_string());
-            }
+        if (entry_lower.contains(&filename_lower) || filename_lower.contains(&entry_lower))
+            && let Some(full_path) = entry.path().to_str()
+        {
+            suggestions.push(full_path.to_string());
         }
 
         if suggestions.len() >= 3 {

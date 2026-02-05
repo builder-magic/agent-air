@@ -6,6 +6,9 @@ use super::bindings::KeyBindings;
 use super::exit::ExitState;
 use super::types::{AppKeyAction, AppKeyResult, KeyCombo, KeyContext};
 
+/// Closure type for key handler pre-hooks.
+pub type KeyHookFn = Box<dyn Fn(&KeyEvent, &KeyContext) -> Option<AppKeyResult> + Send>;
+
 /// Trait for customizing key handling at the App level.
 ///
 /// Implement this to customize how keys are processed BEFORE
@@ -258,10 +261,10 @@ impl KeyHandler for DefaultKeyHandler {
         }
 
         // Character input - return InsertChar for regular characters
-        if let KeyCode::Char(c) = key.code {
-            if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
-                return AppKeyResult::Action(AppKeyAction::InsertChar(c));
-            }
+        if let KeyCode::Char(c) = key.code
+            && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
+        {
+            return AppKeyResult::Action(AppKeyAction::InsertChar(c));
         }
 
         // Unhandled - let widgets or default handling take over
@@ -305,7 +308,7 @@ impl KeyHandler for DefaultKeyHandler {
 /// ```
 pub struct ComposedKeyHandler<H: KeyHandler> {
     inner: H,
-    pre_hooks: Vec<Box<dyn Fn(&KeyEvent, &KeyContext) -> Option<AppKeyResult> + Send>>,
+    pre_hooks: Vec<KeyHookFn>,
 }
 
 impl<H: KeyHandler> ComposedKeyHandler<H> {

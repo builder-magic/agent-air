@@ -174,22 +174,22 @@ pub fn build_request_body(
     }
 
     // Tools (optional)
-    if let Some(tools) = &options.tools {
-        if !tools.is_empty() {
-            json.push_str(r#","tools":[{"functionDeclarations":["#);
-            for (i, tool) in tools.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                json.push_str(&format!(
-                    r#"{{"name":"{}","description":"{}","parameters":{}}}"#,
-                    escape_json_string(&tool.name),
-                    escape_json_string(&tool.description),
-                    tool.input_schema
-                ));
+    if let Some(tools) = &options.tools
+        && !tools.is_empty()
+    {
+        json.push_str(r#","tools":[{"functionDeclarations":["#);
+        for (i, tool) in tools.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
             }
-            json.push_str("]}]");
+            json.push_str(&format!(
+                r#"{{"name":"{}","description":"{}","parameters":{}}}"#,
+                escape_json_string(&tool.name),
+                escape_json_string(&tool.description),
+                tool.input_schema
+            ));
         }
+        json.push_str("]}]");
     }
 
     // Tool config (optional)
@@ -252,37 +252,37 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     }
 
     // Check for prompt feedback (blocked prompts) - Item 12 fix
-    if let Some(prompt_feedback) = parsed.get("promptFeedback") {
-        if let Some(block_reason) = prompt_feedback["blockReason"].as_str() {
-            let safety_info = extract_safety_info_from_feedback(prompt_feedback);
-            let error_msg = format!(
-                "Prompt blocked by Gemini safety filters. Reason: {}. {}",
-                block_reason, safety_info
-            );
-            return Err(LlmError::new(ERROR_PROMPT_BLOCKED, error_msg));
-        }
+    if let Some(prompt_feedback) = parsed.get("promptFeedback")
+        && let Some(block_reason) = prompt_feedback["blockReason"].as_str()
+    {
+        let safety_info = extract_safety_info_from_feedback(prompt_feedback);
+        let error_msg = format!(
+            "Prompt blocked by Gemini safety filters. Reason: {}. {}",
+            block_reason, safety_info
+        );
+        return Err(LlmError::new(ERROR_PROMPT_BLOCKED, error_msg));
     }
 
     // Extract content from successful response
     // Gemini returns: { "candidates": [{ "content": { "parts": [...], "role": "model" } }] }
     let candidates = &parsed["candidates"];
 
-    if !candidates.is_array() || candidates.as_array().map_or(true, |a| a.is_empty()) {
+    if !candidates.is_array() || candidates.as_array().is_none_or(|a| a.is_empty()) {
         return Err(LlmError::new(ERROR_PARSE, MSG_NO_CANDIDATES));
     }
 
     let candidate = &candidates[0];
 
     // Check if candidate was blocked - Item 12 fix
-    if let Some(finish_reason) = candidate["finishReason"].as_str() {
-        if finish_reason == "SAFETY" || finish_reason == "RECITATION" || finish_reason == "OTHER" {
-            let safety_info = extract_safety_ratings_text(candidate);
-            let error_msg = format!(
-                "Response blocked by Gemini. Reason: {}. {}",
-                finish_reason, safety_info
-            );
-            return Err(LlmError::new(ERROR_CONTENT_BLOCKED, error_msg));
-        }
+    if let Some(finish_reason) = candidate["finishReason"].as_str()
+        && (finish_reason == "SAFETY" || finish_reason == "RECITATION" || finish_reason == "OTHER")
+    {
+        let safety_info = extract_safety_ratings_text(candidate);
+        let error_msg = format!(
+            "Response blocked by Gemini. Reason: {}. {}",
+            finish_reason, safety_info
+        );
+        return Err(LlmError::new(ERROR_CONTENT_BLOCKED, error_msg));
     }
 
     let content = &candidate["content"];
@@ -522,14 +522,14 @@ fn build_generation_config(options: &MessageOptions) -> Vec<String> {
         config_items.push(format!(r#""topK":{}"#, top_k));
     }
 
-    if let Some(stop_sequences) = &options.stop_sequences {
-        if !stop_sequences.is_empty() {
-            let stops: Vec<String> = stop_sequences
-                .iter()
-                .map(|s| format!(r#""{}""#, escape_json_string(s)))
-                .collect();
-            config_items.push(format!(r#""stopSequences":[{}]"#, stops.join(",")));
-        }
+    if let Some(stop_sequences) = &options.stop_sequences
+        && !stop_sequences.is_empty()
+    {
+        let stops: Vec<String> = stop_sequences
+            .iter()
+            .map(|s| format!(r#""{}""#, escape_json_string(s)))
+            .collect();
+        config_items.push(format!(r#""stopSequences":[{}]"#, stops.join(",")));
     }
 
     config_items

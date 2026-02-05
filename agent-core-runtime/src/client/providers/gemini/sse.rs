@@ -173,137 +173,137 @@ pub fn parse_stream_event(
     // {"candidates":[{"content":{"parts":[...],"role":"model"},...}],"usageMetadata":{...}}
     let candidates = &json["candidates"];
 
-    if let Some(candidates_array) = candidates.as_array() {
-        if let Some(candidate) = candidates_array.first() {
-            let content = &candidate["content"];
-            let parts = &content["parts"];
+    if let Some(candidates_array) = candidates.as_array()
+        && let Some(candidate) = candidates_array.first()
+    {
+        let content = &candidate["content"];
+        let parts = &content["parts"];
 
-            if let Some(parts_array) = parts.as_array() {
-                for part in parts_array {
-                    let index = state.block_count;
+        if let Some(parts_array) = parts.as_array() {
+            for part in parts_array {
+                let index = state.block_count;
 
-                    // Text part
-                    if let Some(text) = part["text"].as_str() {
-                        if !text.is_empty() {
-                            // Finalize any pending function call first
-                            if let Some(pending) = state.pending_function_call.take() {
-                                events.extend(finalize_function_call(&pending));
-                            }
+                // Text part
+                if let Some(text) = part["text"].as_str() {
+                    if !text.is_empty() {
+                        // Finalize any pending function call first
+                        if let Some(pending) = state.pending_function_call.take() {
+                            events.extend(finalize_function_call(&pending));
+                        }
 
-                            // Only emit start if this is new content
-                            if !state.has_content || index >= state.block_count {
-                                events.push(StreamEvent::ContentBlockStart {
-                                    index,
-                                    block_type: ContentBlockType::Text,
-                                });
-                            }
-
-                            events.push(StreamEvent::TextDelta {
+                        // Only emit start if this is new content
+                        if !state.has_content || index >= state.block_count {
+                            events.push(StreamEvent::ContentBlockStart {
                                 index,
-                                text: text.to_string(),
+                                block_type: ContentBlockType::Text,
                             });
+                        }
 
-                            state.has_content = true;
-                            state.block_count = index + 1;
+                        events.push(StreamEvent::TextDelta {
+                            index,
+                            text: text.to_string(),
+                        });
+
+                        state.has_content = true;
+                        state.block_count = index + 1;
+                    }
+                }
+                // Function call part - Item 15 fix: accumulate partial args
+                else if let Some(function_call) = part.get("functionCall") {
+                    let name = function_call["name"].as_str().unwrap_or("");
+                    let args_json = &function_call["args"];
+
+                    // Check if this is a continuation of a pending function call
+                    if let Some(ref mut pending) = state.pending_function_call {
+                        if pending.name == name {
+                            // Accumulate args - try to merge JSON
+                            let new_args = args_json.to_string();
+                            if is_complete_json(&new_args) {
+                                // Complete args received, use them
+                                pending.args_buffer = new_args;
+                            } else {
+                                // Partial args, append to buffer
+                                pending.args_buffer.push_str(&new_args);
+                            }
+                            // Emit delta for the new args
+                            events.push(StreamEvent::InputJsonDelta {
+                                index: pending.index,
+                                json: args_json.to_string(),
+                            });
+                            continue;
+                        } else {
+                            // Different function, finalize the previous one
+                            let pending_owned = state.pending_function_call.take().unwrap();
+                            events.extend(finalize_function_call(&pending_owned));
                         }
                     }
-                    // Function call part - Item 15 fix: accumulate partial args
-                    else if let Some(function_call) = part.get("functionCall") {
-                        let name = function_call["name"].as_str().unwrap_or("");
-                        let args_json = &function_call["args"];
 
-                        // Check if this is a continuation of a pending function call
-                        if let Some(ref mut pending) = state.pending_function_call {
-                            if pending.name == name {
-                                // Accumulate args - try to merge JSON
-                                let new_args = args_json.to_string();
-                                if is_complete_json(&new_args) {
-                                    // Complete args received, use them
-                                    pending.args_buffer = new_args;
-                                } else {
-                                    // Partial args, append to buffer
-                                    pending.args_buffer.push_str(&new_args);
-                                }
-                                // Emit delta for the new args
-                                events.push(StreamEvent::InputJsonDelta {
-                                    index: pending.index,
-                                    json: args_json.to_string(),
-                                });
-                                continue;
-                            } else {
-                                // Different function, finalize the previous one
-                                let pending_owned = state.pending_function_call.take().unwrap();
-                                events.extend(finalize_function_call(&pending_owned));
-                            }
-                        }
+                    // Start a new function call
+                    // NOTE: Gemini matches function responses by NAME, not by unique ID.
+                    // We use the function name as the ID so tool results flow back correctly.
+                    let id = name.to_string();
+                    let args_str = args_json.to_string();
 
-                        // Start a new function call
-                        // NOTE: Gemini matches function responses by NAME, not by unique ID.
-                        // We use the function name as the ID so tool results flow back correctly.
-                        let id = name.to_string();
-                        let args_str = args_json.to_string();
+                    events.push(StreamEvent::ContentBlockStart {
+                        index,
+                        block_type: ContentBlockType::ToolUse {
+                            id: id.clone(),
+                            name: name.to_string(),
+                        },
+                    });
 
-                        events.push(StreamEvent::ContentBlockStart {
+                    events.push(StreamEvent::InputJsonDelta {
+                        index,
+                        json: args_str.clone(),
+                    });
+
+                    // Check if args are complete
+                    if is_complete_json(&args_str) {
+                        // Complete function call, emit stop immediately
+                        events.push(StreamEvent::ContentBlockStop { index });
+                        state.has_content = true;
+                        state.block_count = index + 1;
+                    } else {
+                        // Partial args, store for accumulation
+                        state.pending_function_call = Some(PendingFunctionCall {
                             index,
-                            block_type: ContentBlockType::ToolUse {
-                                id: id.clone(),
-                                name: name.to_string(),
-                            },
+                            id,
+                            name: name.to_string(),
+                            args_buffer: args_str,
+                            started: true,
                         });
-
-                        events.push(StreamEvent::InputJsonDelta {
-                            index,
-                            json: args_str.clone(),
-                        });
-
-                        // Check if args are complete
-                        if is_complete_json(&args_str) {
-                            // Complete function call, emit stop immediately
-                            events.push(StreamEvent::ContentBlockStop { index });
-                            state.has_content = true;
-                            state.block_count = index + 1;
-                        } else {
-                            // Partial args, store for accumulation
-                            state.pending_function_call = Some(PendingFunctionCall {
-                                index,
-                                id,
-                                name: name.to_string(),
-                                args_buffer: args_str,
-                                started: true,
-                            });
-                            state.has_content = true;
-                            state.block_count = index + 1;
-                        }
+                        state.has_content = true;
+                        state.block_count = index + 1;
                     }
                 }
             }
+        }
 
-            // Check for finish reason
-            if let Some(finish_reason) = candidate["finishReason"].as_str() {
-                // Finalize any pending function call
-                if let Some(pending) = state.pending_function_call.take() {
-                    events.extend(finalize_function_call(&pending));
-                }
+        // Check for finish reason
+        if let Some(finish_reason) = candidate["finishReason"].as_str() {
+            // Finalize any pending function call
+            if let Some(pending) = state.pending_function_call.take() {
+                events.extend(finalize_function_call(&pending));
+            }
 
-                // Emit content block stop for text blocks on completion
-                if state.has_content && state.block_count > 0 {
-                    let last_index = state.block_count - 1;
-                    // Only emit if not already stopped (e.g., not a function call)
-                    let already_stopped = events.iter().any(|e| {
+            // Emit content block stop for text blocks on completion
+            if state.has_content && state.block_count > 0 {
+                let last_index = state.block_count - 1;
+                // Only emit if not already stopped (e.g., not a function call)
+                let already_stopped = events.iter().any(|e| {
                         matches!(e, StreamEvent::ContentBlockStop { index } if *index == last_index)
                     });
-                    if !already_stopped {
-                        events.push(StreamEvent::ContentBlockStop { index: last_index });
-                    }
+                if !already_stopped {
+                    events.push(StreamEvent::ContentBlockStop { index: last_index });
                 }
-
-                let stop_reason = map_finish_reason(finish_reason);
-
-                // Extract usage if available
-                let usage = extract_usage(&json);
-
-                events.push(StreamEvent::MessageDelta { stop_reason, usage });
             }
+
+            let stop_reason = map_finish_reason(finish_reason);
+
+            // Extract usage if available
+            let usage = extract_usage(&json);
+
+            events.push(StreamEvent::MessageDelta { stop_reason, usage });
         }
     }
 
@@ -312,7 +312,7 @@ pub fn parse_stream_event(
         let has_candidates = json
             .get("candidates")
             .and_then(|c| c.as_array())
-            .map_or(false, |a| !a.is_empty());
+            .is_some_and(|a| !a.is_empty());
 
         if !has_candidates {
             // This is a usage-only message (final stats)

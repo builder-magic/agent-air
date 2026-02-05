@@ -111,7 +111,7 @@ impl GlobTool {
             tool_use_id,
             GrantTarget::path(path, true), // recursive for glob
             PermissionLevel::Read,
-            &format!("Glob search in: {}", path),
+            format!("Glob search in: {}", path),
         )
         .with_reason(reason)
         .with_tool(GLOB_TOOL_NAME)

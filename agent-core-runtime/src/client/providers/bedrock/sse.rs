@@ -220,25 +220,24 @@ pub fn parse_stream_event(
             let delta = &json["delta"];
 
             // Text delta
-            if let Some(text) = delta["text"].as_str() {
-                if !text.is_empty() {
-                    events.push(StreamEvent::TextDelta {
-                        index: state.block_index,
-                        text: text.to_string(),
-                    });
-                }
+            if let Some(text) = delta["text"].as_str()
+                && !text.is_empty()
+            {
+                events.push(StreamEvent::TextDelta {
+                    index: state.block_index,
+                    text: text.to_string(),
+                });
             }
 
             // Tool input delta
-            if let Some(tool_use) = delta.get("toolUse") {
-                if let Some(input) = tool_use["input"].as_str() {
-                    if !input.is_empty() {
-                        events.push(StreamEvent::InputJsonDelta {
-                            index: state.block_index,
-                            json: input.to_string(),
-                        });
-                    }
-                }
+            if let Some(tool_use) = delta.get("toolUse")
+                && let Some(input) = tool_use["input"].as_str()
+                && !input.is_empty()
+            {
+                events.push(StreamEvent::InputJsonDelta {
+                    index: state.block_index,
+                    json: input.to_string(),
+                });
             }
         }
         "contentBlockStop" => {

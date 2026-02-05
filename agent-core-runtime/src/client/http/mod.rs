@@ -59,10 +59,10 @@ fn extract_retry_after(response_text: &str) -> Option<u64> {
     if let Some(pos) = lower.find("retry after ") {
         let after_pos = pos + "retry after ".len();
         let remaining = &lower[after_pos..];
-        if let Some(space_pos) = remaining.find(' ') {
-            if let Ok(seconds) = remaining[..space_pos].trim().parse::<u64>() {
-                return Some(seconds);
-            }
+        if let Some(space_pos) = remaining.find(' ')
+            && let Ok(seconds) = remaining[..space_pos].trim().parse::<u64>()
+        {
+            return Some(seconds);
         }
     }
 
@@ -186,23 +186,23 @@ impl HttpClient {
                 .map_err(|e| LlmError::new("HTTP_INVALID_UTF8", format!("{}", e)))?;
 
             // Check for rate limit (429) or overloaded (529)
-            if status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529 {
-                if attempt < MAX_RETRIES {
-                    let delay = calculate_backoff_delay(attempt, &response_text);
-                    tracing::warn!(
-                        status = %status,
-                        attempt = attempt + 1,
-                        max_retries = MAX_RETRIES,
-                        delay_ms = delay.as_millis(),
-                        "Rate limited, retrying after delay"
-                    );
-                    tokio::time::sleep(delay).await;
-                    last_error = Some(LlmError::new(
-                        format!("HTTP_{}", status.as_u16()),
-                        response_text,
-                    ));
-                    continue;
-                }
+            if (status == StatusCode::TOO_MANY_REQUESTS || status.as_u16() == 529)
+                && attempt < MAX_RETRIES
+            {
+                let delay = calculate_backoff_delay(attempt, &response_text);
+                tracing::warn!(
+                    status = %status,
+                    attempt = attempt + 1,
+                    max_retries = MAX_RETRIES,
+                    delay_ms = delay.as_millis(),
+                    "Rate limited, retrying after delay"
+                );
+                tokio::time::sleep(delay).await;
+                last_error = Some(LlmError::new(
+                    format!("HTTP_{}", status.as_u16()),
+                    response_text,
+                ));
+                continue;
             }
 
             // Return the response body (caller parses for API errors)

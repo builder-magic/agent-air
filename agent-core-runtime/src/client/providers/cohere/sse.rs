@@ -117,26 +117,23 @@ pub fn parse_stream_event(
         }
         "content-delta" => {
             // Text content delta
-            if let Some(delta) = json.get("delta") {
-                if let Some(message) = delta.get("message") {
-                    if let Some(content) = message.get("content") {
-                        if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
-                            if !text.is_empty() {
-                                if !state.text_block_started {
-                                    events.push(StreamEvent::ContentBlockStart {
-                                        index: state.block_index,
-                                        block_type: ContentBlockType::Text,
-                                    });
-                                    state.text_block_started = true;
-                                }
-                                events.push(StreamEvent::TextDelta {
-                                    index: state.block_index,
-                                    text: text.to_string(),
-                                });
-                            }
-                        }
-                    }
+            if let Some(delta) = json.get("delta")
+                && let Some(message) = delta.get("message")
+                && let Some(content) = message.get("content")
+                && let Some(text) = content.get("text").and_then(|t| t.as_str())
+                && !text.is_empty()
+            {
+                if !state.text_block_started {
+                    events.push(StreamEvent::ContentBlockStart {
+                        index: state.block_index,
+                        block_type: ContentBlockType::Text,
+                    });
+                    state.text_block_started = true;
                 }
+                events.push(StreamEvent::TextDelta {
+                    index: state.block_index,
+                    text: text.to_string(),
+                });
             }
         }
         "content-end" => {
@@ -151,51 +148,49 @@ pub fn parse_stream_event(
         }
         "tool-call-start" => {
             // Tool call starting
-            if let Some(delta) = json.get("delta") {
-                if let Some(tool_call) = delta.get("tool_call") {
-                    let id = tool_call["id"].as_str().unwrap_or("").to_string();
-                    let name = tool_call["function"]["name"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
+            if let Some(delta) = json.get("delta")
+                && let Some(tool_call) = delta.get("tool_call")
+            {
+                let id = tool_call["id"].as_str().unwrap_or("").to_string();
+                let name = tool_call["function"]["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
 
-                    // Close text block if open
-                    if state.text_block_started {
-                        events.push(StreamEvent::ContentBlockStop {
-                            index: state.block_index,
-                        });
-                        state.block_index += 1;
-                        state.text_block_started = false;
-                    }
-
-                    let block_idx = state.block_index + state.pending_tool_block_indices.len();
-
-                    // Emit tool use start
-                    events.push(StreamEvent::ContentBlockStart {
-                        index: block_idx,
-                        block_type: ContentBlockType::ToolUse { id, name },
+                // Close text block if open
+                if state.text_block_started {
+                    events.push(StreamEvent::ContentBlockStop {
+                        index: state.block_index,
                     });
-
-                    // Track this block index so we can close it at stream end if needed
-                    state.pending_tool_block_indices.push(block_idx);
+                    state.block_index += 1;
+                    state.text_block_started = false;
                 }
+
+                let block_idx = state.block_index + state.pending_tool_block_indices.len();
+
+                // Emit tool use start
+                events.push(StreamEvent::ContentBlockStart {
+                    index: block_idx,
+                    block_type: ContentBlockType::ToolUse { id, name },
+                });
+
+                // Track this block index so we can close it at stream end if needed
+                state.pending_tool_block_indices.push(block_idx);
             }
         }
         "tool-call-delta" => {
             // Tool call argument delta
-            if let Some(delta) = json.get("delta") {
-                if let Some(tool_call) = delta.get("tool_call") {
-                    if let Some(args) = tool_call["function"]["arguments"].as_str() {
-                        if !args.is_empty() {
-                            // Emit delta for the most recent tool call
-                            if let Some(&block_idx) = state.pending_tool_block_indices.last() {
-                                events.push(StreamEvent::InputJsonDelta {
-                                    index: block_idx,
-                                    json: args.to_string(),
-                                });
-                            }
-                        }
-                    }
+            if let Some(delta) = json.get("delta")
+                && let Some(tool_call) = delta.get("tool_call")
+                && let Some(args) = tool_call["function"]["arguments"].as_str()
+                && !args.is_empty()
+            {
+                // Emit delta for the most recent tool call
+                if let Some(&block_idx) = state.pending_tool_block_indices.last() {
+                    events.push(StreamEvent::InputJsonDelta {
+                        index: block_idx,
+                        json: args.to_string(),
+                    });
                 }
             }
         }

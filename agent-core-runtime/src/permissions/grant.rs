@@ -90,10 +90,10 @@ impl Grant {
     /// `true` if this grant satisfies the request
     pub fn satisfies(&self, request: &PermissionRequest) -> bool {
         // Check expiration
-        if let Some(expires) = self.expires {
-            if Instant::now() >= expires {
-                return false;
-            }
+        if let Some(expires) = self.expires
+            && Instant::now() >= expires
+        {
+            return false;
         }
 
         // Check target coverage
@@ -107,7 +107,7 @@ impl Grant {
 
     /// Checks if this grant has expired.
     pub fn is_expired(&self) -> bool {
-        self.expires.map_or(false, |e| Instant::now() >= e)
+        self.expires.is_some_and(|e| Instant::now() >= e)
     }
 
     /// Returns a display-friendly description of this grant.

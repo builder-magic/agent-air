@@ -281,10 +281,10 @@ impl PermissionRegistry {
 
         let mut granted = HashSet::new();
         for request in requests {
-            if let Some(sg) = session_grants {
-                if sg.iter().any(|grant| grant.satisfies(request)) {
-                    granted.insert(request.id.clone());
-                }
+            if let Some(sg) = session_grants
+                && sg.iter().any(|grant| grant.satisfies(request))
+            {
+                granted.insert(request.id.clone());
             }
         }
         granted
@@ -425,10 +425,10 @@ impl PermissionRegistry {
         };
 
         // Add grant if provided and granted
-        if response.granted {
-            if let Some(ref g) = response.grant {
-                self.add_grant(pending.session_id, g.clone()).await;
-            }
+        if response.granted
+            && let Some(ref g) = response.grant
+        {
+            self.add_grant(pending.session_id, g.clone()).await;
         }
 
         pending

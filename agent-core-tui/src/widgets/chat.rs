@@ -494,13 +494,12 @@ impl ChatView {
 
     /// Update a tool message status by tool_use_id - O(1) lookup
     pub fn update_tool_status(&mut self, tool_use_id: &str, status: ToolStatus) {
-        if let Some(&index) = self.tool_index.get(tool_use_id) {
-            if let Some(msg) = self.messages.get_mut(index) {
-                if let Some(ref mut data) = msg.tool_data {
-                    data.status = status;
-                    msg.cached_lines = None; // Invalidate cache
-                }
-            }
+        if let Some(&index) = self.tool_index.get(tool_use_id)
+            && let Some(msg) = self.messages.get_mut(index)
+            && let Some(ref mut data) = msg.tool_data
+        {
+            data.status = status;
+            msg.cached_lines = None; // Invalidate cache
         }
     }
 
@@ -528,11 +527,11 @@ impl ChatView {
 
     /// Complete the streaming response and add as assistant message
     pub fn complete_streaming(&mut self) {
-        if let Some(content) = self.streaming_buffer.take() {
-            if !content.trim().is_empty() {
-                self.messages
-                    .push(Message::new(MessageRole::Assistant, content));
-            }
+        if let Some(content) = self.streaming_buffer.take()
+            && !content.trim().is_empty()
+        {
+            self.messages
+                .push(Message::new(MessageRole::Assistant, content));
         }
         // Clear streaming cache
         self.streaming_cache = None;
@@ -602,13 +601,11 @@ impl ChatView {
             self.messages.is_empty() && self.streaming_buffer.is_none() && pending_status.is_none();
 
         // If we have custom initial content renderer, use it and return early
-        if is_initial_state {
-            if let Some(ref render_fn) = self.render_initial_content {
-                let inner = content_block.inner(area);
-                frame.render_widget(content_block, area);
-                render_fn(frame, inner, &theme);
-                return;
-            }
+        if is_initial_state && let Some(ref render_fn) = self.render_initial_content {
+            let inner = content_block.inner(area);
+            frame.render_widget(content_block, area);
+            render_fn(frame, inner, &theme);
+            return;
         }
 
         // Calculate available width for manual wrapping

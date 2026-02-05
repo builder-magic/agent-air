@@ -159,12 +159,8 @@ impl AgentCore {
         }
 
         // Create tokio runtime for async operations
-        let runtime = Runtime::new().map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to create runtime: {}", e),
-            )
-        })?;
+        let runtime = Runtime::new()
+            .map_err(|e| io::Error::other(format!("Failed to create runtime: {}", e)))?;
 
         // Get channel buffer size from config (or use default)
         let channel_size = config.channel_buffer_size().unwrap_or(DEFAULT_CHANNEL_SIZE);
@@ -435,10 +431,10 @@ impl AgentCore {
         let id = controller.create_session(config).await?;
 
         // Set tools on the session after creation
-        if !tools.is_empty() {
-            if let Some(session) = controller.get_session(id).await {
-                session.set_tools(tools.to_vec()).await;
-            }
+        if !tools.is_empty()
+            && let Some(session) = controller.get_session(id).await
+        {
+            session.set_tools(tools.to_vec()).await;
         }
 
         Ok(id)
@@ -1048,7 +1044,7 @@ impl AgentCore {
             .controller
             .get_session(session_id)
             .await
-            .ok_or_else(|| AgentError::SessionNotFound(session_id))?;
+            .ok_or(AgentError::SessionNotFound(session_id))?;
 
         let current_prompt = session.system_prompt().await.unwrap_or_default();
 
@@ -1072,15 +1068,15 @@ impl AgentCore {
 
 /// Replace the <available_skills> section in a system prompt.
 fn replace_skills_section(prompt: &str, new_skills_xml: &str) -> String {
-    if let Some(start) = prompt.find("<available_skills>") {
-        if let Some(end) = prompt.find("</available_skills>") {
-            let end = end + "</available_skills>".len();
-            let mut result = String::with_capacity(prompt.len());
-            result.push_str(&prompt[..start]);
-            result.push_str(new_skills_xml);
-            result.push_str(&prompt[end..]);
-            return result;
-        }
+    if let Some(start) = prompt.find("<available_skills>")
+        && let Some(end) = prompt.find("</available_skills>")
+    {
+        let end = end + "</available_skills>".len();
+        let mut result = String::with_capacity(prompt.len());
+        result.push_str(&prompt[..start]);
+        result.push_str(new_skills_xml);
+        result.push_str(&prompt[end..]);
+        return result;
     }
     // Fallback: just append
     format!("{}\n\n{}", prompt, new_skills_xml)

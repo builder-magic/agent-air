@@ -143,141 +143,140 @@ pub fn parse_stream_event(
     }
 
     // Process choices
-    if let Some(choices) = json["choices"].as_array() {
-        if let Some(choice) = choices.first() {
-            let delta = &choice["delta"];
+    if let Some(choices) = json["choices"].as_array()
+        && let Some(choice) = choices.first()
+    {
+        let delta = &choice["delta"];
 
-            // Handle text content
-            if let Some(content) = delta["content"].as_str() {
-                if !content.is_empty() {
-                    // Start text block if not started
-                    if !state.text_block_started {
-                        events.push(StreamEvent::ContentBlockStart {
-                            index: state.block_index,
-                            block_type: ContentBlockType::Text,
-                        });
-                        state.text_block_started = true;
-                    }
-
-                    events.push(StreamEvent::TextDelta {
-                        index: state.block_index,
-                        text: content.to_string(),
-                    });
-                }
+        // Handle text content
+        if let Some(content) = delta["content"].as_str()
+            && !content.is_empty()
+        {
+            // Start text block if not started
+            if !state.text_block_started {
+                events.push(StreamEvent::ContentBlockStart {
+                    index: state.block_index,
+                    block_type: ContentBlockType::Text,
+                });
+                state.text_block_started = true;
             }
 
-            // Handle tool calls
-            if let Some(tool_calls) = delta["tool_calls"].as_array() {
-                for tc in tool_calls {
-                    let tc_index = tc["index"].as_u64().unwrap_or(0) as usize;
+            events.push(StreamEvent::TextDelta {
+                index: state.block_index,
+                text: content.to_string(),
+            });
+        }
 
-                    // Find or create pending tool call
-                    let pending = if let Some(p) = state
-                        .pending_tool_calls
-                        .iter_mut()
-                        .find(|p| p.index == tc_index)
-                    {
-                        p
-                    } else {
-                        // Close text block if open
-                        if state.text_block_started {
-                            events.push(StreamEvent::ContentBlockStop {
-                                index: state.block_index,
-                            });
-                            state.block_index += 1;
-                            state.text_block_started = false;
-                        }
+        // Handle tool calls
+        if let Some(tool_calls) = delta["tool_calls"].as_array() {
+            for tc in tool_calls {
+                let tc_index = tc["index"].as_u64().unwrap_or(0) as usize;
 
-                        // Create new pending tool call
-                        let block_idx = state.block_index + state.pending_tool_calls.len();
-                        state.pending_tool_calls.push(PendingToolCall {
-                            index: tc_index,
-                            block_index: block_idx,
-                            id: String::new(),
-                            name: String::new(),
-                            arguments: String::new(),
-                            started: false,
-                        });
-                        state.pending_tool_calls.last_mut().unwrap()
-                    };
-
-                    // Update tool call ID
-                    if let Some(id) = tc["id"].as_str() {
-                        pending.id = id.to_string();
-                    }
-
-                    // Update function name
-                    if let Some(name) = tc["function"]["name"].as_str() {
-                        pending.name = name.to_string();
-                    }
-
-                    // Accumulate arguments
-                    if let Some(args) = tc["function"]["arguments"].as_str() {
-                        pending.arguments.push_str(args);
-                    }
-
-                    // Emit start event if we have enough info and haven't started
-                    if !pending.started && !pending.id.is_empty() && !pending.name.is_empty() {
-                        events.push(StreamEvent::ContentBlockStart {
-                            index: pending.block_index,
-                            block_type: ContentBlockType::ToolUse {
-                                id: pending.id.clone(),
-                                name: pending.name.clone(),
-                            },
-                        });
-                        pending.started = true;
-                    }
-
-                    // Emit argument delta if we have arguments and have started
-                    if pending.started {
-                        if let Some(args) = tc["function"]["arguments"].as_str() {
-                            if !args.is_empty() {
-                                events.push(StreamEvent::InputJsonDelta {
-                                    index: pending.block_index,
-                                    json: args.to_string(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Handle finish reason
-            if let Some(finish_reason) = choice["finish_reason"].as_str() {
-                // Close text block if open
-                if state.text_block_started {
-                    events.push(StreamEvent::ContentBlockStop {
-                        index: state.block_index,
-                    });
-                    state.text_block_started = false;
-                }
-
-                // Close all pending tool calls
-                for pending in &state.pending_tool_calls {
-                    if pending.started {
+                // Find or create pending tool call
+                let pending = if let Some(p) = state
+                    .pending_tool_calls
+                    .iter_mut()
+                    .find(|p| p.index == tc_index)
+                {
+                    p
+                } else {
+                    // Close text block if open
+                    if state.text_block_started {
                         events.push(StreamEvent::ContentBlockStop {
-                            index: pending.block_index,
+                            index: state.block_index,
                         });
+                        state.block_index += 1;
+                        state.text_block_started = false;
                     }
+
+                    // Create new pending tool call
+                    let block_idx = state.block_index + state.pending_tool_calls.len();
+                    state.pending_tool_calls.push(PendingToolCall {
+                        index: tc_index,
+                        block_index: block_idx,
+                        id: String::new(),
+                        name: String::new(),
+                        arguments: String::new(),
+                        started: false,
+                    });
+                    state.pending_tool_calls.last_mut().unwrap()
+                };
+
+                // Update tool call ID
+                if let Some(id) = tc["id"].as_str() {
+                    pending.id = id.to_string();
                 }
 
-                // Map finish reason
-                let stop_reason = Some(match finish_reason {
-                    "stop" => "end_turn".to_string(),
-                    "length" => "max_tokens".to_string(),
-                    "tool_calls" => "tool_use".to_string(),
-                    "content_filter" => "content_filter".to_string(),
-                    other => other.to_string(),
-                });
+                // Update function name
+                if let Some(name) = tc["function"]["name"].as_str() {
+                    pending.name = name.to_string();
+                }
 
-                // Extract usage if present
-                let usage = json.get("usage").map(|u| Usage {
-                    input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,
-                    output_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
-                });
+                // Accumulate arguments
+                if let Some(args) = tc["function"]["arguments"].as_str() {
+                    pending.arguments.push_str(args);
+                }
 
-                events.push(StreamEvent::MessageDelta { stop_reason, usage });
+                // Emit start event if we have enough info and haven't started
+                if !pending.started && !pending.id.is_empty() && !pending.name.is_empty() {
+                    events.push(StreamEvent::ContentBlockStart {
+                        index: pending.block_index,
+                        block_type: ContentBlockType::ToolUse {
+                            id: pending.id.clone(),
+                            name: pending.name.clone(),
+                        },
+                    });
+                    pending.started = true;
+                }
+
+                // Emit argument delta if we have arguments and have started
+                if pending.started
+                    && let Some(args) = tc["function"]["arguments"].as_str()
+                    && !args.is_empty()
+                {
+                    events.push(StreamEvent::InputJsonDelta {
+                        index: pending.block_index,
+                        json: args.to_string(),
+                    });
+                }
             }
+        }
+
+        // Handle finish reason
+        if let Some(finish_reason) = choice["finish_reason"].as_str() {
+            // Close text block if open
+            if state.text_block_started {
+                events.push(StreamEvent::ContentBlockStop {
+                    index: state.block_index,
+                });
+                state.text_block_started = false;
+            }
+
+            // Close all pending tool calls
+            for pending in &state.pending_tool_calls {
+                if pending.started {
+                    events.push(StreamEvent::ContentBlockStop {
+                        index: pending.block_index,
+                    });
+                }
+            }
+
+            // Map finish reason
+            let stop_reason = Some(match finish_reason {
+                "stop" => "end_turn".to_string(),
+                "length" => "max_tokens".to_string(),
+                "tool_calls" => "tool_use".to_string(),
+                "content_filter" => "content_filter".to_string(),
+                other => other.to_string(),
+            });
+
+            // Extract usage if present
+            let usage = json.get("usage").map(|u| Usage {
+                input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,
+                output_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
+            });
+
+            events.push(StreamEvent::MessageDelta { stop_reason, usage });
         }
     }
 

@@ -4,10 +4,12 @@ default:
 
 # Build the workspace
 build:
+    @cargo clippy --workspace -- -D warnings
     @cargo build --workspace
 
 # Run tests
 test:
+    @cargo clippy --workspace -- -D warnings
     @cargo test --workspace
 
 # Run clippy

@@ -90,10 +90,10 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &StandardOptions)
     constraints.push(Constraint::Length(input_height)); // Input
 
     // Status bar
-    if let Some(status_id) = opts.status_bar_widget_id {
-        if sizes.is_active(status_id) {
-            constraints.push(Constraint::Length(sizes.height(status_id)));
-        }
+    if let Some(status_id) = opts.status_bar_widget_id
+        && sizes.is_active(status_id)
+    {
+        constraints.push(Constraint::Length(sizes.height(status_id)));
     }
 
     // Apply layout
@@ -168,11 +168,11 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &StandardOptions)
     chunk_idx += 1;
 
     // Status bar
-    if let Some(status_id) = opts.status_bar_widget_id {
-        if sizes.is_active(status_id) {
-            result.widget_areas.insert(status_id, chunks[chunk_idx]);
-            result.render_order.push(status_id);
-        }
+    if let Some(status_id) = opts.status_bar_widget_id
+        && sizes.is_active(status_id)
+    {
+        result.widget_areas.insert(status_id, chunks[chunk_idx]);
+        result.render_order.push(status_id);
     }
 
     // Overlays (use full frame area, added last to render on top)

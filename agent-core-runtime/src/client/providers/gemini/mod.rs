@@ -9,7 +9,7 @@ use futures::Stream;
 use crate::client::error::LlmError;
 use crate::client::http::HttpClient;
 use crate::client::models::{Message, MessageOptions, StreamEvent};
-use crate::client::traits::LlmProvider;
+use crate::client::traits::{LlmProvider, StreamMsgFuture};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -86,16 +86,7 @@ impl LlmProvider for GeminiProvider {
         client: &HttpClient,
         messages: &[Message],
         options: &MessageOptions,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<
-                        Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>,
-                        LlmError,
-                    >,
-                > + Send,
-        >,
-    > {
+    ) -> StreamMsgFuture {
         // Clone data for the async block
         let client = client.clone();
         let api_key = self.api_key.clone();

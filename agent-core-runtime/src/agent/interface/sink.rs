@@ -58,6 +58,7 @@ impl std::error::Error for SendError {}
 ///     }
 /// }
 /// ```
+#[allow(clippy::result_large_err)]
 pub trait EventSink: Send + Sync + 'static {
     /// Send an event to the consumer (non-blocking).
     ///
@@ -217,10 +218,10 @@ impl EventSink for SimpleEventSink {
             UiMessage::ToolExecuting { display_name, .. } => {
                 println!("[Tool: {}]", display_name);
             }
-            UiMessage::ToolCompleted { error, .. } => {
-                if let Some(err) = error {
-                    eprintln!("[Tool error: {}]", err);
-                }
+            UiMessage::ToolCompleted {
+                error: Some(err), ..
+            } => {
+                eprintln!("[Tool error: {}]", err);
             }
             UiMessage::PermissionRequired { .. } => {
                 eprintln!(

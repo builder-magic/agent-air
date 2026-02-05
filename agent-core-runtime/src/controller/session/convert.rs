@@ -16,11 +16,7 @@ pub fn to_llm_message(msg: &Message) -> LLMMessage {
         MessageRole::Assistant => LLMRole::Assistant,
     };
 
-    let content: Vec<LLMContent> = msg
-        .content()
-        .iter()
-        .filter_map(|block| to_llm_content(block))
-        .collect();
+    let content: Vec<LLMContent> = msg.content().iter().filter_map(to_llm_content).collect();
 
     LLMMessage::with_content(role, content)
 }
@@ -47,10 +43,7 @@ pub fn to_llm_content(block: &ContentBlock) -> Option<LLMContent> {
 
 /// Convert LLM client Message to our ContentBlock list
 pub fn from_llm_message(msg: &LLMMessage) -> Vec<ContentBlock> {
-    msg.content
-        .iter()
-        .filter_map(|content| from_llm_content(content))
-        .collect()
+    msg.content.iter().filter_map(from_llm_content).collect()
 }
 
 /// Convert LLM client Content to our ContentBlock

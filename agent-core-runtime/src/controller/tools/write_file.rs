@@ -102,7 +102,7 @@ impl WriteFileTool {
             tool_use_id,
             GrantTarget::path(file_path, false),
             PermissionLevel::Write,
-            &format!("Write file: {}", file_path),
+            format!("Write file: {}", file_path),
         )
         .with_reason(reason)
         .with_tool(WRITE_FILE_TOOL_NAME)
@@ -210,14 +210,13 @@ impl Executable for WriteFileTool {
             // ─────────────────────────────────────────────────────────────
             // Step 7: Create parent directories if requested
             // ─────────────────────────────────────────────────────────────
-            if create_directories {
-                if let Some(parent) = path.parent() {
-                    if !parent.exists() {
-                        fs::create_dir_all(parent)
-                            .await
-                            .map_err(|e| format!("Failed to create parent directories: {}", e))?;
-                    }
-                }
+            if create_directories
+                && let Some(parent) = path.parent()
+                && !parent.exists()
+            {
+                fs::create_dir_all(parent)
+                    .await
+                    .map_err(|e| format!("Failed to create parent directories: {}", e))?;
             }
 
             // ─────────────────────────────────────────────────────────────

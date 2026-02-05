@@ -59,6 +59,7 @@ impl CommandRegistry {
     /// ```ignore
     /// registry.add(ClearCommand).add(HelpCommand);
     /// ```
+    #[allow(clippy::should_implement_trait)]
     pub fn add<C: SlashCommand + 'static>(mut self, command: C) -> Self {
         self.commands.push(Box::new(command));
         self

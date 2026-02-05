@@ -126,7 +126,7 @@ impl EditFileTool {
             tool_use_id,
             GrantTarget::path(path, false),
             PermissionLevel::Write,
-            &format!("Edit file: {}", path),
+            format!("Edit file: {}", path),
         )
         .with_reason(reason)
         .with_tool(EDIT_FILE_TOOL_NAME)
@@ -244,19 +244,19 @@ impl EditFileTool {
 
             let similarity = normalized_levenshtein(&search_text, &window_text);
 
-            if similarity >= config.threshold {
-                if best_match.is_none() || similarity > best_match.unwrap().2 {
-                    // Calculate byte positions
-                    let start_byte: usize = content_lines[..window_start]
-                        .iter()
-                        .map(|l| l.len() + 1)
-                        .sum();
+            if similarity >= config.threshold
+                && (best_match.is_none() || similarity > best_match.unwrap().2)
+            {
+                // Calculate byte positions
+                let start_byte: usize = content_lines[..window_start]
+                    .iter()
+                    .map(|l| l.len() + 1)
+                    .sum();
 
-                    let matched_text = content_lines[window_start..window_end].join("\n");
-                    let end_byte = start_byte + matched_text.len();
+                let matched_text = content_lines[window_start..window_end].join("\n");
+                let end_byte = start_byte + matched_text.len();
 
-                    best_match = Some((start_byte, end_byte, similarity));
-                }
+                best_match = Some((start_byte, end_byte, similarity));
             }
         }
 

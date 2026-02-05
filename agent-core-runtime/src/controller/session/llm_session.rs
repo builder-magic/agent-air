@@ -662,13 +662,12 @@ impl LLMSession {
     fn extract_summary_length(&self, message: &Message) -> usize {
         if let Message::User(user_msg) = message {
             for block in &user_msg.content {
-                if let ContentBlock::Text(text_block) = block {
-                    if text_block
+                if let ContentBlock::Text(text_block) = block
+                    && text_block
                         .text
                         .starts_with("[Previous conversation summary]")
-                    {
-                        return text_block.text.len();
-                    }
+                {
+                    return text_block.text.len();
                 }
             }
         }

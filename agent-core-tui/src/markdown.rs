@@ -85,10 +85,10 @@ pub fn parse_to_spans(text: &str, theme: &Theme) -> Vec<Span<'static>> {
             Event::End(TagEnd::Link) => {
                 color_stack.pop();
                 // Append URL after link text
-                if let Some(url) = link_url_stack.pop() {
-                    if !url.is_empty() {
-                        spans.push(Span::styled(format!(" ({})", url), theme.link_url()));
-                    }
+                if let Some(url) = link_url_stack.pop()
+                    && !url.is_empty()
+                {
+                    spans.push(Span::styled(format!(" ({})", url), theme.link_url()));
                 }
             }
 
@@ -202,7 +202,7 @@ pub fn wrap_with_prefix(
                 Style::default()
             };
             let mut line_spans = vec![Span::styled(prefix.to_string(), prefix_style)];
-            line_spans.extend(current_line_spans.drain(..));
+            line_spans.append(&mut current_line_spans);
             lines.push(Line::from(line_spans));
 
             current_line_spans.push(Span::styled(word, style));

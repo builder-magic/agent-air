@@ -236,7 +236,7 @@ impl LsTool {
             tool_use_id,
             GrantTarget::path(path, false),
             PermissionLevel::Read,
-            &format!("List directory: {}", path),
+            format!("List directory: {}", path),
         )
         .with_reason(reason)
         .with_tool(LS_TOOL_NAME)
@@ -377,10 +377,10 @@ impl Executable for LsTool {
                     }
 
                     // Filter by pattern
-                    if let Some(ref matcher) = glob_matcher {
-                        if !matcher.is_match(&entry.name) {
-                            return false;
-                        }
+                    if let Some(ref matcher) = glob_matcher
+                        && !matcher.is_match(&entry.name)
+                    {
+                        return false;
                     }
 
                     true

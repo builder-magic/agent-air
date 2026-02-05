@@ -10,8 +10,8 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
+use super::builtins::{THEMES, get_theme};
 use super::theme::{Theme, set_theme};
-use super::themes::{THEMES, get_theme};
 
 /// State for the theme picker
 pub struct ThemePickerState {
@@ -68,9 +68,6 @@ impl ThemePickerState {
 
     /// Move selection up
     pub fn select_previous(&mut self) {
-        if THEMES.is_empty() {
-            return;
-        }
         if self.selected_index == 0 {
             self.selected_index = THEMES.len() - 1;
         } else {
@@ -81,19 +78,16 @@ impl ThemePickerState {
 
     /// Move selection down
     pub fn select_next(&mut self) {
-        if THEMES.is_empty() {
-            return;
-        }
         self.selected_index = (self.selected_index + 1) % THEMES.len();
         self.apply_preview();
     }
 
     /// Apply the currently selected theme for preview
     fn apply_preview(&self) {
-        if let Some(info) = THEMES.get(self.selected_index) {
-            if let Some(theme) = get_theme(info.name) {
-                set_theme(info.name, theme);
-            }
+        if let Some(info) = THEMES.get(self.selected_index)
+            && let Some(theme) = get_theme(info.name)
+        {
+            set_theme(info.name, theme);
         }
     }
 
@@ -302,12 +296,11 @@ fn render_theme_list(state: &ThemePickerState, frame: &mut Frame, area: Rect, th
 
 /// Render the preview panel
 fn render_preview(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let mut lines = Vec::new();
-
-    // Preview header
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(" # Preview", theme.heading_1)));
-    lines.push(Line::from(""));
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(" # Preview", theme.heading_1)),
+        Line::from(""),
+    ];
 
     // User message example
     lines.push(Line::from(Span::styled(

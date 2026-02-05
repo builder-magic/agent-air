@@ -82,17 +82,17 @@ pub fn build_request_body(
     }
 
     // Stop sequences (optional)
-    if let Some(stop_sequences) = &options.stop_sequences {
-        if !stop_sequences.is_empty() {
-            json.push_str(r#","stop_sequences":["#);
-            for (i, seq) in stop_sequences.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                json.push_str(&format!(r#""{}""#, escape_json_string(seq)));
+    if let Some(stop_sequences) = &options.stop_sequences
+        && !stop_sequences.is_empty()
+    {
+        json.push_str(r#","stop_sequences":["#);
+        for (i, seq) in stop_sequences.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
             }
-            json.push(']');
+            json.push_str(&format!(r#""{}""#, escape_json_string(seq)));
         }
+        json.push(']');
     }
 
     // System prompt (optional)
@@ -101,22 +101,22 @@ pub fn build_request_body(
     }
 
     // Tools (optional)
-    if let Some(tools) = &options.tools {
-        if !tools.is_empty() {
-            json.push_str(r#","tools":["#);
-            for (i, tool) in tools.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                json.push_str(&format!(
-                    r#"{{"name":"{}","description":"{}","input_schema":{}}}"#,
-                    escape_json_string(&tool.name),
-                    escape_json_string(&tool.description),
-                    tool.input_schema // Already JSON
-                ));
+    if let Some(tools) = &options.tools
+        && !tools.is_empty()
+    {
+        json.push_str(r#","tools":["#);
+        for (i, tool) in tools.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
             }
-            json.push(']');
+            json.push_str(&format!(
+                r#"{{"name":"{}","description":"{}","input_schema":{}}}"#,
+                escape_json_string(&tool.name),
+                escape_json_string(&tool.description),
+                tool.input_schema // Already JSON
+            ));
         }
+        json.push(']');
     }
 
     // Tool choice (optional)
@@ -141,13 +141,13 @@ pub fn build_request_body(
     }
 
     // Metadata (optional)
-    if let Some(metadata) = &options.metadata {
-        if let Some(user_id) = &metadata.user_id {
-            json.push_str(&format!(
-                r#","metadata":{{"user_id":"{}"}}"#,
-                escape_json_string(user_id)
-            ));
-        }
+    if let Some(metadata) = &options.metadata
+        && let Some(user_id) = &metadata.user_id
+    {
+        json.push_str(&format!(
+            r#","metadata":{{"user_id":"{}"}}"#,
+            escape_json_string(user_id)
+        ));
     }
 
     // Messages array

@@ -5,6 +5,13 @@ use futures::Stream;
 use std::future::Future;
 use std::pin::Pin;
 
+/// A boxed stream of LLM streaming events.
+pub type StreamEventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>;
+
+/// A boxed future that resolves to a stream of LLM events.
+pub type StreamMsgFuture =
+    Pin<Box<dyn Future<Output = Result<StreamEventStream, LlmError>> + Send>>;
+
 /// Provider interface for LLM APIs.
 ///
 /// Implement this trait to add support for new LLM providers.
@@ -25,16 +32,7 @@ pub trait LlmProvider {
         _client: &HttpClient,
         _messages: &[Message],
         _options: &MessageOptions,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<
-                        Pin<Box<dyn Stream<Item = Result<StreamEvent, LlmError>> + Send>>,
-                        LlmError,
-                    >,
-                > + Send,
-        >,
-    > {
+    ) -> StreamMsgFuture {
         Box::pin(async {
             Err(LlmError::new(
                 "NOT_IMPLEMENTED",

@@ -197,7 +197,7 @@ fn has_path_traversal(request: &Path, grant: &Path) -> bool {
     // If request doesn't start with grant after normalization,
     // it might be attempting to escape via symlinks or other tricks
     // This is a basic check - full symlink resolution should be done separately
-    !request.starts_with(grant) && !request.parent().map_or(false, |p| p == grant)
+    !request.starts_with(grant) && request.parent() != Some(grant)
 }
 
 /// Checks if a domain pattern matches a domain.

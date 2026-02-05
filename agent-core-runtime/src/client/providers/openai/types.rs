@@ -73,36 +73,36 @@ pub fn build_request_body(
     }
 
     // Stop sequences (optional) - OpenAI uses "stop" not "stop_sequences"
-    if let Some(stop_sequences) = &options.stop_sequences {
-        if !stop_sequences.is_empty() {
-            json.push_str(r#","stop":["#);
-            for (i, seq) in stop_sequences.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                json.push_str(&format!(r#""{}""#, escape_json_string(seq)));
+    if let Some(stop_sequences) = &options.stop_sequences
+        && !stop_sequences.is_empty()
+    {
+        json.push_str(r#","stop":["#);
+        for (i, seq) in stop_sequences.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
             }
-            json.push(']');
+            json.push_str(&format!(r#""{}""#, escape_json_string(seq)));
         }
+        json.push(']');
     }
 
     // Tools (optional) - OpenAI wraps each tool in a "function" type
-    if let Some(tools) = &options.tools {
-        if !tools.is_empty() {
-            json.push_str(r#","tools":["#);
-            for (i, tool) in tools.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                json.push_str(&format!(
+    if let Some(tools) = &options.tools
+        && !tools.is_empty()
+    {
+        json.push_str(r#","tools":["#);
+        for (i, tool) in tools.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
                     r#"{{"type":"function","function":{{"name":"{}","description":"{}","parameters":{}}}}}"#,
                     escape_json_string(&tool.name),
                     escape_json_string(&tool.description),
                     tool.input_schema // Already JSON
                 ));
-            }
-            json.push(']');
         }
+        json.push(']');
     }
 
     // Tool choice (optional)
@@ -128,10 +128,10 @@ pub fn build_request_body(
     }
 
     // User ID (optional) - OpenAI puts this at top level
-    if let Some(metadata) = &options.metadata {
-        if let Some(user_id) = &metadata.user_id {
-            json.push_str(&format!(r#","user":"{}""#, escape_json_string(user_id)));
-        }
+    if let Some(metadata) = &options.metadata
+        && let Some(user_id) = &metadata.user_id
+    {
+        json.push_str(&format!(r#","user":"{}""#, escape_json_string(user_id)));
     }
 
     // Messages array
@@ -351,10 +351,10 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     let content_field = &message["content"];
     if !content_field.is_null() {
         // serde_json properly unescapes JSON strings
-        if let Some(text) = content_field.as_str() {
-            if !text.is_empty() {
-                content_blocks.push(Content::Text(text.to_string()));
-            }
+        if let Some(text) = content_field.as_str()
+            && !text.is_empty()
+        {
+            content_blocks.push(Content::Text(text.to_string()));
         }
     }
 

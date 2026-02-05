@@ -172,7 +172,7 @@ impl GrepTool {
             tool_use_id,
             GrantTarget::path(path, true), // recursive for grep
             PermissionLevel::Read,
-            &format!("Search files in: {}", path.display()),
+            format!("Search files in: {}", path.display()),
         )
         .with_reason(reason)
         .with_tool(GREP_TOOL_NAME)
@@ -362,8 +362,7 @@ impl Executable for GrepTool {
             };
 
             // Get file type extensions if provided
-            let type_extensions: Option<Vec<&str>> =
-                file_type.map(|t| Self::get_type_extensions(t));
+            let type_extensions: Option<Vec<&str>> = file_type.map(Self::get_type_extensions);
 
             // ─────────────────────────────────────────────────────────────
             // Step 9: Build searcher with context options

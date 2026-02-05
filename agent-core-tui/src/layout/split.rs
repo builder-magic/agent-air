@@ -87,11 +87,12 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &SplitOptions) ->
         .widget_areas
         .insert(opts.input_widget_id, v_chunks[1]);
 
-    if let Some(status_id) = opts.status_bar_widget_id {
-        if sizes.is_active(status_id) && status_height > 0 {
-            result.widget_areas.insert(status_id, v_chunks[2]);
-            result.render_order.push(status_id);
-        }
+    if let Some(status_id) = opts.status_bar_widget_id
+        && sizes.is_active(status_id)
+        && status_height > 0
+    {
+        result.widget_areas.insert(status_id, v_chunks[2]);
+        result.render_order.push(status_id);
     }
 
     // Split content area
@@ -108,7 +109,7 @@ pub fn compute(ctx: &LayoutContext, sizes: &WidgetSizes, opts: &SplitOptions) ->
     };
 
     let content_chunks = Layout::default()
-        .direction(opts.direction.clone())
+        .direction(opts.direction)
         .constraints([split_constraint, second_constraint])
         .split(content_area);
 

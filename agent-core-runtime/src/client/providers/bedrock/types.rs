@@ -129,14 +129,14 @@ pub fn build_request_body(
     if let Some(top_p) = options.top_p {
         inference_items.push(format!(r#""topP":{}"#, top_p));
     }
-    if let Some(stop_sequences) = &options.stop_sequences {
-        if !stop_sequences.is_empty() {
-            let stops: Vec<String> = stop_sequences
-                .iter()
-                .map(|s| format!(r#""{}""#, escape_json_string(s)))
-                .collect();
-            inference_items.push(format!(r#""stopSequences":[{}]"#, stops.join(",")));
-        }
+    if let Some(stop_sequences) = &options.stop_sequences
+        && !stop_sequences.is_empty()
+    {
+        let stops: Vec<String> = stop_sequences
+            .iter()
+            .map(|s| format!(r#""{}""#, escape_json_string(s)))
+            .collect();
+        inference_items.push(format!(r#""stopSequences":[{}]"#, stops.join(",")));
     }
 
     if !inference_items.is_empty() {
@@ -147,41 +147,41 @@ pub fn build_request_body(
     }
 
     // Tool config (optional)
-    if let Some(tools) = &options.tools {
-        if !tools.is_empty() {
-            json.push_str(r#","toolConfig":{"tools":["#);
-            for (i, tool) in tools.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                // Bedrock tool format
-                json.push_str(&format!(
-                    r#"{{"toolSpec":{{"name":"{}","description":"{}","inputSchema":{{"json":{}}}}}}}"#,
-                    escape_json_string(&tool.name),
-                    escape_json_string(&tool.description),
-                    tool.input_schema
-                ));
+    if let Some(tools) = &options.tools
+        && !tools.is_empty()
+    {
+        json.push_str(r#","toolConfig":{"tools":["#);
+        for (i, tool) in tools.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
             }
-            json.push_str("]}");
+            // Bedrock tool format
+            json.push_str(&format!(
+                r#"{{"toolSpec":{{"name":"{}","description":"{}","inputSchema":{{"json":{}}}}}}}"#,
+                escape_json_string(&tool.name),
+                escape_json_string(&tool.description),
+                tool.input_schema
+            ));
+        }
+        json.push_str("]}");
 
-            // Tool choice
-            if let Some(tool_choice) = &options.tool_choice {
-                match tool_choice {
-                    ToolChoice::Auto => {
-                        json.push_str(r#","toolChoice":{"auto":{}}"#);
-                    }
-                    ToolChoice::Any => {
-                        json.push_str(r#","toolChoice":{"any":{}}"#);
-                    }
-                    ToolChoice::None => {
-                        // Remove tool config if none
-                    }
-                    ToolChoice::Tool(name) => {
-                        json.push_str(&format!(
-                            r#","toolChoice":{{"tool":{{"name":"{}"}}}}"#,
-                            escape_json_string(name)
-                        ));
-                    }
+        // Tool choice
+        if let Some(tool_choice) = &options.tool_choice {
+            match tool_choice {
+                ToolChoice::Auto => {
+                    json.push_str(r#","toolChoice":{"auto":{}}"#);
+                }
+                ToolChoice::Any => {
+                    json.push_str(r#","toolChoice":{"any":{}}"#);
+                }
+                ToolChoice::None => {
+                    // Remove tool config if none
+                }
+                ToolChoice::Tool(name) => {
+                    json.push_str(&format!(
+                        r#","toolChoice":{{"tool":{{"name":"{}"}}}}"#,
+                        escape_json_string(name)
+                    ));
                 }
             }
         }
@@ -261,11 +261,11 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
         .map_err(|e| LlmError::new(ERROR_PARSE, format!("Failed to parse response: {}", e)))?;
 
     // Check for API error response
-    if let Some(error_msg) = parsed["message"].as_str() {
-        if parsed.get("output").is_none() {
-            let error_type = parsed["__type"].as_str().unwrap_or("BedrockError");
-            return Err(LlmError::new(error_type, error_msg));
-        }
+    if let Some(error_msg) = parsed["message"].as_str()
+        && parsed.get("output").is_none()
+    {
+        let error_type = parsed["__type"].as_str().unwrap_or("BedrockError");
+        return Err(LlmError::new(error_type, error_msg));
     }
 
     // Extract output message
@@ -280,10 +280,10 @@ pub fn parse_response(response_body: &str) -> Result<Message, LlmError> {
     if let Some(content_arr) = output["content"].as_array() {
         for content in content_arr {
             // Text content
-            if let Some(text) = content["text"].as_str() {
-                if !text.is_empty() {
-                    content_blocks.push(Content::Text(text.to_string()));
-                }
+            if let Some(text) = content["text"].as_str()
+                && !text.is_empty()
+            {
+                content_blocks.push(Content::Text(text.to_string()));
             }
             // Tool use
             if let Some(tool_use) = content.get("toolUse") {
