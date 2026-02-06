@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="agent-core-title.svg" alt="agent-core" width="500" />
+  <img src=".github/assets/agent-core-title.png" alt="agent-core" width="500" />
 </p>
 
 <h3 align="center">An Open Source SDK and Runtime for building AI Agents</h3>
@@ -41,7 +41,7 @@ fn main() -> std::io::Result<()> {
 ```
 
 <p align="center">
-  <img src="docs/hero-agent.png" alt="agent-core hero" />
+  <img src=".github/assets/hero-agent.png" alt="agent-core hero" />
 </p>
 
 ## Features
