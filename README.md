@@ -14,7 +14,7 @@
 
 ---
 
-agent-core is an open-source Agent SDK and Runtime built in Rust. agent-core provides everything you need to build AI agents running in a Terminal UI or on the server. agent-core handles everything you need: LLM communication, multiple sessions, markdown rendering, widgets & layouts, tools, skills, MCP, permissions and much more so you can focus on building your agent.
+agent-core is an open-source SDK and Runtime for building AI agents running in a Terminal UI or on the server. agent-core handles everything you need: LLM communication, multiple sessions, markdown rendering, widgets & layouts, tools, skills, MCP, permissions and much more so you can focus on building your agent.
 
 ## Getting Started
 
@@ -34,7 +34,7 @@ use agent_core::tui::AgentCoreExt;
 const SYSTEM_PROMPT: &str = "You are a helpful AI assistant.";
 
 fn main() -> std::io::Result<()> {
-    AgentCore::with_config("my-agent", "~/.config/my-agent", SYSTEM_PROMPT)?
+    AgentCore::with_config("multi-code", "~/.config/my-agent", SYSTEM_PROMPT)?
         .into_tui()
         .run()
 }
