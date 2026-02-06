@@ -1,31 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
-    "agent-core-runtime",
-    "agent-core-tui",
+    "agent-air-runtime",
+    "agent-air-tui",
 ]
 
-# The main agent-core package (meta-crate that re-exports sub-crates)
+# The main agent-air package (meta-crate that re-exports sub-crates)
 [package]
-name = "agent-core"
+name = "agent-air"
 version = "0.6.0"
 edition = "2024"
 description = "A Rust Framework to build TUI Agents"
 license = "MIT"
-repository = "https://github.com/deepmesa/agent-core"
+repository = "https://github.com/deepmesa/agent-air"
 keywords = ["llm", "agent", "tui", "ai", "anthropic"]
 categories = ["command-line-interface", "api-bindings"]
 
 [features]
 default = ["tui"]
-tui = ["dep:agent-core-tui"]
+tui = ["dep:agent-air-tui"]
 
 [dependencies]
 # Always include the runtime
-agent-core-runtime = { path = "agent-core-runtime", version = "0.6.0" }
+agent-air-runtime = { path = "agent-air-runtime", version = "0.6.0" }
 
 # Optionally include the TUI
-agent-core-tui = { path = "agent-core-tui", version = "0.6.0", optional = true }
+agent-air-tui = { path = "agent-air-tui", version = "0.6.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,0 +1,37 @@
+[package]
+name = "agent-air-tui"
+version = "0.6.0"
+edition = "2024"
+description = "TUI frontend for agent-air - ratatui-based terminal interface"
+license = "MIT"
+repository = "https://github.com/deepmesa/agent-air"
+keywords = ["tui", "terminal", "ratatui", "agent", "llm"]
+categories = ["command-line-interface"]
+
+[dependencies]
+# Runtime crate
+agent-air-runtime = { path = "../agent-air-runtime", version = "0.6.0" }
+
+# TUI dependencies
+ratatui = "0.30"
+crossterm = "0.28"
+tui-textarea = "0.7"
+pulldown-cmark = "0.13.0"
+unicode-width = "0.2"
+throbber-widgets-tui = "0.10"
+
+# Async runtime (needed for TUI event loop)
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
+
+# Serialization (needed for some TUI state)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+
+# Date/time handling (used by chat views)
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"

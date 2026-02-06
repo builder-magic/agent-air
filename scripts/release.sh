@@ -1,5 +1,5 @@
 #!/bin/bash
-# Release script for agent-core
+# Release script for agent-air
 # Automates cargo release + GitHub release with pre-flight checks
 
 set -e
@@ -74,7 +74,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo "  agent-core Release Script"
+echo "  agent-air Release Script"
 echo "=========================================="
 echo ""
 
@@ -207,16 +207,16 @@ fi
 success "Release notes OK ($NOTES_LINES lines)"
 
 # Check 8: cargo publish dry run for base crate
-# Note: We can only dry-run agent-core-runtime because the other crates
+# Note: We can only dry-run agent-air-runtime because the other crates
 # depend on it, and it won't exist on crates.io until actually published
-info "Running cargo publish dry run for agent-core-runtime..."
+info "Running cargo publish dry run for agent-air-runtime..."
 echo ""
-if ! cargo publish -p agent-core-runtime --dry-run 2>&1; then
-    error "cargo publish dry run failed for agent-core-runtime"
+if ! cargo publish -p agent-air-runtime --dry-run 2>&1; then
+    error "cargo publish dry run failed for agent-air-runtime"
 fi
 echo ""
-success "cargo publish dry run passed (agent-core-runtime)"
-info "Note: agent-core-tui and agent-core will be validated during actual publish"
+success "cargo publish dry run passed (agent-air-runtime)"
+info "Note: agent-air-tui and agent-air will be validated during actual publish"
 
 echo ""
 echo "=========================================="
@@ -240,9 +240,9 @@ fi
 echo -e "${YELLOW}Ready to release v$NEW_VERSION${NC}"
 echo ""
 echo "This will:"
-echo "  1. Publish agent-core-runtime to crates.io"
-echo "  2. Publish agent-core-tui to crates.io"
-echo "  3. Publish agent-core to crates.io"
+echo "  1. Publish agent-air-runtime to crates.io"
+echo "  2. Publish agent-air-tui to crates.io"
+echo "  3. Publish agent-air to crates.io"
 echo "  4. Create and push git tag v$NEW_VERSION"
 echo "  5. Create GitHub release with notes"
 echo ""
@@ -262,9 +262,9 @@ info "Publishing workspace crates in dependency order..."
 echo ""
 
 # Workspace publishing requires publishing in dependency order
-# 1. agent-core-runtime (no internal deps)
-# 2. agent-core-tui (depends on runtime)
-# 3. agent-core (depends on both)
+# 1. agent-air-runtime (no internal deps)
+# 2. agent-air-tui (depends on runtime)
+# 3. agent-air (depends on both)
 
 # Function to wait for a crate version to appear in the crates.io index
 wait_for_crate() {
@@ -287,27 +287,27 @@ wait_for_crate() {
     error "$crate_name $version not found in index after $max_attempts attempts"
 }
 
-info "Step 1/3: Publishing agent-core-runtime..."
-if ! cargo publish -p agent-core-runtime; then
-    error "Failed to publish agent-core-runtime"
+info "Step 1/3: Publishing agent-air-runtime..."
+if ! cargo publish -p agent-air-runtime; then
+    error "Failed to publish agent-air-runtime"
 fi
-success "agent-core-runtime published"
+success "agent-air-runtime published"
 
-wait_for_crate "agent-core-runtime" "$NEW_VERSION"
+wait_for_crate "agent-air-runtime" "$NEW_VERSION"
 
-info "Step 2/3: Publishing agent-core-tui..."
-if ! cargo publish -p agent-core-tui; then
-    error "Failed to publish agent-core-tui"
+info "Step 2/3: Publishing agent-air-tui..."
+if ! cargo publish -p agent-air-tui; then
+    error "Failed to publish agent-air-tui"
 fi
-success "agent-core-tui published"
+success "agent-air-tui published"
 
-wait_for_crate "agent-core-tui" "$NEW_VERSION"
+wait_for_crate "agent-air-tui" "$NEW_VERSION"
 
-info "Step 3/3: Publishing agent-core..."
-if ! cargo publish -p agent-core; then
-    error "Failed to publish agent-core"
+info "Step 3/3: Publishing agent-air..."
+if ! cargo publish -p agent-air; then
+    error "Failed to publish agent-air"
 fi
-success "agent-core published"
+success "agent-air published"
 
 success "All crates published to crates.io"
 
@@ -334,9 +334,9 @@ echo -e "  ${GREEN}Release v$NEW_VERSION complete!${NC}"
 echo "=========================================="
 echo ""
 echo "Links:"
-echo "  GitHub:  https://github.com/deepmesa/agent-core/releases/tag/v$NEW_VERSION"
+echo "  GitHub:  https://github.com/deepmesa/agent-air/releases/tag/v$NEW_VERSION"
 echo "  Crates:"
-echo "    - https://crates.io/crates/agent-core-runtime/$NEW_VERSION"
-echo "    - https://crates.io/crates/agent-core-tui/$NEW_VERSION"
-echo "    - https://crates.io/crates/agent-core/$NEW_VERSION"
+echo "    - https://crates.io/crates/agent-air-runtime/$NEW_VERSION"
+echo "    - https://crates.io/crates/agent-air-tui/$NEW_VERSION"
+echo "    - https://crates.io/crates/agent-air/$NEW_VERSION"
 echo ""

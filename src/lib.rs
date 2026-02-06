@@ -1,10 +1,10 @@
-//! Agent Core
+//! Agent Air
 //!
 //! A Rust Framework for building TUI Agents powered by large language models.
 //!
 //! This is a meta-crate that re-exports from:
-//! - `agent-core-runtime` - Core runtime (always included)
-//! - `agent-core-tui` - TUI frontend (optional, enabled by default)
+//! - `agent-air-runtime` - Core runtime (always included)
+//! - `agent-air-tui` - TUI frontend (optional, enabled by default)
 //!
 //! ## Features
 //!
@@ -13,8 +13,8 @@
 //! ## Quick Start (with TUI)
 //!
 //! ```ignore
-//! use agent_core::agent::{AgentConfig, AgentCore};
-//! use agent_core::tui::AgentCoreExt;
+//! use agent_air::agent::{AgentConfig, AgentAir};
+//! use agent_air::tui::AgentAirExt;
 //!
 //! struct MyConfig;
 //! impl AgentConfig for MyConfig {
@@ -25,7 +25,7 @@
 //! }
 //!
 //! fn main() -> std::io::Result<()> {
-//!     let agent = AgentCore::new(&MyConfig)?;
+//!     let agent = AgentAir::new(&MyConfig)?;
 //!     agent.into_tui().run()
 //! }
 //! ```
@@ -33,7 +33,7 @@
 //! ## Headless Usage (without TUI)
 //!
 //! ```ignore
-//! use agent_core::agent::{AgentConfig, AgentCore};
+//! use agent_air::agent::{AgentConfig, AgentAir};
 //!
 //! struct MyConfig;
 //! impl AgentConfig for MyConfig {
@@ -44,7 +44,7 @@
 //! }
 //!
 //! fn main() -> std::io::Result<()> {
-//!     let mut core = AgentCore::new(&MyConfig)?;
+//!     let mut core = AgentAir::new(&MyConfig)?;
 //!     core.start_background_tasks();
 //!
 //!     // Get channels for custom frontend integration
@@ -61,15 +61,15 @@
 //! ```
 
 // Re-export everything from the runtime crate
-pub use agent_core_runtime::*;
+pub use agent_air_runtime::*;
 
 // Re-export the TUI crate when the feature is enabled
 #[cfg(feature = "tui")]
 pub mod tui {
-    //! TUI frontend for agent-core.
+    //! TUI frontend for agent-air.
     //!
     //! This module provides a ratatui-based terminal interface for agents.
-    //! Use `AgentCoreExt::into_tui()` to convert an `AgentCore` into a `TuiRunner`.
+    //! Use `AgentAirExt::into_tui()` to convert an `AgentAir` into a `TuiRunner`.
 
-    pub use agent_core_tui::*;
+    pub use agent_air_tui::*;
 }

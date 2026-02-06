@@ -1,47 +1,47 @@
 <p align="center">
-  <img src=".github/assets/agent-core-title.png" alt="agent-core" width="500" />
+  <img src=".github/assets/agent-air-title.png" alt="agent-air" width="500" />
 </p>
 
 <h3 align="center">An Open Source SDK and Runtime for building AI Agents</h3>
 
 <p align="center">
-  <a href="https://github.com/deepmesa/agent-core/actions/workflows/ci.yml"><img src="https://github.com/deepmesa/agent-core/actions/workflows/ci.yml/badge.svg?branch=mainline" alt="CI" /></a>
+  <a href="https://github.com/deepmesa/agent-air/actions/workflows/ci.yml"><img src="https://github.com/deepmesa/agent-air/actions/workflows/ci.yml/badge.svg?branch=mainline" alt="CI" /></a>
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License" />
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
 </p>
 
-<h3 align="center"><a href="https://agent-core.ai">https://agent-core.ai</a></h3>
+<h3 align="center"><a href="https://agent-air.ai">https://agent-air.ai</a></h3>
 
 ---
 
-agent-core is an open-source SDK and Runtime for building AI agents running in a Terminal UI or on the server. agent-core handles everything you need: LLM communication, multiple sessions, markdown rendering, widgets & layouts, tools, skills, MCP, permissions and much more so you can focus on building your agent.
+agent-air is an open-source SDK and Runtime for building AI agents running in a Terminal UI or on the server. agent-air handles everything you need: LLM communication, multiple sessions, markdown rendering, widgets & layouts, tools, skills, MCP, permissions and much more so you can focus on building your agent.
 
 ## Getting Started
 
-Add agent-core to your `Cargo.toml`:
+Add agent-air to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-agent-core = "0.1.0"
+agent-air = "0.1.0"
 ```
 
 Build a working AI agent in just a few lines of code:
 
 ```rust
-use agent_core::agent::AgentCore;
-use agent_core::tui::AgentCoreExt;
+use agent_air::agent::AgentAir;
+use agent_air::tui::AgentAirExt;
 
 const SYSTEM_PROMPT: &str = "You are a helpful AI assistant.";
 
 fn main() -> std::io::Result<()> {
-    AgentCore::with_config("multi-code", "~/.config/my-agent", SYSTEM_PROMPT)?
+    AgentAir::with_config("multi-code", "~/.config/my-agent", SYSTEM_PROMPT)?
         .into_tui()
         .run()
 }
 ```
 
 <p align="center">
-  <img src=".github/assets/hero-agent.png" alt="agent-core hero" />
+  <img src=".github/assets/hero-agent.png" alt="agent-air hero" />
 </p>
 
 ## Features

@@ -23,14 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `PolicyDecision` enum with `Allow`, `AllowWithGrant`, `Deny`, `AskUser` variants
   - `supports_interaction()` method for handling user questions in headless mode
 
-#### AgentCore Frontend Methods
+#### AgentAir Frontend Methods
 - `run_with_frontend()`: Run agent with custom sink, source, and policy
 - Inline policy handling for `PermissionRequired` and `BatchPermissionRequired` events
 - Auto-cancel user interactions when policy doesn't support interaction
 
 #### Simplified Agent Setup
 - `SimpleConfig` struct for quick agent configuration
-- `AgentCore::with_config(name, path, prompt)`: One-line agent creation
+- `AgentAir::with_config(name, path, prompt)`: One-line agent creation
 
 ### Changed
 - Re-export interface types at `agent` module level for convenience
@@ -44,9 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SkillDiscovery` for scanning directories for SKILL.md files
 - `SkillRegistry` thread-safe registry with XML generation for system prompts
 - YAML frontmatter parser with name/description validation
-- Default search paths: `$PWD/.skills/` (project) and `~/.agent-core/skills/` (user)
+- Default search paths: `$PWD/.skills/` (project) and `~/.agent-air/skills/` (user)
 
-#### AgentCore Skill Methods
+#### AgentAir Skill Methods
 - `load_skills()`: Discover and register skills from configured paths
 - `load_skills_from()`: One-shot loading from custom paths
 - `reload_skills()`: Hot reload with added/removed tracking
@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### ListSkillsTool
 - New tool allowing LLM to discover available skills at runtime
 - Returns name, description, and SKILL.md path for each skill
-- `register_list_skills_tool()` method on AgentCore
+- `register_list_skills_tool()` method on AgentAir
 
 ### Changed
 - `AgentError` now includes `SessionNotFound` variant for skill refresh errors
@@ -66,13 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2025-02-02
 
 ### Changed
-- Split agent-core into workspace with three crates:
-  - `agent-core-runtime`: Core engine (controller, client, permissions, tools)
-  - `agent-core-tui`: TUI frontend (ratatui, widgets, themes, commands)
-  - `agent-core`: Meta-crate re-exporting both (backwards compatible)
-- TUI methods moved from AgentCore to TuiRunner
-- New AgentCoreExt trait provides into_tui() conversion
-- Headless agents can now depend on agent-core-runtime only
+- Split agent-air into workspace with three crates:
+  - `agent-air-runtime`: Core engine (controller, client, permissions, tools)
+  - `agent-air-tui`: TUI frontend (ratatui, widgets, themes, commands)
+  - `agent-air`: Meta-crate re-exporting both (backwards compatible)
+- TUI methods moved from AgentAir to TuiRunner
+- New AgentAirExt trait provides into_tui() conversion
+- Headless agents can now depend on agent-air-runtime only
 
 ## [0.3.0]
 
@@ -100,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Environment & Configuration
 - EnvironmentContext for injecting working directory, platform, OS version, and date into system prompts
-- AgentCore::load_environment_context() for one-line enablement
+- AgentAir::load_environment_context() for one-line enablement
 - LLMRegistry::with_environment_context() to inject context into all sessions
 - AgentConfig::channel_buffer_size() for customizing buffer sizes
 
@@ -147,7 +147,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0]
 
 ### Added
-- Initial agent-core framework with shared TUI and agent modules
+- Initial agent-air framework with shared TUI and agent modules
 - LLM controller integration (merged from llm-controller-rs)
 - Anthropic client integration (merged from vangogh-rs)
 - Flexible layout system for TUI widget arrangement
