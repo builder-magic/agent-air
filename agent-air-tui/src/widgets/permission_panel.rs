@@ -220,6 +220,9 @@ impl PermissionOption {
                     }
                     GrantTarget::Domain { .. } => Grant::domain("*", request.required_level),
                     GrantTarget::Command { .. } => Grant::command("*", request.required_level),
+                    GrantTarget::Tool { tool_name } => {
+                        Grant::tool(tool_name, request.required_level)
+                    }
                 };
                 PermissionPanelResponse {
                     granted: true,
@@ -496,6 +499,9 @@ impl PermissionPanel {
             }
             GrantTarget::Command { pattern } => {
                 (&self.config.icon_command, "Execute", pattern.clone())
+            }
+            GrantTarget::Tool { tool_name } => {
+                (&self.config.icon_other, "Use Tool", tool_name.clone())
             }
         };
 

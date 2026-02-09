@@ -165,12 +165,14 @@ pub fn compute_suggested_grants(requests: &[PermissionRequest]) -> Vec<Grant> {
     let mut path_requests: Vec<&PermissionRequest> = Vec::new();
     let mut domain_requests: Vec<&PermissionRequest> = Vec::new();
     let mut command_requests: Vec<&PermissionRequest> = Vec::new();
+    let mut tool_requests: Vec<&PermissionRequest> = Vec::new();
 
     for req in requests {
         match &req.target {
             GrantTarget::Path { .. } => path_requests.push(req),
             GrantTarget::Domain { .. } => domain_requests.push(req),
             GrantTarget::Command { .. } => command_requests.push(req),
+            GrantTarget::Tool { .. } => tool_requests.push(req),
         }
     }
 
@@ -178,6 +180,7 @@ pub fn compute_suggested_grants(requests: &[PermissionRequest]) -> Vec<Grant> {
     grants.extend(compute_path_grants(&path_requests));
     grants.extend(compute_domain_grants(&domain_requests));
     grants.extend(compute_command_grants(&command_requests));
+    grants.extend(compute_tool_grants(&tool_requests));
 
     grants
 }
@@ -341,6 +344,27 @@ fn compute_command_grants(requests: &[&PermissionRequest]) -> Vec<Grant> {
             };
             Grant::new(GrantTarget::command(pattern), level)
         })
+        .collect()
+}
+
+/// Computes grants for tool requests.
+///
+/// Each unique tool name gets its own grant at the maximum requested level.
+fn compute_tool_grants(requests: &[&PermissionRequest]) -> Vec<Grant> {
+    let mut tool_levels: HashMap<String, PermissionLevel> = HashMap::new();
+
+    for req in requests {
+        if let GrantTarget::Tool { tool_name } = &req.target {
+            let entry = tool_levels
+                .entry(tool_name.clone())
+                .or_insert(PermissionLevel::None);
+            *entry = std::cmp::max(*entry, req.required_level);
+        }
+    }
+
+    tool_levels
+        .into_iter()
+        .map(|(tool_name, level)| Grant::new(GrantTarget::tool(tool_name), level))
         .collect()
 }
 

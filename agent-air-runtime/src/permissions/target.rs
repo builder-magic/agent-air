@@ -4,6 +4,7 @@
 //! - `Path`: File system paths (files and directories)
 //! - `Domain`: Network domains for HTTP access
 //! - `Command`: Shell command patterns
+//! - `Tool`: Named tool invocations
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -14,6 +15,7 @@ use std::path::{Path, PathBuf};
 /// - `Path`: Matches file system paths with optional recursion
 /// - `Domain`: Matches network domains with wildcard support
 /// - `Command`: Matches shell commands with glob patterns
+/// - `Tool`: Matches tool names exactly
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GrantTarget {
@@ -33,6 +35,11 @@ pub enum GrantTarget {
     Command {
         /// Command pattern (e.g., "git *", "cargo build", "*").
         pattern: String,
+    },
+    /// Tool invocation target.
+    Tool {
+        /// Tool name (e.g., "switch_aws_account", "delete_resource").
+        tool_name: String,
     },
 }
 
@@ -69,6 +76,16 @@ impl GrantTarget {
         }
     }
 
+    /// Creates a new tool target.
+    ///
+    /// # Arguments
+    /// * `tool_name` - Tool name (e.g., "switch_aws_account", "delete_resource")
+    pub fn tool(tool_name: impl Into<String>) -> Self {
+        Self::Tool {
+            tool_name: tool_name.into(),
+        }
+    }
+
     /// Checks if this grant target covers a request target.
     ///
     /// Coverage rules:
@@ -102,6 +119,15 @@ impl GrantTarget {
                 GrantTarget::Command { pattern: request },
             ) => command_pattern_matches(grant, request),
 
+            (
+                GrantTarget::Tool {
+                    tool_name: grant_name,
+                },
+                GrantTarget::Tool {
+                    tool_name: request_name,
+                },
+            ) => grant_name == request_name,
+
             // Different target types never cover each other
             _ => false,
         }
@@ -119,6 +145,7 @@ impl GrantTarget {
             }
             GrantTarget::Domain { pattern } => pattern.clone(),
             GrantTarget::Command { pattern } => pattern.clone(),
+            GrantTarget::Tool { tool_name } => tool_name.clone(),
         }
     }
 
@@ -128,6 +155,7 @@ impl GrantTarget {
             GrantTarget::Path { .. } => "Path",
             GrantTarget::Domain { .. } => "Domain",
             GrantTarget::Command { .. } => "Command",
+            GrantTarget::Tool { .. } => "Tool",
         }
     }
 }
@@ -468,6 +496,36 @@ mod tests {
         }
     }
 
+    mod tool_tests {
+        use super::*;
+
+        #[test]
+        fn test_exact_tool_match() {
+            let grant = GrantTarget::tool("switch_aws_account");
+            let request = GrantTarget::tool("switch_aws_account");
+            assert!(grant.covers(&request));
+        }
+
+        #[test]
+        fn test_different_tool_not_covered() {
+            let grant = GrantTarget::tool("switch_aws_account");
+            let request = GrantTarget::tool("delete_resource");
+            assert!(!grant.covers(&request));
+        }
+
+        #[test]
+        fn test_tool_description() {
+            let target = GrantTarget::tool("switch_aws_account");
+            assert_eq!(target.description(), "switch_aws_account");
+        }
+
+        #[test]
+        fn test_tool_target_type() {
+            let target = GrantTarget::tool("my_tool");
+            assert_eq!(target.target_type(), "Tool");
+        }
+    }
+
     mod cross_target_tests {
         use super::*;
 
@@ -480,6 +538,10 @@ mod tests {
             let command_grant = GrantTarget::command("git *");
             let path_request = GrantTarget::path("/project/src", false);
             assert!(!command_grant.covers(&path_request));
+
+            let tool_grant = GrantTarget::tool("my_tool");
+            let command_request = GrantTarget::command("my_tool");
+            assert!(!tool_grant.covers(&command_request));
         }
     }
 
@@ -512,6 +574,17 @@ mod tests {
             let target = GrantTarget::command("git *");
             let json = serde_json::to_string(&target).unwrap();
             assert!(json.contains("\"type\":\"command\""));
+
+            let deserialized: GrantTarget = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, target);
+        }
+
+        #[test]
+        fn test_tool_serialization() {
+            let target = GrantTarget::tool("switch_aws_account");
+            let json = serde_json::to_string(&target).unwrap();
+            assert!(json.contains("\"type\":\"tool\""));
+            assert!(json.contains("\"tool_name\":\"switch_aws_account\""));
 
             let deserialized: GrantTarget = serde_json::from_str(&json).unwrap();
             assert_eq!(deserialized, target);

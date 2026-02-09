@@ -76,6 +76,11 @@ impl Grant {
         Self::new(GrantTarget::command(pattern), level)
     }
 
+    /// Creates a grant for a tool invocation.
+    pub fn tool(tool_name: impl Into<String>, level: PermissionLevel) -> Self {
+        Self::new(GrantTarget::tool(tool_name), level)
+    }
+
     /// Checks if this grant satisfies a permission request.
     ///
     /// A grant satisfies a request if:
@@ -231,6 +236,17 @@ impl PermissionRequest {
         )
     }
 
+    /// Creates a tool invocation request.
+    pub fn tool_use(
+        id: impl Into<String>,
+        tool_name: impl Into<String>,
+        level: PermissionLevel,
+    ) -> Self {
+        let tool_name = tool_name.into();
+        let description = format!("Use tool: {}", tool_name);
+        Self::new(id, GrantTarget::tool(&tool_name), level, description).with_tool(tool_name)
+    }
+
     /// Creates a network request.
     pub fn network_access(
         id: impl Into<String>,
@@ -318,6 +334,22 @@ mod tests {
         }
 
         #[test]
+        fn test_tool_grant() {
+            let grant = Grant::tool("switch_aws_account", PermissionLevel::Execute);
+            let request =
+                PermissionRequest::tool_use("1", "switch_aws_account", PermissionLevel::Execute);
+            assert!(grant.satisfies(&request));
+        }
+
+        #[test]
+        fn test_tool_grant_different_tool_fails() {
+            let grant = Grant::tool("switch_aws_account", PermissionLevel::Execute);
+            let request =
+                PermissionRequest::tool_use("1", "delete_resource", PermissionLevel::Execute);
+            assert!(!grant.satisfies(&request));
+        }
+
+        #[test]
         fn test_expired_grant() {
             use std::time::Duration;
             let expired = Instant::now() - Duration::from_secs(1);
@@ -369,6 +401,20 @@ mod tests {
         fn test_request_with_tool() {
             let request = PermissionRequest::file_read("1", "/file.rs").with_tool("read_file");
             assert_eq!(request.tool_name, Some("read_file".to_string()));
+        }
+
+        #[test]
+        fn test_tool_use_request() {
+            let request = PermissionRequest::tool_use(
+                "test-id",
+                "switch_aws_account",
+                PermissionLevel::Execute,
+            );
+            assert_eq!(request.id, "test-id");
+            assert_eq!(request.required_level, PermissionLevel::Execute);
+            assert!(request.description.contains("Use tool"));
+            assert!(request.description.contains("switch_aws_account"));
+            assert_eq!(request.tool_name, Some("switch_aws_account".to_string()));
         }
     }
 

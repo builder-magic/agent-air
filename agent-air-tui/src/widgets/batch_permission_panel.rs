@@ -245,7 +245,9 @@ impl BatchPermissionPanel {
                         all_writes = false;
                     }
                 }
-                GrantTarget::Domain { .. } | GrantTarget::Command { .. } => {
+                GrantTarget::Domain { .. }
+                | GrantTarget::Command { .. }
+                | GrantTarget::Tool { .. } => {
                     // Any non-path target means not homogeneous file batch
                     return None;
                 }
@@ -531,6 +533,7 @@ fn format_target(target: &GrantTarget) -> (&'static str, String) {
         }
         GrantTarget::Domain { pattern } => ("\u{2194}", pattern.clone()),
         GrantTarget::Command { pattern } => ("\u{2295}", pattern.clone()),
+        GrantTarget::Tool { tool_name } => ("\u{1F527}", tool_name.clone()),
     }
 }
 
