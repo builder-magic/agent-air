@@ -4,11 +4,13 @@ default:
 
 # Build the workspace
 build:
+    @cargo fmt --all -- --check
     @cargo clippy --workspace -- -D warnings
     @cargo build --workspace
 
 # Run tests
 test:
+    @cargo fmt --all -- --check
     @cargo clippy --workspace -- -D warnings
     @cargo test --workspace
 
