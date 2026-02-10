@@ -1,6 +1,9 @@
 <p align="center">
-  <img src=".github/assets/logo-air.png" alt="air logo" width="40" style="vertical-align: middle;" />
-  <strong style="font-size: 2em;">&nbsp;air</strong>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-air-title.svg" />
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/logo-air-title.svg" />
+    <img src=".github/assets/logo-air-title.svg" alt="air" width="220" />
+  </picture>
 </p>
 
 <h3 align="center">The Agentic AI Runtime</h3>
