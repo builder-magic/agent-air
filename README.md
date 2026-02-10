@@ -1,8 +1,9 @@
 <p align="center">
-  <img src=".github/assets/agent-air-title.png" alt="agent-air" width="500" />
+  <img src=".github/assets/logo-air.png" alt="air" width="80" />
 </p>
 
-<h3 align="center">An Open Source SDK and Runtime for building AI Agents</h3>
+<h3 align="center">air</h3>
+<h4 align="center">An Open Source SDK and Runtime for building AI Agents</h4>
 
 <p align="center">
   <a href="https://github.com/deepmesa/agent-air/actions/workflows/ci.yml"><img src="https://github.com/deepmesa/agent-air/actions/workflows/ci.yml/badge.svg?branch=mainline" alt="CI" /></a>
