@@ -1,8 +1,9 @@
 <p align="center">
-  <img src=".github/assets/logo-air.png" alt="air" width="80" />
+  <img src=".github/assets/logo-air.png" alt="air logo" width="40" style="vertical-align: middle;" />
+  <strong style="font-size: 2em;">&nbsp;air</strong>
 </p>
 
-<h3 align="center">air</h3>
+<h3 align="center">The Agentic AI Runtime</h3>
 <h4 align="center">An Open Source SDK and Runtime for building AI Agents</h4>
 
 <p align="center">
