@@ -27,7 +27,7 @@ Add agent-air to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-agent-air = "0.1.0"
+agent-air = "0.7.0"
 ```
 
 Build a working AI agent in just a few lines of code:
