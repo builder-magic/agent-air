@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-10
+
+### Added
+
+#### Planning Tools
+- New `markdown_plan` tool for creating durable markdown plan files in `.agent-air/plans/`
+- New `update_plan_step` tool for updating step status (pending, in_progress, completed, skipped)
+- New `list_plans` tool for listing all plans with summary metadata and progress
+- New `read_plan` tool for reading full plan content by ID
+- `PlanStore` shared state with thread-safe file locking and sequential ID generation
+
+#### Tool-Level Permissions
+- `GrantTarget::Tool` variant for fine-grained tool-level permission control
+
+### Changed
+- Simplified themes to dark and light only
+- Removed system prompt from config
+- Added CI workflow
+
+### Fixed
+- Linter issues with Rust 1.93.0
+- Code formatting with `cargo fmt`
+
+### Documentation
+- Added homepage link to Cargo.toml and crate docs
+- Updated README with new wind logo and branding
+
 ## [0.6.0] - 2025-02-03
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "agent-air-runtime"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "Core runtime for agent-air - LLM orchestration, tools, and permissions (no TUI dependencies)"
 license = "MIT"

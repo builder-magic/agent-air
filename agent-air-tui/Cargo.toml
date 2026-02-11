@@ -1,6 +1,6 @@
 [package]
 name = "agent-air-tui"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "TUI frontend for agent-air - ratatui-based terminal interface"
 license = "MIT"
@@ -10,7 +10,7 @@ categories = ["command-line-interface"]
 
 [dependencies]
 # Runtime crate
-agent-air-runtime = { path = "../agent-air-runtime", version = "0.6.0" }
+agent-air-runtime = { path = "../agent-air-runtime", version = "0.7.0" }
 
 # TUI dependencies
 ratatui = "0.30"

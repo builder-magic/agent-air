@@ -8,7 +8,7 @@ members = [
 # The main agent-air package (meta-crate that re-exports sub-crates)
 [package]
 name = "agent-air"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "A Rust Framework to build TUI Agents"
 license = "MIT"
@@ -24,10 +24,10 @@ tui = ["dep:agent-air-tui"]
 
 [dependencies]
 # Always include the runtime
-agent-air-runtime = { path = "agent-air-runtime", version = "0.6.0" }
+agent-air-runtime = { path = "agent-air-runtime", version = "0.7.0" }
 
 # Optionally include the TUI
-agent-air-tui = { path = "agent-air-tui", version = "0.6.0", optional = true }
+agent-air-tui = { path = "agent-air-tui", version = "0.7.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
