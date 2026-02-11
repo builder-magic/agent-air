@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 70">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 60">
   <!-- Top line - cyan -->
-  <path d="M 10,15 C 35,2 65,28 90,15" stroke="#00d4ff" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M 10,15 C 24,7 40,23 54,15" stroke="#00d4ff" stroke-width="3.5" fill="none" stroke-linecap="round"/>
   <!-- Middle line - blue -->
-  <path d="M 5,35 C 30,22 70,48 95,35" stroke="#3b82f6" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M 7,30 C 21,22 43,38 57,30" stroke="#3b82f6" stroke-width="3.5" fill="none" stroke-linecap="round"/>
   <!-- Bottom line - pink -->
-  <path d="M 10,55 C 35,42 65,68 90,55" stroke="#ff69b4" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M 10,45 C 24,37 40,53 54,45" stroke="#ff69b4" stroke-width="3.5" fill="none" stroke-linecap="round"/>
   <!-- "air" text -->
-  <text x="110" y="48" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="bold" fill="white">air</text>
+  <text x="72" y="44" font-family="Arial, Helvetica, sans-serif" font-size="48" font-weight="bold" fill="white">air</text>
 </svg>

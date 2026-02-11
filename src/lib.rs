@@ -2,6 +2,8 @@
 //!
 //! A Rust Framework for building TUI Agents powered by large language models.
 //!
+//! Homepage: <https://agent-air.ai>
+//!
 //! This is a meta-crate that re-exports from:
 //! - `agent-air-runtime` - Core runtime (always included)
 //! - `agent-air-tui` - TUI frontend (optional, enabled by default)

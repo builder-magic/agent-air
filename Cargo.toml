@@ -13,6 +13,8 @@ edition = "2024"
 description = "A Rust Framework to build TUI Agents"
 license = "MIT"
 repository = "https://github.com/deepmesa/agent-air"
+homepage = "https://agent-air.ai"
+documentation = "https://agent-air.ai/docs/introduction"
 keywords = ["llm", "agent", "tui", "ai", "anthropic"]
 categories = ["command-line-interface", "api-bindings"]
 
