@@ -39,7 +39,7 @@ use agent_air::tui::AgentAirExt;
 const SYSTEM_PROMPT: &str = "You are a helpful AI assistant.";
 
 fn main() -> std::io::Result<()> {
-    AgentAir::with_config("multi-code", "~/.config/my-agent", SYSTEM_PROMPT)?
+    AgentAir::with_config("my-agent", "~/.config/my-agent", SYSTEM_PROMPT)?
         .into_tui()
         .run()
 }
