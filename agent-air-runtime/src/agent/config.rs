@@ -43,6 +43,26 @@ pub trait AgentConfig {
     fn channel_buffer_size(&self) -> Option<usize> {
         None
     }
+
+    /// Controls whether environment variables are scanned for LLM provider keys.
+    ///
+    /// Returns `EnvLoading::Enabled` by default, which scans all known provider
+    /// env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.). Override with
+    /// `EnvLoading::Disabled` to skip env var scanning entirely — useful when
+    /// providers are managed through a database or other mechanism.
+    fn env_loading(&self) -> EnvLoading {
+        EnvLoading::Enabled
+    }
+}
+
+/// Controls whether `load_config` scans environment variables for LLM provider keys.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum EnvLoading {
+    /// Scan all known provider env vars (default behavior).
+    #[default]
+    Enabled,
+    /// Skip env var scanning entirely.
+    Disabled,
 }
 
 /// A simple configuration for quick agent setup.
@@ -209,8 +229,18 @@ impl LLMRegistry {
         Ok(registry)
     }
 
+    /// Insert a pre-built session config into the registry.
+    ///
+    /// If no default provider is set, the first inserted config becomes the default.
+    pub fn insert(&mut self, name: String, config: LLMSessionConfig) {
+        self.configs.insert(name.clone(), config);
+        if self.default_provider.is_none() {
+            self.default_provider = Some(name);
+        }
+    }
+
     /// Create session config from provider config
-    fn create_session_config(
+    pub fn create_session_config(
         config: &ProviderConfig,
         default_system_prompt: &str,
     ) -> Result<LLMSessionConfig, ConfigError> {
@@ -417,6 +447,12 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
         }
     }
 
+    // Check if env var scanning is disabled
+    if matches!(agent_config.env_loading(), EnvLoading::Disabled) {
+        tracing::debug!("Environment variable loading disabled by agent config");
+        return LLMRegistry::new();
+    }
+
     // Fall back to environment variables
     let mut registry = LLMRegistry::new();
 
@@ -574,5 +610,37 @@ providers:
         let registry = LLMRegistry::new();
         assert!(registry.is_empty());
         assert!(registry.get_default().is_none());
+    }
+
+    #[test]
+    fn test_env_loading_default_is_enabled() {
+        let config = SimpleConfig::new("test", "~/.test", "prompt");
+        assert_eq!(config.env_loading(), EnvLoading::Enabled);
+    }
+
+    #[test]
+    fn test_env_loading_disabled_returns_empty_registry() {
+        struct DisabledEnvConfig;
+
+        impl AgentConfig for DisabledEnvConfig {
+            fn state_dir(&self) -> &str {
+                "/tmp/nonexistent-agent-air-test"
+            }
+            fn default_system_prompt(&self) -> &str {
+                "test"
+            }
+            fn log_prefix(&self) -> &str {
+                "test"
+            }
+            fn name(&self) -> &str {
+                "test"
+            }
+            fn env_loading(&self) -> EnvLoading {
+                EnvLoading::Disabled
+            }
+        }
+
+        let registry = load_config(&DisabledEnvConfig);
+        assert!(registry.is_empty());
     }
 }

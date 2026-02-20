@@ -31,7 +31,7 @@ use throbber_widgets_tui::{BRAILLE_EIGHT_DOUBLE, Throbber, ThrobberState};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
-use crate::agent::{FromControllerRx, LLMRegistry, ToControllerTx, UiMessage};
+use crate::agent::{FromControllerRx, LLMRegistry, ProviderConfig, ToControllerTx, UiMessage};
 use crate::controller::{
     ControlCmd, ControllerInputPayload, LLMController, PermissionPanelResponse, PermissionRegistry,
     ToolResultStatus, TurnId, UserInteractionRegistry,
@@ -238,6 +238,9 @@ pub struct App {
 
     /// Optional exit handler for cleanup before quitting
     exit_handler: Option<Box<dyn ExitHandler>>,
+
+    /// Default system prompt (needed to create sessions after onboarding)
+    default_system_prompt: String,
 }
 
 impl App {
@@ -300,6 +303,7 @@ impl App {
             layout_template: LayoutTemplate::default(),
             key_handler: Box::new(DefaultKeyHandler::default()),
             exit_handler: None,
+            default_system_prompt: String::new(),
         };
 
         // Register default widgets
@@ -453,6 +457,11 @@ impl App {
     /// Set the context limit
     pub fn set_context_limit(&mut self, limit: i32) {
         self.context_limit = limit;
+    }
+
+    /// Set the default system prompt (used when creating sessions after onboarding).
+    pub fn set_default_system_prompt(&mut self, prompt: String) {
+        self.default_system_prompt = prompt;
     }
 
     /// Set the layout template
@@ -1404,6 +1413,45 @@ impl App {
             WidgetAction::Close => {
                 // Widget closed itself (e.g., theme picker confirm/cancel)
             }
+            WidgetAction::CompleteOnboarding {
+                provider_id,
+                model_id,
+                api_key,
+            } => {
+                self.handle_onboarding_complete(provider_id, model_id, api_key);
+            }
+        }
+    }
+
+    /// Register the onboarding provider and auto-create a session.
+    fn handle_onboarding_complete(
+        &mut self,
+        provider_id: String,
+        model_id: String,
+        api_key: String,
+    ) {
+        let config = ProviderConfig {
+            provider: provider_id.clone(),
+            api_key,
+            model: model_id,
+        };
+
+        let session_config =
+            match LLMRegistry::create_session_config(&config, &self.default_system_prompt) {
+                Ok(c) => c,
+                Err(e) => {
+                    self.conversation_view
+                        .add_system_message(format!("Failed to configure provider: {}", e));
+                    return;
+                }
+            };
+
+        let registry = self.llm_registry.get_or_insert_with(LLMRegistry::new);
+        registry.insert(provider_id, session_config);
+
+        let msg = self.cmd_new_session();
+        if !msg.is_empty() {
+            self.conversation_view.add_system_message(msg);
         }
     }
 

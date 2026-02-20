@@ -240,6 +240,9 @@ impl TuiRunner {
             app.set_exit_handler_boxed(handler);
         }
 
+        // Pass default system prompt to app (needed for onboarding session creation)
+        app.set_default_system_prompt(self.agent.default_system_prompt().to_string());
+
         // Auto-create session if we have a configured LLM provider
         match self.agent.create_initial_session() {
             Ok((session_id, model, context_limit)) => {

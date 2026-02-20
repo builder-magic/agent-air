@@ -154,11 +154,23 @@ impl KeyHandler for DefaultKeyHandler {
         }
 
         // When a modal widget is blocking, let it handle most keys.
-        // Only intercept "force quit" type bindings.
+        // Only intercept "force quit" and "exit" type bindings so the user
+        // is never trapped in a modal (e.g., onboarding wizard).
         if context.widget_blocking {
             // Still allow force-quit (e.g., Ctrl+Q) even in modals
             if KeyBindings::matches_any(&self.bindings.force_quit, &key) {
                 return AppKeyResult::Action(AppKeyAction::Quit);
+            }
+            // Allow exit key (e.g., Ctrl+D) with double-press confirmation
+            if self.is_exit_key(&key) {
+                if self.exit_state.is_awaiting() {
+                    self.exit_state.reset();
+                    return AppKeyResult::Action(AppKeyAction::Quit);
+                } else {
+                    self.exit_state =
+                        ExitState::awaiting_confirmation(self.bindings.exit_timeout_secs);
+                    return AppKeyResult::Handled;
+                }
             }
             // Let the modal widget handle everything else
             return AppKeyResult::NotHandled;
@@ -413,6 +425,28 @@ mod tests {
         let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
         let result = handler.handle_key(esc, &context);
         assert_eq!(result, AppKeyResult::NotHandled);
+    }
+
+    #[test]
+    fn test_exit_key_double_press_in_modal() {
+        let mut handler = DefaultKeyHandler::new(KeyBindings::emacs());
+        let context = KeyContext {
+            input_empty: true,
+            is_processing: false,
+            widget_blocking: true, // Modal is open (e.g., onboarding)
+        };
+
+        let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+
+        // First Ctrl+D enters exit confirmation, returns Handled
+        let result = handler.handle_key(ctrl_d, &context);
+        assert_eq!(result, AppKeyResult::Handled);
+        assert!(handler.status_hint().is_some());
+
+        // Second Ctrl+D should quit
+        let result = handler.handle_key(ctrl_d, &context);
+        assert_eq!(result, AppKeyResult::Action(AppKeyAction::Quit));
+        assert!(handler.status_hint().is_none());
     }
 
     #[test]
