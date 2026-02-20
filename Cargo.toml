@@ -21,6 +21,7 @@ categories = ["command-line-interface", "api-bindings"]
 [features]
 default = ["tui"]
 tui = ["dep:agent-air-tui"]
+db = ["agent-air-runtime/db"]
 
 [dependencies]
 # Always include the runtime

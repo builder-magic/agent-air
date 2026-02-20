@@ -16,7 +16,7 @@
 //!
 //! struct MyConfig;
 //! impl AgentConfig for MyConfig {
-//!     fn config_path(&self) -> &str { ".myagent/config.yaml" }
+//!     fn state_dir(&self) -> &str { "~/.myagent" }
 //!     fn default_system_prompt(&self) -> &str { "You are helpful." }
 //!     fn log_prefix(&self) -> &str { "myagent" }
 //!     fn name(&self) -> &str { "MyAgent" }
@@ -81,6 +81,10 @@ pub use messages::UiMessage;
 pub use messages::channels::{DEFAULT_CHANNEL_SIZE, create_channels};
 pub use providers::{ProviderInfo, get_provider_info, is_known_provider, list_providers};
 pub use router::InputRouter;
+
+// Re-export database types when the db feature is enabled
+#[cfg(feature = "db")]
+pub use crate::db::{AgentDatabase, DbConfig, DbError, Store};
 
 // Re-export common types from llm-controller-rs that agents typically need
 pub use crate::controller::{

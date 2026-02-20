@@ -11,14 +11,17 @@ use serde::Deserialize;
 
 /// Trait for agent-specific configuration.
 ///
-/// Implement this trait to provide custom config paths and system prompts
+/// Implement this trait to provide custom state directory and system prompts
 /// for your agent.
 pub trait AgentConfig {
-    /// The config file path.
+    /// The agent's state directory.
+    ///
+    /// All persistent state lives under this directory: configuration
+    /// (`config.yaml`), database (`db/`), logs, etc.
     ///
     /// Paths starting with `~/` are expanded to the home directory.
     /// All other paths (absolute or relative) are used as-is.
-    fn config_path(&self) -> &str;
+    fn state_dir(&self) -> &str;
 
     /// The default system prompt for this agent
     fn default_system_prompt(&self) -> &str;
@@ -52,13 +55,13 @@ pub trait AgentConfig {
 /// ```ignore
 /// let agent = AgentAir::with_config(
 ///     "my-agent",
-///     "~/.config/my-agent/config.yaml",
+///     "~/.my-agent",
 ///     "You are a helpful assistant."
 /// )?;
 /// ```
 pub struct SimpleConfig {
     name: String,
-    config_path: String,
+    state_dir: String,
     system_prompt: String,
     log_prefix: String,
 }
@@ -68,11 +71,11 @@ impl SimpleConfig {
     ///
     /// # Arguments
     /// * `name` - Agent name for display (e.g., "my-agent")
-    /// * `config_path` - Path to config file (e.g., "~/.config/my-agent/config.yaml")
+    /// * `state_dir` - State directory (e.g., "~/.my-agent")
     /// * `system_prompt` - Default system prompt for the agent
     pub fn new(
         name: impl Into<String>,
-        config_path: impl Into<String>,
+        state_dir: impl Into<String>,
         system_prompt: impl Into<String>,
     ) -> Self {
         let name = name.into();
@@ -90,7 +93,7 @@ impl SimpleConfig {
 
         Self {
             name,
-            config_path: config_path.into(),
+            state_dir: state_dir.into(),
             system_prompt: system_prompt.into(),
             log_prefix,
         }
@@ -98,8 +101,8 @@ impl SimpleConfig {
 }
 
 impl AgentConfig for SimpleConfig {
-    fn config_path(&self) -> &str {
-        &self.config_path
+    fn state_dir(&self) -> &str {
+        &self.state_dir
     }
 
     fn default_system_prompt(&self) -> &str {
@@ -378,24 +381,27 @@ impl std::error::Error for ConfigError {}
 
 /// Load config for an agent using its AgentConfig trait implementation.
 ///
+/// Looks for `config.yaml` inside the agent's state directory.
 /// Tries to load from the config file first, then falls back to environment variables.
 /// Supports both absolute paths and paths relative to home directory.
 pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
-    let config_path = agent_config.config_path();
+    let state_dir = agent_config.state_dir();
     let default_prompt = agent_config.default_system_prompt();
 
-    // Resolve config path - expand ~/ to home directory, otherwise use as-is
-    let path = if let Some(rest) = config_path.strip_prefix("~/") {
+    // Resolve state dir - expand ~/ to home directory, otherwise use as-is
+    let dir = if let Some(rest) = state_dir.strip_prefix("~/") {
         match dirs::home_dir() {
             Some(home) => home.join(rest),
             None => {
                 tracing::debug!("Could not determine home directory");
-                PathBuf::from(config_path)
+                PathBuf::from(state_dir)
             }
         }
     } else {
-        PathBuf::from(config_path)
+        PathBuf::from(state_dir)
     };
+
+    let path = dir.join("config.yaml");
 
     // Try loading from config file first
     match LLMRegistry::load_from_file(&path, default_prompt) {

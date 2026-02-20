@@ -34,6 +34,9 @@ pub mod agent;
 pub mod client;
 /// LLM session controller and tool execution.
 pub mod controller;
+/// Optional embedded database backed by LMDB (requires `db` feature).
+#[cfg(feature = "db")]
+pub mod db;
 /// Permission system for controlling agent access to resources.
 pub mod permissions;
 /// Agent Skills support for extended capabilities.

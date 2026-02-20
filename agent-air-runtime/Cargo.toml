@@ -8,6 +8,9 @@ repository = "https://github.com/deepmesa/agent-air"
 keywords = ["llm", "agent", "ai", "anthropic", "openai"]
 categories = ["api-bindings", "asynchronous"]
 
+[features]
+db = ["dep:heed"]
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "full"] }
@@ -57,6 +60,9 @@ aws-sigv4 = "1.2"
 aws-credential-types = "1.2"
 ring = "0.17"
 hex = "0.4"
+
+# Embedded database (optional, behind "db" feature)
+heed = { version = "0.22", features = ["serde-json"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

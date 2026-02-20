@@ -26,4 +26,9 @@ pub enum AgentError {
     /// Session not found.
     #[error("Session not found: {0}")]
     SessionNotFound(i64),
+
+    /// Database error.
+    #[cfg(feature = "db")]
+    #[error("Database error: {0}")]
+    Database(#[from] crate::db::DbError),
 }

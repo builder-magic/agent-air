@@ -52,7 +52,7 @@ pub type FromControllerRx = mpsc::Receiver<UiMessage>;
 ///
 /// struct MyConfig;
 /// impl AgentConfig for MyConfig {
-///     fn config_path(&self) -> &str { ".myagent/config.yaml" }
+///     fn state_dir(&self) -> &str { "~/.myagent" }
 ///     fn default_system_prompt(&self) -> &str { "You are helpful." }
 ///     fn log_prefix(&self) -> &str { "myagent" }
 ///     fn name(&self) -> &str { "MyAgent" }
@@ -82,6 +82,9 @@ pub struct AgentAir {
 
     /// Agent name for display
     name: String,
+
+    /// Resolved state directory (absolute path)
+    state_dir: std::path::PathBuf,
 
     /// Agent version for display
     version: String,
@@ -127,6 +130,10 @@ pub struct AgentAir {
 
     /// Skill discovery paths
     skill_discovery: SkillDiscovery,
+
+    /// Optional embedded database
+    #[cfg(feature = "db")]
+    database: Option<crate::db::AgentDatabase>,
 }
 
 impl AgentAir {
@@ -147,8 +154,8 @@ impl AgentAir {
         let llm_registry = load_config(config);
         if llm_registry.is_empty() {
             tracing::warn!(
-                "No LLM providers configured. Set ANTHROPIC_API_KEY or create ~/{}",
-                config.config_path()
+                "No LLM providers configured. Set ANTHROPIC_API_KEY or create {}/config.yaml",
+                config.state_dir()
             );
         } else {
             tracing::info!(
@@ -221,9 +228,20 @@ impl AgentAir {
         ));
         let cancel_token = CancellationToken::new();
 
+        // Resolve state directory to an absolute path
+        let raw_state_dir = config.state_dir();
+        let state_dir = if let Some(rest) = raw_state_dir.strip_prefix("~/") {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from(raw_state_dir))
+                .join(rest)
+        } else {
+            std::path::PathBuf::from(raw_state_dir)
+        };
+
         Ok(Self {
             logger,
             name: config.name().to_string(),
+            state_dir,
             version: "0.1.0".to_string(),
             runtime,
             controller,
@@ -239,6 +257,8 @@ impl AgentAir {
             error_no_session: None,
             skill_registry: Arc::new(SkillRegistry::new()),
             skill_discovery: SkillDiscovery::new(),
+            #[cfg(feature = "db")]
+            database: None,
         })
     }
 
@@ -249,7 +269,7 @@ impl AgentAir {
     ///
     /// # Arguments
     /// * `name` - Agent name for display (e.g., "my-agent")
-    /// * `config_path` - Path to config file (e.g., "~/.config/my-agent/config.yaml")
+    /// * `state_dir` - State directory (e.g., "~/.my-agent")
     /// * `system_prompt` - Default system prompt for the agent
     ///
     /// # Example
@@ -258,16 +278,16 @@ impl AgentAir {
     /// use agent_air::agent::AgentAir;
     /// use agent_air::tui::AgentAirExt;
     ///
-    /// AgentAir::with_config("my-agent", "~/.config/my-agent/config.yaml", "You are helpful.")?
+    /// AgentAir::with_config("my-agent", "~/.my-agent", "You are helpful.")?
     ///     .into_tui()
     ///     .run()
     /// ```
     pub fn with_config(
         name: impl Into<String>,
-        config_path: impl Into<String>,
+        state_dir: impl Into<String>,
         system_prompt: impl Into<String>,
     ) -> io::Result<Self> {
-        let config = super::config::SimpleConfig::new(name, config_path, system_prompt);
+        let config = super::config::SimpleConfig::new(name, state_dir, system_prompt);
         Self::new(&config)
     }
 
@@ -826,6 +846,11 @@ impl AgentAir {
         &self.name
     }
 
+    /// Returns the resolved state directory path.
+    pub fn state_dir(&self) -> &std::path::Path {
+        &self.state_dir
+    }
+
     /// Returns a clone of the UI message sender.
     ///
     /// This can be used to send messages to the frontend's event loop.
@@ -836,6 +861,45 @@ impl AgentAir {
     /// Returns a reference to the tool definitions.
     pub fn tool_definitions(&self) -> &[LLMTool] {
         &self.tool_definitions
+    }
+
+    // ---- Database ----
+
+    /// Initialize the embedded LMDB database.
+    ///
+    /// The database directory is created under `data_dir`. This is opt-in:
+    /// call this method before accessing [`AgentAir::db`].
+    #[cfg(feature = "db")]
+    pub fn enable_database(
+        &mut self,
+        data_dir: &std::path::Path,
+        config: &crate::db::DbConfig,
+    ) -> Result<&mut Self, super::error::AgentError> {
+        let db = crate::db::AgentDatabase::open(data_dir, config)?;
+        self.database = Some(db);
+        tracing::info!(path = %data_dir.display(), "Database enabled");
+        Ok(self)
+    }
+
+    /// Initialize the embedded database, creating it if needed.
+    ///
+    /// This is idempotent: if the database is already enabled it returns
+    /// immediately. Otherwise it opens (or creates) an LMDB environment at
+    /// `{state_dir}/db/` with default [`DbConfig`](crate::db::DbConfig).
+    #[cfg(feature = "db")]
+    pub fn init_database(&mut self) -> Result<&mut Self, super::error::AgentError> {
+        if self.database.is_some() {
+            return Ok(self);
+        }
+
+        let data_dir = self.state_dir.join("db");
+        self.enable_database(&data_dir, &crate::db::DbConfig::default())
+    }
+
+    /// Returns a reference to the database, if enabled.
+    #[cfg(feature = "db")]
+    pub fn db(&self) -> Option<&crate::db::AgentDatabase> {
+        self.database.as_ref()
     }
 
     // ---- Skills ----

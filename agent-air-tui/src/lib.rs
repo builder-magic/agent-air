@@ -24,7 +24,7 @@
 //!
 //! struct MyConfig;
 //! impl AgentConfig for MyConfig {
-//!     fn config_path(&self) -> &str { ".myagent/config.yaml" }
+//!     fn state_dir(&self) -> &str { "~/.myagent" }
 //!     fn default_system_prompt(&self) -> &str { "You are helpful." }
 //!     fn log_prefix(&self) -> &str { "myagent" }
 //!     fn name(&self) -> &str { "MyAgent" }
