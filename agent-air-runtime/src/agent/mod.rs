@@ -50,7 +50,8 @@ mod providers;
 mod router;
 
 pub use config::{
-    AgentConfig, ConfigError, ConfigFile, LLMRegistry, ProviderConfig, SimpleConfig, load_config,
+    AgentConfig, ConfigError, ConfigFile, EnvLoading, LLMRegistry, ProviderConfig, SimpleConfig,
+    load_config,
 };
 
 // Re-export commonly used interface types at agent level for convenience

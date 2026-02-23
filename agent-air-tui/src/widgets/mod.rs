@@ -31,6 +31,7 @@ pub mod chat;
 pub mod chat_helpers;
 pub mod conversation;
 pub mod input;
+pub mod onboarding;
 pub mod permission_panel;
 pub mod question_panel;
 pub mod session_picker;
@@ -44,6 +45,10 @@ pub use chat::{ChatView, ChatViewConfig, MessageRole, ToolMessageData, ToolStatu
 pub use chat_helpers::RenderFn;
 pub use conversation::{ConversationView, ConversationViewFactory};
 pub use input::TextInput;
+pub use onboarding::{
+    OnboardingConfig, OnboardingModel, OnboardingProvider, OnboardingResult, OnboardingWidget,
+    default_providers, write_config_yaml,
+};
 pub use permission_panel::{
     KeyAction as PermissionKeyAction, PermissionOption, PermissionPanel, PermissionPanelConfig,
 };
@@ -67,6 +72,7 @@ pub mod widget_ids {
 
     // Registerable widgets
     pub const BATCH_PERMISSION_PANEL: &str = "batch_permission_panel";
+    pub const ONBOARDING: &str = "onboarding";
     pub const PERMISSION_PANEL: &str = "permission_panel";
     pub const QUESTION_PANEL: &str = "question_panel";
     pub const SESSION_PICKER: &str = "session_picker";
@@ -127,6 +133,12 @@ pub enum WidgetAction {
     ExecuteCommand { command: String },
     /// Close the widget (theme picker confirm/cancel)
     Close,
+    /// Onboarding wizard completed — register provider and create session.
+    CompleteOnboarding {
+        provider_id: String,
+        model_id: String,
+        api_key: String,
+    },
 }
 
 /// Trait for registerable TUI widgets

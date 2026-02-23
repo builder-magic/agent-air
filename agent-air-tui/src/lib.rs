@@ -112,6 +112,12 @@ pub use widgets::{
     EnterAction,
     FocusItem,
     MessageRole,
+    // Onboarding wizard
+    OnboardingConfig,
+    OnboardingModel,
+    OnboardingProvider,
+    OnboardingResult,
+    OnboardingWidget,
     PermissionKeyAction,
     PermissionOption,
     PermissionPanel,
@@ -129,8 +135,10 @@ pub use widgets::{
     TextInput,
     ToolMessageData,
     ToolStatus,
+    default_providers,
     render_session_picker,
     render_slash_popup,
+    write_config_yaml,
 };
 
 // Re-export theme types for convenience

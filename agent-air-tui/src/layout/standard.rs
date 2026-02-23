@@ -38,7 +38,11 @@ impl Default for StandardOptions {
                 widget_ids::QUESTION_PANEL,
             ],
             popup_widget_ids: vec![widget_ids::SLASH_POPUP],
-            overlay_widget_ids: vec![widget_ids::THEME_PICKER, widget_ids::SESSION_PICKER],
+            overlay_widget_ids: vec![
+                widget_ids::ONBOARDING,
+                widget_ids::THEME_PICKER,
+                widget_ids::SESSION_PICKER,
+            ],
             min_main_height: 5,
             fixed_input_height: None,
             status_bar_widget_id: Some(widget_ids::STATUS_BAR),

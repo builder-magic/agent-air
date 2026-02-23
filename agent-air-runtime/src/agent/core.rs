@@ -131,6 +131,9 @@ pub struct AgentAir {
     /// Skill discovery paths
     skill_discovery: SkillDiscovery,
 
+    /// Default system prompt (from AgentConfig)
+    default_system_prompt: String,
+
     /// Optional embedded database
     #[cfg(feature = "db")]
     database: Option<crate::db::AgentDatabase>,
@@ -238,6 +241,8 @@ impl AgentAir {
             std::path::PathBuf::from(raw_state_dir)
         };
 
+        let default_system_prompt = config.default_system_prompt().to_string();
+
         Ok(Self {
             logger,
             name: config.name().to_string(),
@@ -257,6 +262,7 @@ impl AgentAir {
             error_no_session: None,
             skill_registry: Arc::new(SkillRegistry::new()),
             skill_discovery: SkillDiscovery::new(),
+            default_system_prompt,
             #[cfg(feature = "db")]
             database: None,
         })
@@ -826,6 +832,15 @@ impl AgentAir {
         removed
     }
 
+    /// Register an LLM provider by inserting a session config into the registry.
+    ///
+    /// Creates the registry if it doesn't exist yet. If no default provider
+    /// was previously set, this provider becomes the default.
+    pub fn register_llm_provider(&mut self, name: &str, config: LLMSessionConfig) {
+        let registry = self.llm_registry.get_or_insert_with(LLMRegistry::new);
+        registry.insert(name.to_string(), config);
+    }
+
     /// Returns a reference to the LLM registry.
     pub fn llm_registry(&self) -> Option<&LLMRegistry> {
         self.llm_registry.as_ref()
@@ -849,6 +864,11 @@ impl AgentAir {
     /// Returns the resolved state directory path.
     pub fn state_dir(&self) -> &std::path::Path {
         &self.state_dir
+    }
+
+    /// Returns the default system prompt.
+    pub fn default_system_prompt(&self) -> &str {
+        &self.default_system_prompt
     }
 
     /// Returns a clone of the UI message sender.
