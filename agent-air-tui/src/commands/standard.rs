@@ -137,12 +137,8 @@ impl SlashCommand for StatusCommand {
     }
 
     fn execute(&self, _args: &str, ctx: &mut CommandContext) -> CommandResult {
-        CommandResult::Message(format!(
-            "Session: {}\nAgent: {} v{}",
-            ctx.session_id(),
-            ctx.agent_name(),
-            ctx.version()
-        ))
+        ctx.open_status_pane();
+        CommandResult::Handled
     }
 }
 

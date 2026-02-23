@@ -17,6 +17,7 @@
 //! Widgets can be registered with the App via the Widget trait. This allows
 //! agents to customize which widgets are available.
 
+use chrono::{DateTime, Local};
 use crossterm::event::KeyEvent;
 use ratatui::{Frame, layout::Rect};
 use std::any::Any;
@@ -64,6 +65,40 @@ pub use slash_popup::{
 };
 pub use status_bar::{StatusBar, StatusBarConfig, StatusBarData};
 
+/// Information about a registered LLM provider (for status display).
+#[derive(Clone, Debug)]
+pub struct AppProviderInfo {
+    /// Provider name (e.g. "anthropic", "openai").
+    pub name: String,
+    /// Whether this is the default provider.
+    pub is_default: bool,
+}
+
+/// Generic status data assembled by App and passed to overlay widgets via
+/// [`Widget::prepare_overlay`]. This avoids the framework needing to know
+/// about concrete overlay types.
+#[derive(Clone, Debug)]
+pub struct AppStatusData {
+    /// Current session ID.
+    pub session_id: i64,
+    /// Model name.
+    pub model: String,
+    /// Tokens used in context.
+    pub context_used: i64,
+    /// Maximum context limit.
+    pub context_limit: i32,
+    /// Session creation timestamp.
+    pub created_at: DateTime<Local>,
+    /// Agent display name.
+    pub agent_name: String,
+    /// Agent version string.
+    pub agent_version: String,
+    /// Total number of active sessions.
+    pub total_sessions: usize,
+    /// Registered providers.
+    pub providers: Vec<AppProviderInfo>,
+}
+
 /// Standard widget IDs for built-in widgets
 pub mod widget_ids {
     // Core widgets (always present)
@@ -79,6 +114,7 @@ pub mod widget_ids {
     pub const SLASH_POPUP: &str = "slash_popup";
     pub const THEME_PICKER: &str = "theme_picker";
     pub const STATUS_BAR: &str = "status_bar";
+    pub const STATUS_PANE: &str = "status_pane";
 }
 
 /// Context provided to widgets when handling key events.
@@ -188,6 +224,13 @@ pub trait Widget: Send + 'static {
     fn is_overlay(&self) -> bool {
         false
     }
+
+    /// Prepare and activate the widget as an overlay.
+    ///
+    /// Called by App when the widget should display as an overlay.
+    /// The `data` argument carries generic status data (e.g. `AppStatusData`)
+    /// that the widget can downcast to extract what it needs.
+    fn prepare_overlay(&mut self, _data: &dyn Any) {}
 
     /// Cast to Any for downcasting
     fn as_any(&self) -> &dyn Any;

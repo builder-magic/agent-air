@@ -101,44 +101,13 @@ pub use markdown::{
 };
 pub use table::{PulldownRenderer, TableRenderer, is_table_line, is_table_separator, render_table};
 pub use widgets::{
-    // Registerable widgets
-    AnswerState,
-    BatchPermissionPanel,
-    // Core widgets
-    ChatView,
-    // ConversationView trait and factory
-    ConversationView,
-    ConversationViewFactory,
-    EnterAction,
-    FocusItem,
-    MessageRole,
-    // Onboarding wizard
-    OnboardingConfig,
-    OnboardingModel,
-    OnboardingProvider,
-    OnboardingResult,
-    OnboardingWidget,
-    PermissionKeyAction,
-    PermissionOption,
-    PermissionPanel,
-    QuestionKeyAction,
-    QuestionPanel,
-    RenderFn,
-    SessionInfo,
-    SessionPickerState,
-    SimpleCommand,
-    SlashCommandDisplay,
-    SlashPopupState,
-    StatusBar,
-    StatusBarConfig,
-    StatusBarData,
-    TextInput,
-    ToolMessageData,
-    ToolStatus,
-    default_providers,
-    render_session_picker,
-    render_slash_popup,
-    write_config_yaml,
+    AnswerState, AppProviderInfo, AppStatusData, BatchPermissionPanel, ChatView, ConversationView,
+    ConversationViewFactory, EnterAction, FocusItem, MessageRole, OnboardingConfig,
+    OnboardingModel, OnboardingProvider, OnboardingResult, OnboardingWidget, PermissionKeyAction,
+    PermissionOption, PermissionPanel, QuestionKeyAction, QuestionPanel, RenderFn, SessionInfo,
+    SessionPickerState, SimpleCommand, SlashCommandDisplay, SlashPopupState, StatusBar,
+    StatusBarConfig, StatusBarData, TextInput, ToolMessageData, ToolStatus, default_providers,
+    render_session_picker, render_slash_popup, write_config_yaml,
 };
 
 // Re-export theme types for convenience

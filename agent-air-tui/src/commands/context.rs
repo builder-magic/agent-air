@@ -22,6 +22,8 @@ pub enum PendingAction {
     CompactConversation,
     /// Create a new session.
     CreateNewSession,
+    /// Open the status pane overlay.
+    OpenStatusPane,
     /// Quit the application.
     Quit,
 }
@@ -163,6 +165,13 @@ impl<'a> CommandContext<'a> {
     /// This is deferred until after the command returns.
     pub fn create_new_session(&mut self) {
         self.pending_actions.push(PendingAction::CreateNewSession);
+    }
+
+    /// Request to open the status pane overlay.
+    ///
+    /// This is deferred until after the command returns.
+    pub fn open_status_pane(&mut self) {
+        self.pending_actions.push(PendingAction::OpenStatusPane);
     }
 
     // --- Controller communication ---
