@@ -47,10 +47,10 @@ use super::keys::{
 use super::layout::{LayoutContext, LayoutTemplate, WidgetSizes};
 use super::themes::{ThemePickerState, render_theme_picker};
 use super::widgets::{
-    BatchPermissionPanel, ChatView, ConversationView, ConversationViewFactory, PermissionPanel,
-    QuestionPanel, SessionInfo, SessionPickerState, SlashPopupState, StatusBar, StatusBarData,
-    TextInput, ToolStatus, Widget, WidgetAction, WidgetKeyContext, WidgetKeyResult,
-    render_session_picker, render_slash_popup, widget_ids,
+    AppProviderInfo, AppStatusData, BatchPermissionPanel, ChatView, ConversationView,
+    ConversationViewFactory, PermissionPanel, QuestionPanel, SessionInfo, SessionPickerState,
+    SlashPopupState, StatusBar, StatusBarData, TextInput, ToolStatus, Widget, WidgetAction,
+    WidgetKeyContext, WidgetKeyResult, render_session_picker, render_slash_popup, widget_ids,
 };
 use super::{app_theme, current_theme_name, default_theme_name, get_theme, init_theme};
 
@@ -678,6 +678,7 @@ impl App {
                 PendingAction::CreateNewSession => {
                     self.cmd_new_session();
                 }
+                PendingAction::OpenStatusPane => self.cmd_status_pane(),
                 PendingAction::Quit => {
                     self.should_quit = true;
                 }
@@ -813,6 +814,47 @@ impl App {
             && let Some(picker) = widget.as_any_mut().downcast_mut::<SessionPickerState>()
         {
             picker.activate(self.sessions.clone(), self.session_id);
+        }
+    }
+
+    fn cmd_status_pane(&mut self) {
+        // Find creation time from sessions list
+        let created_at = self
+            .sessions
+            .iter()
+            .find(|s| s.id == self.session_id)
+            .map(|s| s.created_at)
+            .unwrap_or_else(chrono::Local::now);
+
+        // Gather provider info from registry
+        let providers: Vec<AppProviderInfo> = if let Some(ref registry) = self.llm_registry {
+            let default_name = registry.default_provider_name().map(|s| s.to_string());
+            registry
+                .providers()
+                .into_iter()
+                .map(|name| AppProviderInfo {
+                    is_default: default_name.as_deref() == Some(name),
+                    name: name.to_string(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let data = AppStatusData {
+            session_id: self.session_id,
+            model: self.model_name.clone(),
+            context_used: self.context_used,
+            context_limit: self.context_limit,
+            created_at,
+            agent_name: self.agent_name.clone(),
+            agent_version: self.version.clone(),
+            total_sessions: self.sessions.len(),
+            providers,
+        };
+
+        if let Some(widget) = self.widgets.get_mut(widget_ids::STATUS_PANE) {
+            widget.prepare_overlay(&data);
         }
     }
 
@@ -1695,6 +1737,7 @@ impl App {
         // Check overlay widget states (for cursor hiding)
         let theme_picker_active = sizes.is_active(widget_ids::THEME_PICKER);
         let session_picker_active = sizes.is_active(widget_ids::SESSION_PICKER);
+        let status_pane_active = sizes.is_active(widget_ids::STATUS_PANE);
         let question_panel_active = sizes.is_active(widget_ids::QUESTION_PANEL);
         let permission_panel_active = sizes.is_active(widget_ids::PERMISSION_PANEL);
         let batch_permission_panel_active = sizes.is_active(widget_ids::BATCH_PERMISSION_PANEL);
@@ -1725,7 +1768,10 @@ impl App {
         // Render widgets in the order specified by the layout
         for widget_id in &layout.render_order {
             // Skip overlays (rendered last) and special widgets
-            if *widget_id == widget_ids::THEME_PICKER || *widget_id == widget_ids::SESSION_PICKER {
+            if *widget_id == widget_ids::THEME_PICKER
+                || *widget_id == widget_ids::SESSION_PICKER
+                || *widget_id == widget_ids::STATUS_PANE
+            {
                 continue;
             }
 
@@ -1838,7 +1884,7 @@ impl App {
                 frame.render_widget(input_box, input_area);
 
                 // Only show cursor if no overlay is active
-                if !theme_picker_active && !session_picker_active {
+                if !theme_picker_active && !session_picker_active && !status_pane_active {
                     let (cursor_rel_x, cursor_rel_y) =
                         input.cursor_display_position_wrapped(frame_width, prompt_len, indent_len);
                     let cursor_x = input_area.x + cursor_rel_x;
@@ -1861,6 +1907,10 @@ impl App {
             && let Some(picker) = widget.as_any().downcast_ref::<SessionPickerState>()
         {
             render_session_picker(picker, frame, frame_area, &theme);
+        }
+
+        if status_pane_active && let Some(widget) = self.widgets.get_mut(widget_ids::STATUS_PANE) {
+            widget.render(frame, frame_area, &theme);
         }
     }
 }
