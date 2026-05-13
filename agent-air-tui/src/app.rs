@@ -759,7 +759,18 @@ impl App {
 
         let model = config.model.clone();
         let context_limit = config.context_limit;
+        let is_router = config.base_url.is_some();
         let config = config.clone();
+
+        // Build display name as provider/model (or router/model for custom endpoints)
+        let display_name = if is_router {
+            format!("router/{}", model)
+        } else {
+            let provider = registry
+                .default_provider_name()
+                .unwrap_or("unknown");
+            format!("{}/{}", provider, model)
+        };
 
         // Create session using the runtime handle
         let controller = controller.clone();
@@ -771,7 +782,7 @@ impl App {
         };
 
         // Add session to the sessions list
-        let session_info = SessionInfo::new(session_id, model.clone(), context_limit);
+        let session_info = SessionInfo::new(session_id, display_name.clone(), context_limit);
         self.sessions.push(session_info);
 
         // Save current conversation state before switching to new session
@@ -784,7 +795,7 @@ impl App {
         self.conversation_view = (self.conversation_factory)();
 
         self.session_id = session_id;
-        self.model_name = model.clone();
+        self.model_name = display_name;
         self.context_limit = context_limit;
         self.context_used = 0;
         self.user_turn_counter = 0;
@@ -1417,8 +1428,9 @@ impl App {
                 provider_id,
                 model_id,
                 api_key,
+                base_url,
             } => {
-                self.handle_onboarding_complete(provider_id, model_id, api_key);
+                self.handle_onboarding_complete(provider_id, model_id, api_key, base_url);
             }
         }
     }
@@ -1429,11 +1441,13 @@ impl App {
         provider_id: String,
         model_id: String,
         api_key: String,
+        base_url: Option<String>,
     ) {
         let config = ProviderConfig {
             provider: provider_id.clone(),
             api_key,
             model: model_id,
+            base_url,
         };
 
         let session_config =

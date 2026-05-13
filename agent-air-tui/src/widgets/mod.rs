@@ -138,6 +138,8 @@ pub enum WidgetAction {
         provider_id: String,
         model_id: String,
         api_key: String,
+        /// Custom base URL for OpenAI-compatible routers.
+        base_url: Option<String>,
     },
 }
 

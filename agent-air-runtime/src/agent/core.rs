@@ -479,7 +479,13 @@ impl AgentAir {
             AgentError::NoConfiguration("No default LLM provider configured".to_string())
         })?;
 
-        let model = config.model.clone();
+        let model = if config.base_url.is_some() {
+            format!("router/{}", config.model)
+        } else if let Some(provider) = registry.default_provider_name() {
+            format!("{}/{}", provider, config.model)
+        } else {
+            config.model.clone()
+        };
         let context_limit = config.context_limit;
 
         let controller = self.controller.clone();

@@ -166,6 +166,11 @@ pub struct ProviderConfig {
     /// Model identifier (optional - uses provider default if not specified)
     #[serde(default)]
     pub model: String,
+    /// Custom base URL for OpenAI-compatible endpoints.
+    /// When set, the provider is treated as an OpenAI-compatible router
+    /// regardless of the provider name.
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 /// Root configuration structure from YAML
@@ -248,8 +253,21 @@ impl LLMRegistry {
 
         let provider_name = config.provider.to_lowercase();
 
-        // Check if it's a known OpenAI-compatible provider
-        let mut session_config = if let Some(info) = get_provider_info(&provider_name) {
+        // Custom base_url: treat as OpenAI-compatible router
+        let mut session_config = if let Some(ref base_url) = config.base_url {
+            let model = if config.model.is_empty() {
+                "default".to_string()
+            } else {
+                config.model.clone()
+            };
+            LLMSessionConfig::openai_compatible(
+                &config.api_key,
+                &model,
+                base_url,
+                200_000,
+            )
+        } else if let Some(info) = get_provider_info(&provider_name) {
+            // Check if it's a known OpenAI-compatible provider
             // Use model from config, or fall back to provider default
             let model = if config.model.is_empty() {
                 info.default_model.to_string()
@@ -588,6 +606,7 @@ providers:
             provider: "groq".to_string(),
             api_key: "test-key".to_string(),
             model: String::new(), // Empty model
+            base_url: None,
         };
 
         let session_config =

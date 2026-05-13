@@ -193,11 +193,18 @@ impl LlmProvider for OpenAIProvider {
                 let mut byte_stream = byte_stream;
                 let mut stream_state = sse::StreamState::default();
 
+                let mut chunk_count: usize = 0;
                 while let Some(chunk_result) = byte_stream.next().await {
                     match chunk_result {
                         Ok(bytes) => {
+                            chunk_count += 1;
                             // Append new bytes to buffer
                             if let Ok(text) = std::str::from_utf8(&bytes) {
+                                tracing::debug!(
+                                    chunk_num = chunk_count,
+                                    chunk_bytes = bytes.len(),
+                                    "HTTP stream chunk received"
+                                );
                                 buffer.push_str(text);
                             } else {
                                 yield Err(LlmError::new(ERROR_SSE_DECODE, MSG_INVALID_UTF8));
@@ -207,6 +214,13 @@ impl LlmProvider for OpenAIProvider {
                             // Parse complete SSE events from buffer
                             let (events, remaining) = sse::parse_sse_chunk(&buffer);
                             buffer = remaining;
+                            if !events.is_empty() {
+                                tracing::debug!(
+                                    chunk_num = chunk_count,
+                                    sse_events = events.len(),
+                                    "SSE events parsed from chunk"
+                                );
+                            }
 
                             // Convert and yield each SSE event
                             for sse_event in events {

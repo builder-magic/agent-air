@@ -695,6 +695,7 @@ impl Widget for OnboardingWidget {
                             provider_id: result.provider_id.clone(),
                             model_id: result.model_id.clone(),
                             api_key: result.api_key.clone(),
+                            base_url: None,
                         });
                     }
                     return WidgetKeyResult::Action(WidgetAction::Close);
