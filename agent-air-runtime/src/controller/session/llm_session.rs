@@ -163,8 +163,8 @@ pub struct LLMSession {
     // Session identification
     id: AtomicI64,
 
-    // LLM client
-    client: LLMClient,
+    // LLM client (behind a lock so the model can be swapped in place)
+    client: RwLock<LLMClient>,
 
     // Channels for communication
     to_llm_tx: mpsc::Sender<ToLLMPayload>,
@@ -173,6 +173,10 @@ pub struct LLMSession {
 
     // Session configuration
     config: LLMSessionConfig,
+
+    // Effective model for this session. Initialized from `config.model` but
+    // can be changed at runtime via `set_model` (which also rebuilds `client`).
+    current_model: RwLock<String>,
 
     // Runtime overrides for LLM options
     system_prompt: RwLock<Option<String>>,
@@ -282,14 +286,16 @@ impl LLMSession {
         }
 
         let context_limit = config.context_limit;
+        let initial_model = config.model.clone();
 
         Ok(Self {
             id: AtomicI64::new(session_id),
-            client,
+            client: RwLock::new(client),
             to_llm_tx,
             to_llm_rx: Mutex::new(to_llm_rx),
             from_llm,
             config,
+            current_model: RwLock::new(initial_model),
             system_prompt: RwLock::new(system_prompt),
             max_tokens: AtomicI64::new(max_tokens),
             created_at: Instant::now(),
@@ -319,9 +325,34 @@ impl LLMSession {
         self.created_at
     }
 
-    /// Returns the model for this session
-    pub fn model(&self) -> &str {
-        &self.config.model
+    /// Returns the effective model for this session.
+    ///
+    /// This reflects the current model, which may differ from `config.model`
+    /// if it was changed at runtime via [`set_model`](Self::set_model).
+    pub async fn model(&self) -> String {
+        self.current_model.read().await.clone()
+    }
+
+    /// Changes the model for this session in place, rebuilding the underlying
+    /// LLM client so subsequent requests use the new model. The conversation
+    /// history is preserved.
+    ///
+    /// The provider and credentials are inherited from the session's original
+    /// configuration; only the model is changed.
+    pub async fn set_model(&self, model: &str) -> Result<(), LlmError> {
+        // Build a fresh client from the existing config with the new model.
+        let mut new_config = self.config.clone();
+        new_config.model = model.to_string();
+        let new_client = create_llm_client(&new_config)?;
+
+        // Swap the client first, then record the new model. Acquiring the
+        // client write lock waits for any in-flight request to release its
+        // read guard, so the swap never happens mid-request.
+        *self.client.write().await = new_client;
+        *self.current_model.write().await = model.to_string();
+
+        tracing::info!(session_id = self.id(), model, "Session model changed");
+        Ok(())
     }
 
     // ---- Max Tokens ----
@@ -800,6 +831,28 @@ impl LLMSession {
         let tools = self.tool_definitions.read().await.clone();
         let tools_option = if tools.is_empty() { None } else { Some(tools) };
 
+        // Verification: log what this request actually carries (tool count and
+        // whether a system prompt is attached) so a "model has no tools"
+        // symptom can be confirmed against ground truth per request. Read the
+        // locked values into locals first — holding a guard across the tracing
+        // macro's await would make the session future non-Send.
+        let system_prompt_chars = self
+            .system_prompt
+            .read()
+            .await
+            .as_ref()
+            .map(|p| p.len())
+            .unwrap_or(0);
+        let model = self.current_model.read().await.clone();
+        let tool_count = tools_option.as_ref().map(|t| t.len()).unwrap_or(0);
+        tracing::info!(
+            session_id = self.id(),
+            model = %model,
+            tool_count,
+            system_prompt_chars,
+            "Building LLM request"
+        );
+
         MessageOptions {
             max_tokens: Some(max_tokens),
             temperature: self.config.temperature,
@@ -916,8 +969,14 @@ impl LLMSession {
         // Build message options with tools
         let options = self.build_message_options().await;
 
-        // Call the LLM
-        let result = self.client.send_message(&llm_messages, &options).await;
+        // Call the LLM. Hold the client read guard for the duration of the
+        // request so an in-flight call completes before any model swap.
+        let result = self
+            .client
+            .read()
+            .await
+            .send_message(&llm_messages, &options)
+            .await;
 
         match result {
             Ok(response) => {
@@ -976,7 +1035,7 @@ impl LLMSession {
                     parent_id: String::new(),
                     created_at: now,
                     completed_at: Some(now),
-                    model_id: self.config.model.clone(),
+                    model_id: self.current_model.read().await.clone(),
                     provider_id: String::new(),
                     input_tokens: 0,
                     output_tokens: 0,
@@ -1119,9 +1178,12 @@ impl LLMSession {
         // Build message options with tools
         let options = self.build_message_options().await;
 
-        // Call the streaming LLM API
+        // Call the streaming LLM API. The returned stream is owned ('static),
+        // so the client read guard only needs to be held while it is created.
         let stream_result = self
             .client
+            .read()
+            .await
             .send_message_stream(&llm_messages, &options)
             .await;
 
@@ -1149,6 +1211,34 @@ impl LLMSession {
                                 Some(Ok(stream_event)) => {
                                     match stream_event {
                                         StreamEvent::MessageStart { message_id, model } => {
+                                            // Ground-truth verification: `model` here is echoed
+                                            // by the API server and identifies the model that
+                                            // actually served this request. Compare it against
+                                            // the session's expected model so a mismatch (e.g.
+                                            // after an in-place model swap) is visible in logs.
+                                            let expected = self.current_model.read().await.clone();
+                                            // Alias-tolerant: the server may resolve a short alias
+                                            // to a dated id (e.g. "claude-sonnet-4-6" ->
+                                            // "claude-sonnet-4-6-2025..."), so accept a prefix
+                                            // match in either direction.
+                                            let consistent = model == expected
+                                                || model.starts_with(&expected)
+                                                || expected.starts_with(&model);
+                                            if consistent {
+                                                tracing::info!(
+                                                    session_id,
+                                                    expected = %expected,
+                                                    served = %model,
+                                                    "LLM request served by model (server-reported)"
+                                                );
+                                            } else {
+                                                tracing::warn!(
+                                                    session_id,
+                                                    expected = %expected,
+                                                    served = %model,
+                                                    "LLM served a different model than expected"
+                                                );
+                                            }
                                             let payload = FromLLMPayload {
                                                 session_id,
                                                 response_type: LLMResponseType::StreamStart,
@@ -1302,7 +1392,7 @@ impl LLMSession {
                                                     parent_id: String::new(),
                                                     created_at: now,
                                                     completed_at: Some(now),
-                                                    model_id: self.config.model.clone(),
+                                                    model_id: self.current_model.read().await.clone(),
                                                     provider_id: String::new(),
                                                     input_tokens: self.current_input_tokens.load(Ordering::SeqCst),
                                                     output_tokens: self.current_output_tokens.load(Ordering::SeqCst),

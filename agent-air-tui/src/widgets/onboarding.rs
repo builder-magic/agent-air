@@ -46,7 +46,7 @@ pub struct OnboardingProvider {
 
 /// A model option in the onboarding wizard.
 pub struct OnboardingModel {
-    /// Model identifier for config.yaml (e.g., "claude-sonnet-4-20250514").
+    /// Model identifier for config.yaml (e.g., "claude-sonnet-4-6").
     pub id: String,
     /// Display name (e.g., "Claude Sonnet 4").
     pub name: String,
@@ -85,16 +85,16 @@ pub fn default_providers() -> Vec<OnboardingProvider> {
             name: "Anthropic".into(),
             models: vec![
                 OnboardingModel {
-                    id: "claude-sonnet-4-20250514".into(),
-                    name: "Claude Sonnet 4".into(),
+                    id: "claude-opus-4-8".into(),
+                    name: "Claude Opus 4.8".into(),
+                },
+                OnboardingModel {
+                    id: "claude-sonnet-4-6".into(),
+                    name: "Claude Sonnet 4.6".into(),
                 },
                 OnboardingModel {
                     id: "claude-haiku-4-5-20251001".into(),
                     name: "Claude Haiku 4.5".into(),
-                },
-                OnboardingModel {
-                    id: "claude-opus-4-20250514".into(),
-                    name: "Claude Opus 4".into(),
                 },
             ],
         },
@@ -103,12 +103,12 @@ pub fn default_providers() -> Vec<OnboardingProvider> {
             name: "OpenAI".into(),
             models: vec![
                 OnboardingModel {
-                    id: "gpt-4-turbo-preview".into(),
-                    name: "GPT-4 Turbo".into(),
-                },
-                OnboardingModel {
                     id: "gpt-4o".into(),
                     name: "GPT-4o".into(),
+                },
+                OnboardingModel {
+                    id: "gpt-4o-mini".into(),
+                    name: "GPT-4o mini".into(),
                 },
             ],
         },
@@ -117,12 +117,12 @@ pub fn default_providers() -> Vec<OnboardingProvider> {
             name: "Google (Gemini)".into(),
             models: vec![
                 OnboardingModel {
-                    id: "gemini-2.5-flash".into(),
-                    name: "Gemini 2.5 Flash".into(),
-                },
-                OnboardingModel {
                     id: "gemini-2.5-pro".into(),
                     name: "Gemini 2.5 Pro".into(),
+                },
+                OnboardingModel {
+                    id: "gemini-2.5-flash".into(),
+                    name: "Gemini 2.5 Flash".into(),
                 },
             ],
         },

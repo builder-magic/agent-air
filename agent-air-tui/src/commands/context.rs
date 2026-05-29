@@ -24,6 +24,8 @@ pub enum PendingAction {
     CreateNewSession,
     /// Open the status pane overlay.
     OpenStatusPane,
+    /// Open the model picker.
+    OpenModelPicker,
     /// Quit the application.
     Quit,
 }
@@ -172,6 +174,15 @@ impl<'a> CommandContext<'a> {
     /// This is deferred until after the command returns.
     pub fn open_status_pane(&mut self) {
         self.pending_actions.push(PendingAction::OpenStatusPane);
+    }
+
+    /// Request to open the model picker.
+    ///
+    /// The picker is populated from the model catalog configured on the runner
+    /// via `set_model_catalog`. This is deferred until after the command
+    /// returns.
+    pub fn open_model_picker(&mut self) {
+        self.pending_actions.push(PendingAction::OpenModelPicker);
     }
 
     // --- Controller communication ---

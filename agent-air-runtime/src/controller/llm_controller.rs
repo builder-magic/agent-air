@@ -273,10 +273,11 @@ impl LLMController {
         if payload.response_type == LLMResponseType::TokenUpdate
             && let Some(session) = self.session_mgr.get_session_by_id(payload.session_id).await
         {
+            let model = session.model().await;
             self.token_usage
                 .increment(
                     payload.session_id,
-                    session.model(),
+                    &model,
                     payload.input_tokens,
                     payload.output_tokens,
                 )
@@ -758,6 +759,27 @@ impl LLMController {
 
         tracing::info!(session_id, "Session created via controller");
         Ok(session_id)
+    }
+
+    /// Changes the model for an existing session in place.
+    ///
+    /// The session's conversation history is preserved; only the underlying
+    /// LLM client is rebuilt with the new model. The provider and credentials
+    /// are inherited from the session's original configuration.
+    ///
+    /// # Errors
+    /// Returns an error if the session is not found or the client fails to
+    /// rebuild with the new model.
+    pub async fn set_session_model(&self, session_id: i64, model: &str) -> Result<(), LlmError> {
+        let Some(session) = self.session_mgr.get_session_by_id(session_id).await else {
+            return Err(LlmError::new(
+                "SESSION_NOT_FOUND",
+                format!("Session {session_id} not found"),
+            ));
+        };
+        session.set_model(model).await?;
+        tracing::info!(session_id, model, "Session model changed via controller");
+        Ok(())
     }
 
     /// Retrieves a session by its ID.

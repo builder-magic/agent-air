@@ -36,6 +36,7 @@ impl Default for StandardOptions {
                 widget_ids::PERMISSION_PANEL,
                 widget_ids::BATCH_PERMISSION_PANEL,
                 widget_ids::QUESTION_PANEL,
+                widget_ids::SELECT_PANEL,
             ],
             popup_widget_ids: vec![widget_ids::SLASH_POPUP],
             overlay_widget_ids: vec![
@@ -228,5 +229,31 @@ mod tests {
         assert!(result.widget_areas.contains_key(widget_ids::TEXT_INPUT));
         // Status bar is now a regular widget, but won't be in widget_areas if not active
         // (sizes.is_active returns false by default in test_sizes)
+    }
+
+    #[test]
+    fn test_active_select_panel_gets_area() {
+        use ratatui::layout::Rect;
+
+        let area = Rect::new(0, 0, 80, 24);
+        let ctx = test_context(area);
+
+        // Mark the select panel active with a non-zero height.
+        let mut sizes = test_sizes();
+        sizes.is_active.insert(widget_ids::SELECT_PANEL, true);
+        sizes.heights.insert(widget_ids::SELECT_PANEL, 7);
+
+        let result = compute(&ctx, &sizes, &StandardOptions::default());
+
+        // An active panel must be placed and scheduled for rendering, otherwise
+        // it activates invisibly and silently blocks input.
+        assert!(
+            result.widget_areas.contains_key(widget_ids::SELECT_PANEL),
+            "active SELECT_PANEL should be assigned a layout area"
+        );
+        assert!(
+            result.render_order.contains(&widget_ids::SELECT_PANEL),
+            "active SELECT_PANEL should be in the render order"
+        );
     }
 }

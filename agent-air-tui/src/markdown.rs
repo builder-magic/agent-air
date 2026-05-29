@@ -8,6 +8,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use super::syntax_highlight::highlight;
 use super::table::{is_table_line, is_table_separator, render_table};
 use super::themes::Theme;
 
@@ -144,9 +145,8 @@ pub enum ContentSegment {
     /// Code block with optional language hint.
     CodeBlock {
         code: String,
-        /// Language hint (e.g., "rust", "python") - parsed from markdown but
-        /// not yet used. Reserved for future syntax highlighting support.
-        #[allow(dead_code)]
+        /// Language hint (e.g., "rust", "python") parsed from the fence info
+        /// string, used to select a syntax for highlighting.
         language: Option<String>,
     },
 }
@@ -443,8 +443,8 @@ pub fn render_markdown_with_prefix(
                 all_lines.extend(lines);
                 is_first_line = false;
             }
-            ContentSegment::CodeBlock { code, language: _ } => {
-                let lines = render_code_block(&code, is_first_line, theme);
+            ContentSegment::CodeBlock { code, language } => {
+                let lines = render_code_block(&code, language.as_deref(), is_first_line, theme);
                 all_lines.extend(lines);
                 is_first_line = false;
             }
@@ -453,11 +453,31 @@ pub fn render_markdown_with_prefix(
     all_lines
 }
 
-/// Render a code block with indentation and special styling
-fn render_code_block(code: &str, is_first_line: bool, theme: &Theme) -> Vec<Line<'static>> {
+/// Render a code block: syntax-highlighted, with a line-number gutter.
+///
+/// The block keeps the conversation prefix/indent model (the first line gets
+/// the assistant prefix when it leads the message, others get a continuation
+/// indent). Each line shows a right-aligned, dimmed line number followed by a
+/// separator and the highlighted code. Colors come from a bundled syntect
+/// theme selected to match the app theme's light/dark mode; unknown languages
+/// fall back to unstyled code, still line-numbered.
+fn render_code_block(
+    code: &str,
+    language: Option<&str>,
+    is_first_line: bool,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     const CODE_INDENT: &str = "    "; // 4 spaces for code block indentation
-    let code_style = theme.code_block();
     let prefix_style = theme.assistant_prefix();
+    let gutter_style = theme.muted_text();
+    // Background of the code block, applied to every span so the block reads as
+    // a single surface behind the highlighted foreground colors.
+    let block_bg = theme.code_block().bg;
+
+    let highlighted = highlight(code, language, theme.is_dark());
+
+    // Gutter width from the largest line number (min 2 columns).
+    let gutter_width = highlighted.len().to_string().len().max(2);
 
     let mut lines = Vec::new();
 
@@ -466,7 +486,7 @@ fn render_code_block(code: &str, is_first_line: bool, theme: &Theme) -> Vec<Line
         lines.push(Line::from(""));
     }
 
-    for (i, line) in code.lines().enumerate() {
+    for (i, segments) in highlighted.iter().enumerate() {
         let mut spans = Vec::new();
 
         // First line of code block gets the assistant prefix, rest get continuation
@@ -476,8 +496,19 @@ fn render_code_block(code: &str, is_first_line: bool, theme: &Theme) -> Vec<Line
             spans.push(Span::raw(CONTINUATION));
         }
 
-        // Add code indentation and the code line
-        spans.push(Span::styled(format!("{}{}", CODE_INDENT, line), code_style));
+        // Line-number gutter: "    " indent + right-aligned number + separator.
+        let gutter = format!(
+            "{}{:>width$} \u{2502} ",
+            CODE_INDENT,
+            i + 1,
+            width = gutter_width
+        );
+        spans.push(Span::styled(gutter, apply_bg(gutter_style, block_bg)));
+
+        // Highlighted code segments.
+        for (style, text) in segments {
+            spans.push(Span::styled(text.clone(), apply_bg(*style, block_bg)));
+        }
 
         lines.push(Line::from(spans));
     }
@@ -486,6 +517,14 @@ fn render_code_block(code: &str, is_first_line: bool, theme: &Theme) -> Vec<Line
     lines.push(Line::from(""));
 
     lines
+}
+
+/// Apply an optional background color to a style, leaving it unchanged if none.
+fn apply_bg(style: Style, bg: Option<Color>) -> Style {
+    match bg {
+        Some(color) => style.bg(color),
+        None => style,
+    }
 }
 
 #[cfg(test)]
@@ -498,6 +537,53 @@ mod tests {
         let spans = parse_to_spans("hello world", &theme);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].content, "hello world");
+    }
+
+    #[test]
+    fn test_code_block_has_line_numbers_and_highlighting() {
+        let theme = Theme::default();
+        let code = "fn main() {\n    println!(\"hi\");\n}";
+        let lines = render_code_block(code, Some("rust"), true, &theme);
+
+        // 3 code lines + a trailing blank line.
+        let code_lines: Vec<&Line> = lines
+            .iter()
+            .filter(|l| {
+                let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+                text.contains('\u{2502}')
+            })
+            .collect();
+        assert_eq!(code_lines.len(), 3, "one rendered line per source line");
+
+        // Each rendered code line carries a right-aligned line number + separator.
+        for (i, line) in code_lines.iter().enumerate() {
+            let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            assert!(
+                text.contains(&format!("{} \u{2502} ", i + 1)),
+                "line {} should contain its number and separator, got: {text:?}",
+                i + 1
+            );
+        }
+
+        // Highlighting splits the first line into multiple styled spans
+        // (prefix + gutter + several code segments).
+        assert!(
+            code_lines[0].spans.len() > 3,
+            "expected multiple highlighted spans on the first code line"
+        );
+
+        // Real highlighting means the code segments carry more than one
+        // distinct foreground color (keyword vs identifier vs punctuation).
+        use std::collections::HashSet;
+        let distinct_fgs: HashSet<_> = code_lines[0]
+            .spans
+            .iter()
+            .filter_map(|s| s.style.fg)
+            .collect();
+        assert!(
+            distinct_fgs.len() >= 2,
+            "expected multiple distinct syntax colors, got: {distinct_fgs:?}"
+        );
     }
 
     #[test]

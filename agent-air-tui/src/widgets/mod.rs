@@ -35,6 +35,7 @@ pub mod input;
 pub mod onboarding;
 pub mod permission_panel;
 pub mod question_panel;
+pub mod select_panel;
 pub mod session_picker;
 pub mod slash_popup;
 pub mod status_bar;
@@ -57,6 +58,7 @@ pub use question_panel::{
     AnswerState, EnterAction, FocusItem, KeyAction as QuestionKeyAction, QuestionPanel,
     QuestionPanelConfig,
 };
+pub use select_panel::{SelectItem, SelectPanel, SelectPanelConfig};
 pub use session_picker::{
     SessionInfo, SessionPickerConfig, SessionPickerState, render_session_picker,
 };
@@ -115,6 +117,7 @@ pub mod widget_ids {
     pub const THEME_PICKER: &str = "theme_picker";
     pub const STATUS_BAR: &str = "status_bar";
     pub const STATUS_PANE: &str = "status_pane";
+    pub const SELECT_PANEL: &str = "select_panel";
 }
 
 /// Context provided to widgets when handling key events.
@@ -169,6 +172,14 @@ pub enum WidgetAction {
     ExecuteCommand { command: String },
     /// Close the widget (theme picker confirm/cancel)
     Close,
+    /// A generic single-select picker ([`SelectPanel`]) confirmed a choice.
+    ///
+    /// `picker_id` identifies the logical picker (e.g. "model") so the App can
+    /// route the result; `item_id` is the id of the chosen item.
+    SelectItem {
+        picker_id: String,
+        item_id: String,
+    },
     /// Onboarding wizard completed — register provider and create session.
     CompleteOnboarding {
         provider_id: String,

@@ -57,6 +57,8 @@ pub mod keys;
 pub mod layout;
 /// Markdown rendering utilities.
 pub mod markdown;
+/// Syntax highlighting for fenced code blocks.
+pub mod syntax_highlight;
 /// Table rendering utilities.
 pub mod table;
 /// Theme system and built-in themes.
@@ -104,10 +106,11 @@ pub use widgets::{
     AnswerState, AppProviderInfo, AppStatusData, BatchPermissionPanel, ChatView, ConversationView,
     ConversationViewFactory, EnterAction, FocusItem, MessageRole, OnboardingConfig,
     OnboardingModel, OnboardingProvider, OnboardingResult, OnboardingWidget, PermissionKeyAction,
-    PermissionOption, PermissionPanel, QuestionKeyAction, QuestionPanel, RenderFn, SessionInfo,
-    SessionPickerState, SimpleCommand, SlashCommandDisplay, SlashPopupState, StatusBar,
-    StatusBarConfig, StatusBarData, TextInput, ToolMessageData, ToolStatus, default_providers,
-    render_session_picker, render_slash_popup, write_config_yaml,
+    PermissionOption, PermissionPanel, QuestionKeyAction, QuestionPanel, RenderFn, SelectItem,
+    SelectPanel, SelectPanelConfig, SessionInfo, SessionPickerState, SimpleCommand,
+    SlashCommandDisplay, SlashPopupState, StatusBar, StatusBarConfig, StatusBarData, TextInput,
+    ToolMessageData, ToolStatus, default_providers, render_session_picker, render_slash_popup,
+    write_config_yaml,
 };
 
 // Re-export theme types for convenience
