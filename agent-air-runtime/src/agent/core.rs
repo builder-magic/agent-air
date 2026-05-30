@@ -706,18 +706,17 @@ impl AgentAir {
                             }
                             // Fall through to forward to sink if any request needs user input
                         }
-                        UiMessage::UserInteractionRequired { tool_use_id, .. } => {
-                            if !policy_clone.supports_interaction() {
-                                // Headless mode - auto-cancel the interaction
-                                if let Err(e) = user_interaction_registry.cancel(tool_use_id).await
-                                {
-                                    tracing::warn!("Failed to cancel user interaction: {}", e);
-                                }
-                                tracing::debug!("Auto-cancelled user interaction in headless mode");
-                                continue; // Don't forward to sink
+                        UiMessage::UserInteractionRequired { tool_use_id, .. }
+                            if !policy_clone.supports_interaction() =>
+                        {
+                            // Headless mode - auto-cancel the interaction
+                            if let Err(e) = user_interaction_registry.cancel(tool_use_id).await {
+                                tracing::warn!("Failed to cancel user interaction: {}", e);
                             }
-                            // Fall through to forward to sink for interactive policies
+                            tracing::debug!("Auto-cancelled user interaction in headless mode");
+                            continue; // Don't forward to sink
                         }
+                        // Interactive policies fall through to forward to sink.
                         _ => {}
                     }
 

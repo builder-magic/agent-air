@@ -1679,10 +1679,8 @@ impl App {
 
             while event::poll(std::time::Duration::from_millis(0))? {
                 match event::read()? {
-                    Event::Key(key) => {
-                        if key.kind == KeyEventKind::Press {
-                            self.handle_key(key.code, key.modifiers);
-                        }
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        self.handle_key(key.code, key.modifiers);
                     }
                     Event::Mouse(mouse) => match mouse.kind {
                         MouseEventKind::ScrollUp => net_scroll -= 1,
