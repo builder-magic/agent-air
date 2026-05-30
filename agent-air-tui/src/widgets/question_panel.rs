@@ -769,13 +769,20 @@ impl QuestionPanel {
         let is_text_mode = self.is_text_focused();
 
         match key.code {
-            // Navigation (always available)
+            // Navigation (always available).
+            //
+            // Not collapsed into `KeyCode::Up if !is_text_mode` on purpose: a
+            // guard would let Up/Down in text mode fall through to the
+            // `_ if is_text_mode` arm below (sending arrows to the textarea),
+            // changing the current "ignore arrows in text mode" behavior.
+            #[allow(clippy::collapsible_match)]
             KeyCode::Up => {
                 if !is_text_mode {
                     self.focus_prev();
                     return KeyAction::Handled;
                 }
             }
+            #[allow(clippy::collapsible_match)]
             KeyCode::Down => {
                 if !is_text_mode {
                     self.focus_next();
