@@ -930,8 +930,11 @@ impl App {
 
         let session_id = self.session_id;
         let model_for_call = model_id.clone();
-        let result = handle
-            .block_on(async move { controller.set_session_model(session_id, &model_for_call).await });
+        let result = handle.block_on(async move {
+            controller
+                .set_session_model(session_id, &model_for_call)
+                .await
+        });
 
         match result {
             Ok(()) => {

@@ -176,10 +176,7 @@ pub enum WidgetAction {
     ///
     /// `picker_id` identifies the logical picker (e.g. "model") so the App can
     /// route the result; `item_id` is the id of the chosen item.
-    SelectItem {
-        picker_id: String,
-        item_id: String,
-    },
+    SelectItem { picker_id: String, item_id: String },
     /// Onboarding wizard completed — register provider and create session.
     CompleteOnboarding {
         provider_id: String,

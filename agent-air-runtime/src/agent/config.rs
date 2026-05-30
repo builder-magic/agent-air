@@ -464,8 +464,8 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
     };
 
     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
-        let model = std::env::var("ANTHROPIC_MODEL")
-            .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+        let model =
+            std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
 
         let config = LLMSessionConfig::anthropic(&api_key, &model)
             .with_system_prompt(default_prompt)
