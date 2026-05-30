@@ -19,6 +19,9 @@ tui-textarea = "0.7"
 pulldown-cmark = "0.13.0"
 unicode-width = "0.2"
 throbber-widgets-tui = "0.10"
+# Syntax highlighting for fenced code blocks. Use the pure-Rust fancy-regex
+# engine (default-fancy) to avoid the oniguruma C dependency.
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
 
 # Async runtime (needed for TUI event loop)
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }

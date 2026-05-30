@@ -268,7 +268,7 @@ impl LLMRegistry {
             match provider_name.as_str() {
                 "anthropic" => {
                     let model = if config.model.is_empty() {
-                        "claude-sonnet-4-20250514".to_string()
+                        "claude-sonnet-4-6".to_string()
                     } else {
                         config.model.clone()
                     };
@@ -276,7 +276,7 @@ impl LLMRegistry {
                 }
                 "openai" => {
                     let model = if config.model.is_empty() {
-                        "gpt-4-turbo-preview".to_string()
+                        "gpt-4o".to_string()
                     } else {
                         config.model.clone()
                     };
@@ -464,8 +464,8 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
     };
 
     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
-        let model = std::env::var("ANTHROPIC_MODEL")
-            .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+        let model =
+            std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
 
         let config = LLMSessionConfig::anthropic(&api_key, &model)
             .with_system_prompt(default_prompt)
@@ -478,8 +478,7 @@ pub fn load_config<A: AgentConfig>(agent_config: &A) -> LLMRegistry {
     }
 
     if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-        let model =
-            std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4-turbo-preview".to_string());
+        let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
 
         let config = LLMSessionConfig::openai(&api_key, &model)
             .with_system_prompt(default_prompt)
@@ -559,7 +558,7 @@ mod tests {
 providers:
   - provider: anthropic
     api_key: test-key
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
 default_provider: anthropic
 "#;
         let config: ConfigFile = serde_yaml::from_str(yaml).unwrap();

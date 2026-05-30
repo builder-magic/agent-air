@@ -245,6 +245,22 @@ impl Theme {
     pub fn text(&self) -> Style {
         self.text
     }
+
+    /// Whether this is a dark theme.
+    ///
+    /// Inferred from the perceived luminance of the background color. Used (for
+    /// example) to pick a matching syntax-highlighting color theme. Defaults to
+    /// `true` (dark) when the background has no explicit RGB color.
+    pub fn is_dark(&self) -> bool {
+        match self.background.bg {
+            Some(ratatui::style::Color::Rgb(r, g, b)) => {
+                // Rec. 601 luma; < 128 is a dark background.
+                let luma = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+                luma < 128.0
+            }
+            _ => true,
+        }
+    }
     pub fn cursor(&self) -> Style {
         self.cursor
     }

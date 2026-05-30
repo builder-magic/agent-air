@@ -49,6 +49,9 @@ pub struct TuiRunner {
 
     /// Whether to hide the default status bar
     hide_status_bar: bool,
+
+    /// Models the user can switch to at runtime (used by the model picker).
+    model_catalog: Vec<crate::widgets::SelectItem>,
 }
 
 impl TuiRunner {
@@ -65,6 +68,7 @@ impl TuiRunner {
             command_extension: None,
             custom_status_bar: None,
             hide_status_bar: false,
+            model_catalog: Vec::new(),
         }
     }
 
@@ -160,6 +164,20 @@ impl TuiRunner {
         self
     }
 
+    /// Set the list of models the user can switch to at runtime.
+    ///
+    /// These populate the model picker opened by the `/model` command. The
+    /// list should reflect the models available for the active provider. If
+    /// empty (the default), the `/model` command reports that no alternate
+    /// models are configured.
+    ///
+    /// A [`SelectPanel`](crate::widgets::SelectPanel) widget must also be
+    /// registered for the picker to display.
+    pub fn set_model_catalog(&mut self, models: Vec<crate::widgets::SelectItem>) -> &mut Self {
+        self.model_catalog = models;
+        self
+    }
+
     /// Hide the default status bar.
     pub fn hide_status_bar(&mut self) -> &mut Self {
         self.hide_status_bar = true;
@@ -242,6 +260,7 @@ impl TuiRunner {
 
         // Pass default system prompt to app (needed for onboarding session creation)
         app.set_default_system_prompt(self.agent.default_system_prompt().to_string());
+        app.set_model_catalog(std::mem::take(&mut self.model_catalog));
 
         // Auto-create session if we have a configured LLM provider
         match self.agent.create_initial_session() {

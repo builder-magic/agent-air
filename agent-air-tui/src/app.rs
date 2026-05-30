@@ -176,6 +176,9 @@ pub struct App {
     /// Model name for display
     model_name: String,
 
+    /// Models the user can switch to at runtime (populates the model picker).
+    model_catalog: Vec<crate::widgets::SelectItem>,
+
     /// Current context usage (input tokens)
     context_used: i64,
 
@@ -282,6 +285,7 @@ impl App {
             session_id: 0,
             user_turn_counter: 0,
             model_name: "Not connected".to_string(),
+            model_catalog: Vec::new(),
             context_used: 0,
             context_limit: 0,
             throbber_state: ThrobberState::default(),
@@ -452,6 +456,11 @@ impl App {
     /// Set the model name
     pub fn set_model_name(&mut self, name: impl Into<String>) {
         self.model_name = name.into();
+    }
+
+    /// Set the catalog of models the user can switch to via the model picker.
+    pub fn set_model_catalog(&mut self, models: Vec<crate::widgets::SelectItem>) {
+        self.model_catalog = models;
     }
 
     /// Set the context limit
@@ -679,6 +688,7 @@ impl App {
                     self.cmd_new_session();
                 }
                 PendingAction::OpenStatusPane => self.cmd_status_pane(),
+                PendingAction::OpenModelPicker => self.cmd_model_picker(),
                 PendingAction::Quit => {
                     self.should_quit = true;
                 }
@@ -855,6 +865,90 @@ impl App {
 
         if let Some(widget) = self.widgets.get_mut(widget_ids::STATUS_PANE) {
             widget.prepare_overlay(&data);
+        }
+    }
+
+    /// Open the model picker (single-select [`SelectPanel`]) populated with the
+    /// configured model catalog, with the current model marked.
+    fn cmd_model_picker(&mut self) {
+        if self.session_id == 0 {
+            self.conversation_view
+                .add_system_message("No active session — start chatting first.".to_string());
+            return;
+        }
+        if self.model_catalog.is_empty() {
+            self.conversation_view
+                .add_system_message("No alternate models are configured.".to_string());
+            return;
+        }
+
+        let current = self.model_name.clone();
+        let items = self.model_catalog.clone();
+
+        if let Some(widget) = self.widgets.get_mut(widget_ids::SELECT_PANEL)
+            && let Some(panel) = widget
+                .as_any_mut()
+                .downcast_mut::<crate::widgets::SelectPanel>()
+        {
+            panel.activate("model", " Select Model ", None, items, Some(current));
+        } else {
+            self.conversation_view.add_system_message(
+                "Model picker unavailable (SelectPanel widget not registered).".to_string(),
+            );
+        }
+    }
+
+    /// Route a confirmed [`SelectPanel`] choice to the appropriate handler.
+    fn handle_select_item(&mut self, picker_id: &str, item_id: String) {
+        match picker_id {
+            "model" => self.apply_model_selection(item_id),
+            other => {
+                tracing::warn!(picker_id = other, "Unhandled select-item picker");
+            }
+        }
+    }
+
+    /// Change the active session's model in place, preserving conversation
+    /// history. Updates the displayed model name on success.
+    fn apply_model_selection(&mut self, model_id: String) {
+        if model_id == self.model_name {
+            self.conversation_view
+                .add_system_message(format!("Already using {}.", model_id));
+            return;
+        }
+
+        let Some(controller) = self.controller.clone() else {
+            self.conversation_view
+                .add_system_message("Cannot change model: controller not available.".to_string());
+            return;
+        };
+        let Some(handle) = self.runtime_handle.clone() else {
+            self.conversation_view
+                .add_system_message("Cannot change model: runtime not available.".to_string());
+            return;
+        };
+
+        let session_id = self.session_id;
+        let model_for_call = model_id.clone();
+        let result = handle.block_on(async move {
+            controller
+                .set_session_model(session_id, &model_for_call)
+                .await
+        });
+
+        match result {
+            Ok(()) => {
+                self.model_name = model_id.clone();
+                if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+                    session.model = model_id.clone();
+                }
+                self.conversation_view
+                    .add_system_message(format!("Model changed to {}.", model_id));
+            }
+            Err(e) => {
+                self.conversation_view
+                    .add_system_message(format!("Failed to change model: {}", e));
+            }
         }
     }
 
@@ -1454,6 +1548,9 @@ impl App {
             }
             WidgetAction::Close => {
                 // Widget closed itself (e.g., theme picker confirm/cancel)
+            }
+            WidgetAction::SelectItem { picker_id, item_id } => {
+                self.handle_select_item(&picker_id, item_id);
             }
             WidgetAction::CompleteOnboarding {
                 provider_id,
