@@ -397,7 +397,7 @@ impl MultiEditTool {
     /// Apply planned edits and return new content.
     fn apply_edits(content: &str, mut edits: Vec<PlannedEdit>) -> String {
         // Sort by position descending (apply end-to-start)
-        edits.sort_by(|a, b| b.start.cmp(&a.start));
+        edits.sort_by_key(|e| std::cmp::Reverse(e.start));
 
         let mut result = content.to_string();
         for edit in edits {

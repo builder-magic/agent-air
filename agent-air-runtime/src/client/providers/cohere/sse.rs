@@ -105,15 +105,13 @@ pub fn parse_stream_event(
         "message-start" => {
             // Start of message - no events to emit yet
         }
-        "content-start" => {
+        "content-start" if !state.text_block_started => {
             // Content block starting
-            if !state.text_block_started {
-                events.push(StreamEvent::ContentBlockStart {
-                    index: state.block_index,
-                    block_type: ContentBlockType::Text,
-                });
-                state.text_block_started = true;
-            }
+            events.push(StreamEvent::ContentBlockStart {
+                index: state.block_index,
+                block_type: ContentBlockType::Text,
+            });
+            state.text_block_started = true;
         }
         "content-delta" => {
             // Text content delta
@@ -136,15 +134,13 @@ pub fn parse_stream_event(
                 });
             }
         }
-        "content-end" => {
+        "content-end" if state.text_block_started => {
             // Content block ended
-            if state.text_block_started {
-                events.push(StreamEvent::ContentBlockStop {
-                    index: state.block_index,
-                });
-                state.block_index += 1;
-                state.text_block_started = false;
-            }
+            events.push(StreamEvent::ContentBlockStop {
+                index: state.block_index,
+            });
+            state.block_index += 1;
+            state.text_block_started = false;
         }
         "tool-call-start" => {
             // Tool call starting
